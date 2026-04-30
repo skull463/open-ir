@@ -77,25 +77,15 @@ export const KEY_MAP: Record<string, KeyEntry> = {
     redact: false,
     setter: (s) => setConfigValue(Config.LogRetentionDays, parsePositiveInt(s, "log-retention-days")),
   },
-  "concurrency.pdf": {
-    configKey: Config.ConcurrencyPdf,
-    redact: false,
-    setter: (s) => setConfigValue(Config.ConcurrencyPdf, parsePositiveInt(s, "concurrency.pdf")),
-  },
-  "concurrency.website": {
-    configKey: Config.ConcurrencyWebsite,
-    redact: false,
-    setter: (s) => setConfigValue(Config.ConcurrencyWebsite, parsePositiveInt(s, "concurrency.website")),
-  },
   "concurrency.github": {
     configKey: Config.ConcurrencyGithub,
     redact: false,
     setter: (s) => setConfigValue(Config.ConcurrencyGithub, parsePositiveInt(s, "concurrency.github")),
   },
-  "concurrency.bitbucket": {
-    configKey: Config.ConcurrencyBitbucket,
-    redact: false,
-    setter: (s) => setConfigValue(Config.ConcurrencyBitbucket, parsePositiveInt(s, "concurrency.bitbucket")),
+  "openrouter-api-key": {
+    configKey: Config.OpenrouterApiKey,
+    redact: true,
+    setter: (s) => setConfigValue(Config.OpenrouterApiKey, s),
   },
 };
 

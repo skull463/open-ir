@@ -39,6 +39,7 @@ function defaultConcurrencyFor(type: JobType): number {
   switch (type) {
     case JobType.GithubIndex:
     case JobType.GithubPull:
+    case JobType.LocalIngest:
       return getConfigValue(Config.ConcurrencyGithub);
   }
 }

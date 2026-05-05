@@ -1,0 +1,27 @@
+#!/usr/bin/env bun
+import { Command } from "commander";
+import { buildSetCommand } from "./SetCommand.ts";
+import { buildServerCommand } from "./ServerCommand.ts";
+import { buildIndexCommand } from "./IndexCommand.ts";
+import { buildIngestCommand } from "./IngestCommand.ts";
+import { buildLsCommand } from "./LsCommand.ts";
+import { error } from "./output.ts";
+
+const VERSION = "0.0.0";
+
+async function main(): Promise<void> {
+  const program = new Command("bytebell");
+  program.version(VERSION).description("Bytebell — local knowledge engine TUI");
+  program.addCommand(buildSetCommand());
+  program.addCommand(buildServerCommand());
+  program.addCommand(buildIndexCommand());
+  program.addCommand(buildIngestCommand());
+  program.addCommand(buildLsCommand());
+  await program.parseAsync(process.argv);
+}
+
+main().catch((cause: unknown) => {
+  const msg = cause instanceof Error ? cause.message : String(cause);
+  error(msg);
+  process.exit(2);
+});

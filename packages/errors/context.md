@@ -34,10 +34,17 @@ Today the catalog covers:
   completion; carries `cause`).
 - **Ingest** — `GitCloneError` (git binary failed; redacts userinfo in
   the repo URL), `IngestError` (catch-all worker failure; carries
-  `knowledgeId` and `cause`).
+  `knowledgeId` and `cause`), `IngestPathError` (`bytebell ingest <path>`
+  pre-flight failure: missing path / not a directory).
+- **Server** — `ServerConfigError` (missing required config at boot;
+  carries `missing[]` + matching `bytebell set …` hints).
+- **Neo4j** — `Neo4jConfigError` (missing URI / user / password),
+  `Neo4jConnectError` (driver `verifyConnectivity()` failed; redacts
+  userinfo in URI), `Neo4jNotConnectedError` (`_getDriver()` called
+  before `connectNeo4j()`).
 
-New error classes land here as new packages are introduced (Neo4j,
-license, etc.).
+New error classes land here as new packages are introduced (license,
+telemetry, etc.).
 
 ## Public exports
 
@@ -56,6 +63,11 @@ class LlmConfigError           extends Error
 class LlmError                 extends Error
 class GitCloneError            extends Error
 class IngestError              extends Error
+class IngestPathError          extends Error
+class ServerConfigError        extends Error
+class Neo4jConfigError         extends Error
+class Neo4jConnectError        extends Error
+class Neo4jNotConnectedError   extends Error
 ```
 
 ## Data ownership

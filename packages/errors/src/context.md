@@ -38,10 +38,22 @@ package-level contract; this file documents how the source tree is split.
   `bytebell keys set` hint), `LlmError` (HTTP non-2xx, timeout, empty
   completion; accepts an optional `cause`).
 - **[ingest-errors.ts](ingest-errors.ts)** — errors thrown by
-  `@bb/ingest-*` workers. Today: `GitCloneError` (git binary failed;
-  redacts userinfo in the repo URL via the local `redactUrl` helper),
-  `IngestError` (catch-all worker failure; carries `knowledgeId` and an
-  optional `cause`).
+  `@bb/ingest-*` workers and `@bb/cli`'s ingest command. Today:
+  `GitCloneError` (git binary failed; redacts userinfo in the repo URL
+  via the local `redactUrl` helper), `IngestError` (catch-all worker
+  failure; carries `knowledgeId` and an optional `cause`),
+  `IngestPathError` (CLI pre-flight when `bytebell ingest <path>` is
+  given a non-existent or non-directory path).
+- **[server-errors.ts](server-errors.ts)** — errors thrown by `@bb/server`
+  at boot. Today: `ServerConfigError` (missing required config keys;
+  carries `missing[]` + the corresponding `bytebell set …` hints).
+- **[neo4j-errors.ts](neo4j-errors.ts)** — errors thrown by `@bb/neo4j`.
+  Today: `Neo4jConfigError` (missing URI / user / password; carries the
+  `bytebell set …` hint), `Neo4jConnectError` (`verifyConnectivity()`
+  failed; redacts userinfo in the URI via the local `redactUri` helper),
+  `Neo4jNotConnectedError` (`_getDriver()` called before
+  `connectNeo4j()`). Local helpers `describe` and `redactUri` are
+  file-private.
 
 ## Module dependency graph
 
@@ -52,7 +64,9 @@ redis-errors.ts  → (leaf — no imports)
 queue-errors.ts  → (leaf — no imports)
 llm-errors.ts    → (leaf — no imports)
 ingest-errors.ts → (leaf — no imports)
-index.ts         → re-exports all six error modules
+server-errors.ts → (leaf — no imports)
+neo4j-errors.ts  → (leaf — no imports)
+index.ts         → re-exports all eight error modules
 ```
 
 No cross-file imports inside the package; no cycles possible.

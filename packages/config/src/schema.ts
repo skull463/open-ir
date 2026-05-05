@@ -8,10 +8,7 @@ export type LogLevel = (typeof LOG_LEVELS)[number];
 
 const concurrencySchema = z
   .object({
-    pdf: z.number().int().positive().default(2),
-    website: z.number().int().positive().default(2),
     github: z.number().int().positive().default(2),
-    bitbucket: z.number().int().positive().default(2),
   })
   .strict();
 
@@ -25,7 +22,7 @@ export const configSchema = z
     redis_url: z.string().default(""),
     openrouter_api_key: z.string().default(""),
     openrouter_model: z.string().default("anthropic/claude-sonnet-4.6"),
-    concurrency: concurrencySchema.default({ pdf: 2, website: 2, github: 2, bitbucket: 2 }),
+    concurrency: concurrencySchema.default({ github: 2 }),
     log_level: z.enum(LOG_LEVELS).default("info"),
     log_retention_days: z.number().int().positive().default(14),
   })
@@ -44,10 +41,7 @@ export type ConfigValueMap = {
   [Config.RedisUrl]: string;
   [Config.OpenrouterApiKey]: string;
   [Config.OpenrouterModel]: string;
-  [Config.ConcurrencyPdf]: number;
-  [Config.ConcurrencyWebsite]: number;
   [Config.ConcurrencyGithub]: number;
-  [Config.ConcurrencyBitbucket]: number;
   [Config.LogLevel]: LogLevel;
   [Config.LogRetentionDays]: number;
 };
@@ -72,10 +66,7 @@ export const HINTS: Readonly<Record<Config, string>> = {
   [Config.RedisUrl]: "bytebell set redis <url>",
   [Config.OpenrouterApiKey]: "bytebell keys set",
   [Config.OpenrouterModel]: "bytebell models set <model-id>",
-  [Config.ConcurrencyPdf]: "bytebell set concurrency.pdf <n>",
-  [Config.ConcurrencyWebsite]: "bytebell set concurrency.website <n>",
   [Config.ConcurrencyGithub]: "bytebell set concurrency.github <n>",
-  [Config.ConcurrencyBitbucket]: "bytebell set concurrency.bitbucket <n>",
   [Config.LogLevel]: "bytebell set log-level <error|warn|info|debug>",
   [Config.LogRetentionDays]: "bytebell set log-retention-days <n>",
 };
@@ -98,14 +89,8 @@ export function readField<K extends Config>(cfg: BytebellConfig, key: K): Config
       return cfg.openrouter_api_key as ConfigValue<K>;
     case Config.OpenrouterModel:
       return cfg.openrouter_model as ConfigValue<K>;
-    case Config.ConcurrencyPdf:
-      return cfg.concurrency.pdf as ConfigValue<K>;
-    case Config.ConcurrencyWebsite:
-      return cfg.concurrency.website as ConfigValue<K>;
     case Config.ConcurrencyGithub:
       return cfg.concurrency.github as ConfigValue<K>;
-    case Config.ConcurrencyBitbucket:
-      return cfg.concurrency.bitbucket as ConfigValue<K>;
     case Config.LogLevel:
       return cfg.log_level as ConfigValue<K>;
     case Config.LogRetentionDays:
@@ -131,14 +116,8 @@ export function writeField<K extends Config>(cfg: BytebellConfig, key: K, value:
       return { ...cfg, openrouter_api_key: value as string };
     case Config.OpenrouterModel:
       return { ...cfg, openrouter_model: value as string };
-    case Config.ConcurrencyPdf:
-      return { ...cfg, concurrency: { ...cfg.concurrency, pdf: value as number } };
-    case Config.ConcurrencyWebsite:
-      return { ...cfg, concurrency: { ...cfg.concurrency, website: value as number } };
     case Config.ConcurrencyGithub:
       return { ...cfg, concurrency: { ...cfg.concurrency, github: value as number } };
-    case Config.ConcurrencyBitbucket:
-      return { ...cfg, concurrency: { ...cfg.concurrency, bitbucket: value as number } };
     case Config.LogLevel:
       return { ...cfg, log_level: value as LogLevel };
     case Config.LogRetentionDays:

@@ -5,7 +5,7 @@ import { getRedisConnection } from "@bb/redis";
 
 export const QUEUE_PREFIX = "bb";
 
-const ALL_JOB_TYPES: readonly JobType[] = [JobType.GithubIndex, JobType.GithubPull];
+const ALL_JOB_TYPES: readonly JobType[] = [JobType.GithubIndex, JobType.GithubPull, JobType.LocalIngest];
 
 const DEFAULT_JOB_OPTIONS = {
   removeOnComplete: true,

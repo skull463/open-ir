@@ -6,3 +6,24 @@ export enum KnowledgeState {
   Processed = "PROCESSED",
   Failed = "FAILED",
 }
+
+export interface GithubKnowledgeSource {
+  kind: "github";
+  repoUrl: string;
+  branch?: string;
+}
+
+export interface LocalKnowledgeSource {
+  kind: "local";
+  sourcePath: string;
+}
+
+export type KnowledgeSource = GithubKnowledgeSource | LocalKnowledgeSource;
+
+export interface KnowledgeDoc {
+  knowledgeId: string;
+  source: KnowledgeSource;
+  status: { state: KnowledgeState };
+  createdAt: Date;
+  updatedAt: Date;
+}

@@ -20,6 +20,16 @@ export class IngestError extends Error {
   }
 }
 
+export class IngestPathError extends Error {
+  override readonly name = "IngestPathError";
+  readonly path: string;
+
+  constructor(path: string, reason: string) {
+    super(`${reason}: ${path}`);
+    this.path = path;
+  }
+}
+
 function describe(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }

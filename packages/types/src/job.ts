@@ -1,6 +1,7 @@
 export enum JobType {
   GithubIndex = "github_index",
   GithubPull = "github_pull",
+  LocalIngest = "local_ingest",
 }
 
 export enum JobPriority {
@@ -24,6 +25,11 @@ export interface GithubPullPayload {
   gitToken?: string;
 }
 
+export interface LocalIngestPayload {
+  knowledgeId: string;
+  rootDir: string;
+}
+
 export interface JobMessage<P> {
   id: string;
   type: JobType;
@@ -38,4 +44,6 @@ export type PayloadFor<T extends JobType> = T extends JobType.GithubIndex
   ? GithubIndexPayload
   : T extends JobType.GithubPull
     ? GithubPullPayload
-    : never;
+    : T extends JobType.LocalIngest
+      ? LocalIngestPayload
+      : never;

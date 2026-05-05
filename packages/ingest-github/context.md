@@ -3,38 +3,49 @@
 ## Tier
 
 Domain. Depends on Kernel (`@bb/types`, `@bb/errors`), Infrastructure
-(`@bb/config`, `@bb/mongo`), Cross-cutting (`@bb/llm`), and Strategy
-(`@bb/queue`). May be imported by Binaries (`@bb/server` calls
-`registerGithubWorkers()` once at boot). Never by `@bb/cli`.
+(`@bb/config`, `@bb/mongo`, `@bb/neo4j`), Cross-cutting (`@bb/llm`), and
+Strategy (`@bb/queue`). May be imported by Binaries (`@bb/server` calls
+`registerGithubWorkers()` and `registerLocalIngestWorker()` once at
+boot). Never by `@bb/cli`.
 
 ## Responsibility
 
-Consumes `JobType.GithubIndex` jobs published by `@bb/queue`'s
-`enqueueGithubIndex`, runs a deliberately minimal "very basic file
-analysis" strategy per repo, and persists results to Mongo via
-`@bb/mongo`.
+Consumes `JobType.GithubIndex` and `JobType.LocalIngest` jobs published
+by `@bb/queue`. For each job, runs the active `IngestionStrategy` over
+the populated `~/.bytebell/repos/<knowledgeId>/` directory and persists
+per-file results to Mongo (`raw` collection via `@bb/mongo`) **and**
+Neo4j (`:File` nodes + `:HAS_KEYWORD` / `:HAS_CLASS` / `:HAS_FUNCTION`
+/ `:HAS_IMPORT` rels via `@bb/neo4j`). v1 ships one strategy —
+`BasicFileAnalysisStrategy` — implementing the deliberately minimal
+"very basic file analysis" approach.
 
 The package owns:
 
-- The `github_index` worker handler (registered via
+- The `github_index` and `local_ingest` worker handlers (registered via
   `@bb/queue.registerWorker`)
 - The git clone / fetch lifecycle for one repo per knowledge ID, kept on
   disk under `~/.bytebell/repos/<knowledgeId>/` for future `git_pull`
 - The hardcoded ignore list (directories, lockfiles, binary extensions,
   size cap) for repo scanning
 - The 7-field per-file LLM analysis prompt
-- Translation of LLM output JSON → `RawFileDoc` shape, with safe
-  fallbacks for malformed responses
+- Translation of LLM output JSON → `RawFileDoc` shape (Mongo) **and**
+  `:File` graph node + entity relationships (Neo4j), with safe fallbacks
+  for malformed responses
 - Knowledge `status.state` transitions (`Processing` on start,
-  `Processed` on success, `Failed` on caught error)
+  `Processed` on success, `Failed` on caught error) — kept in lock-step
+  between Mongo and Neo4j via a shared `transitionState` helper
+- The `IngestionStrategy` pluggable abstraction — the worker delegates
+  the post-clone scan/analyze/persist loop to a strategy instance.
+  v1 ships one concrete: `BasicFileAnalysisStrategy`
 
 The package does **not** own:
 
 - The `github_pull` worker handler (deferred — the publisher exists in
   `@bb/queue` but no consumer yet)
-- Folder-level summarization (out of scope per OSS strategy)
-- Semantic chunking, big-file processing, smart sampling
-- Neo4j writes (no `@bb/neo4j` / `@bb/graph` packages exist)
+- Folder-level summarization (out of scope per OSS strategy; future
+  strategies can add this)
+- Semantic chunking, big-file processing, smart sampling (future
+  strategies)
 - Recovery / progress reporting / failed-files tracking
 - Provider abstraction (no Bitbucket support; GitHub-only)
 - Concurrency control (sequential per-file processing intentional for
@@ -43,23 +54,36 @@ The package does **not** own:
 ## Public exports
 
 ```ts
-function registerGithubWorkers(): void;
+function registerGithubWorkers():        void   // wires JobType.GithubIndex
+function registerLocalIngestWorker():    void   // wires JobType.LocalIngest
+
+interface IngestionContext  { knowledgeId: string; rootDir: string }
+interface IngestionStrategy { readonly name: string; ingest(ctx: IngestionContext): Promise<void> }
+
+class BasicFileAnalysisStrategy implements IngestionStrategy
 ```
 
-That is the entire public surface. Calling it once at server boot wires
-the `github_index` BullMQ worker via `@bb/queue.registerWorker`. The
-caller is `@bb/server` (out of scope for this PR).
+Both `register*Workers()` calls run once at `@bb/server` boot. The
+worker hardcodes a single `IngestionStrategy` instance (currently
+`new BasicFileAnalysisStrategy()`). Adding another strategy = new file
+
+- change one line in `src/worker.ts`.
 
 ## Data ownership
 
-- `~/.bytebell/repos/<knowledgeId>/` — the cloned working tree,
+- `~/.bytebell/repos/<knowledgeId>/` — the cloned working tree (for
+  `github_index`) or the server-copied working tree (for `local_ingest`),
   persisted across job retries (clone is idempotent: `git fetch + reset`
   if `.git` exists). Never deleted automatically — `bytebell clean` per
   [docs/arch.md:157](../../docs/arch.md#L157) will own removal.
 - The Knowledge document's `status.state` field — written via
-  `setKnowledgeState` from `@bb/mongo`.
+  `setKnowledgeState` from `@bb/mongo` AND
+  `setKnowledgeStateInGraph` from `@bb/neo4j`, kept in lock-step.
 - Raw documents (one per scanned file) — written via `upsertRawFile`
   from `@bb/mongo`. Compound key `(knowledgeId, relativePath)`.
+- `:File` graph nodes + `:HAS_FILE` / `:HAS_KEYWORD` / `:HAS_CLASS` /
+  `:HAS_FUNCTION` / `:HAS_IMPORT` relationships — written via
+  `upsertFileNode` from `@bb/neo4j`.
 
 ## Invariants
 
@@ -89,14 +113,14 @@ caller is `@bb/server` (out of scope for this PR).
 - Node built-ins only: `node:child_process` (git), `node:fs/promises`
   (walk), `node:crypto` (sha-256), `node:path`, `node:util`
 - Workspace deps: `@bb/config`, `@bb/errors`, `@bb/llm`, `@bb/mongo`,
-  `@bb/queue`, `@bb/types`
+  `@bb/neo4j`, `@bb/queue`, `@bb/types`
 - System binary: **`git`** must be on the user's `PATH`. Documented in
   the project README as a runtime prerequisite.
 
 ## What is intentionally out of scope (v0)
 
 - `github_pull` worker (`enqueueGithubPull` jobs sit in the queue until
-  this lands)
+  this lands; the existing strategy interface accepts it cleanly)
 - Bitbucket / GitLab support
 - GitHub API streaming mode (always shell-clone)
 - Default-branch auto-detection (caller supplies `branch`; defaults to
@@ -119,20 +143,38 @@ caller is `@bb/server` (out of scope for this PR).
 
 ## How to extend
 
+Adding a new strategy (the primary extension point):
+
+1. Create `src/<MyStrategy>.ts` exporting a class that
+   `implements IngestionStrategy`. Its `ingest({ knowledgeId, rootDir })`
+   is invoked once per job after the source files have landed at
+   `rootDir`.
+2. Compose any of the existing helpers — `walkRepo`, `analyzeFile`,
+   `upsertRawFile`, `upsertFileNode`, `askLLM` — or do something
+   completely different.
+3. In `src/worker.ts`, change
+   `const STRATEGY = new BasicFileAnalysisStrategy()` to your class.
+   (Or, when richer wiring is needed, introduce a registry — out of
+   scope for v1.)
+4. Re-export from `src/index.ts` if other packages should be able to
+   reference it directly.
+
 Adding the `github_pull` worker:
 
 1. Create `src/worker-pull.ts` with a `handleGithubPull` function:
    `git pull origin <branch>` → `git diff --name-only <prevSha>..HEAD`
-   → re-analyze only changed files via `analyzeFile` → `upsertRawFile`
-   → delete Raw docs for files removed in the diff (needs a
-   `deleteRawFile(knowledgeId, relativePath)` helper in `@bb/mongo`).
+   → invoke a `Strategy` (likely the same `BasicFileAnalysisStrategy`)
+   over a smaller scoped subset of files → delete Raw + graph entries
+   for files removed in the diff (needs `deleteRawFile` and
+   `deleteFileNode` helpers in `@bb/mongo` / `@bb/neo4j`).
 2. In `src/worker.ts`'s `registerGithubWorkers`, also call
    `registerWorker(JobType.GithubPull, handleGithubPull)`.
 3. Update _Public exports_ / _Out of scope_ here.
 
 Adding concurrency:
 
-1. Pull `Config.ConcurrencyGithub` from `@bb/config` inside the worker.
+1. Pull `Config.ConcurrencyGithub` from `@bb/config` inside the
+   strategy's `ingest()`.
 2. Replace the `for await` loop with a bounded-parallel implementation
    (small inline `pLimit` style).
 3. Document the new max-concurrency invariant.

@@ -3,7 +3,7 @@ import { Config } from "@bb/types";
 import { LlmConfigError, LlmError } from "@bb/errors";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const DEFAULT_TIMEOUT_MS = 90_000;
+const DEFAULT_TIMEOUT_MS = 360_000;
 
 export interface AskLlmOptions {
   model?: string;
@@ -57,6 +57,10 @@ export async function askLLM(prompt: string, opts: AskLlmOptions = {}): Promise<
   ];
   const chain = [model, ...fallbackSlots].filter((m) => m.length > 0);
   const uniqueChain = [...new Set(chain)];
+  // OpenRouter rejects `models: [...]` arrays with more than 3 entries (HTTP 400
+  // "models array must have 3 items or fewer"). The four fallback slots remain
+  // configurable; we send the primary plus the first 2 non-empty fallbacks.
+  const cappedChain = uniqueChain.slice(0, 3);
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   const messages: OpenRouterMessage[] = [];
@@ -66,7 +70,7 @@ export async function askLLM(prompt: string, opts: AskLlmOptions = {}): Promise<
   messages.push({ role: "user", content: prompt });
 
   const body: OpenRouterRequest =
-    uniqueChain.length > 1 ? { model, models: uniqueChain, messages } : { model, messages };
+    cappedChain.length > 1 ? { model, models: cappedChain, messages } : { model, messages };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 

@@ -1,4 +1,5 @@
 import { askLLM, type AskLlmUsage } from "@bb/llm";
+import { logger } from "@bb/logger";
 import type { FileAnalysis } from "@bb/mongo";
 import {
   BIG_FILE_TOKEN_THRESHOLD,
@@ -18,10 +19,13 @@ export interface AnalyzedFile {
 }
 
 export async function analyzeFile(relativePath: string, content: string): Promise<AnalyzedFile> {
-  if (tokenLen(content) > BIG_FILE_TOKEN_THRESHOLD) {
+  const tokens = tokenLen(content);
+  if (tokens > BIG_FILE_TOKEN_THRESHOLD) {
+    logger.info(`analyzeFile: ${relativePath} (${tokens} tokens) → big-file path`);
     return await analyzeBigFile(relativePath, content);
   }
 
+  logger.info(`analyzeFile: ${relativePath} (${tokens} tokens) → single-call path`);
   const prompt = buildPrompt(relativePath, content);
   let raw: string;
   let usage: AskLlmUsage;
@@ -29,16 +33,22 @@ export async function analyzeFile(relativePath: string, content: string): Promis
     const result = await askLLM(prompt);
     raw = result.content;
     usage = result.usage;
-  } catch {
+  } catch (cause: unknown) {
+    const msg = cause instanceof Error ? cause.message : String(cause);
+    logger.warn(`analyzeFile: askLLM failed for ${relativePath}: ${msg}`);
     return { language: FALLBACK_LANGUAGE, analysis: emptyAnalysis(), usage: null };
   }
 
   const parsed = tryParse(raw);
   if (parsed === null) {
+    logger.warn(`analyzeFile: LLM response not valid JSON for ${relativePath}: ${raw.slice(0, 200)}`);
     return { language: FALLBACK_LANGUAGE, analysis: emptyAnalysis(), usage };
   }
 
   const { language, analysis } = parseFileAnalysisJson(parsed);
+  logger.info(
+    `analyzeFile: ${relativePath} done (model=${usage.model}, in=${usage.inputTokens}, out=${usage.outputTokens}, lang=${language})`,
+  );
   return { language, analysis, usage };
 }
 

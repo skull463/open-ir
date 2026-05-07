@@ -1,6 +1,5 @@
 {
   "lockfileVersion": 1,
-  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "bytebell-public",
@@ -29,6 +28,7 @@
       "dependencies": {
         "@bb/config": "workspace:*",
         "@bb/errors": "workspace:*",
+        "@bb/logger": "workspace:*",
         "@bb/types": "workspace:*",
         "commander": "^14.0.3",
         "ink": "^7.0.1",
@@ -61,6 +61,7 @@
         "@bb/config": "workspace:*",
         "@bb/errors": "workspace:*",
         "@bb/llm": "workspace:*",
+        "@bb/logger": "workspace:*",
         "@bb/mongo": "workspace:*",
         "@bb/neo4j": "workspace:*",
         "@bb/queue": "workspace:*",

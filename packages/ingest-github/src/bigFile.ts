@@ -1,4 +1,5 @@
 import { askLLM, type AskLlmUsage } from "@bb/llm";
+import { logger } from "@bb/logger";
 import type { FileAnalysis } from "@bb/mongo";
 import {
   CONDENSE_CONTEXT_LIMIT,
@@ -32,6 +33,7 @@ interface UsageAccumulator {
 
 export async function analyzeBigFile(relativePath: string, content: string): Promise<AnalyzedFile> {
   const chunks = splitIntoChunks(content, MAX_TOKENS_PER_CHUNK);
+  logger.info(`analyzeBigFile: ${relativePath} split into ${chunks.length} chunks`);
   const usage: UsageAccumulator = { model: null, inputTokens: 0, outputTokens: 0 };
   const perChunk: ChunkResult[] = [];
 
@@ -40,11 +42,16 @@ export async function analyzeBigFile(relativePath: string, content: string): Pro
     perChunk.push(result);
   }
 
-  const merged =
-    perChunk.length <= SMALL_FILE_DEDUP_THRESHOLD
-      ? dedupAnalyses(perChunk)
-      : await condenseRecursively(relativePath, perChunk, 0, usage);
-
+  if (perChunk.length <= SMALL_FILE_DEDUP_THRESHOLD) {
+    logger.info(`analyzeBigFile: ${relativePath} merging ${perChunk.length} chunks via deterministic dedup`);
+    const merged = dedupAnalyses(perChunk);
+    return { language: merged.language, analysis: merged.analysis, usage: finalize(usage) };
+  }
+  logger.info(`analyzeBigFile: ${relativePath} merging ${perChunk.length} chunks via recursive LLM condensation`);
+  const merged = await condenseRecursively(relativePath, perChunk, 0, usage);
+  logger.info(
+    `analyzeBigFile: ${relativePath} done (totalIn=${usage.inputTokens}, totalOut=${usage.outputTokens}, lang=${merged.language})`,
+  );
   return { language: merged.language, analysis: merged.analysis, usage: finalize(usage) };
 }
 
@@ -78,16 +85,25 @@ async function analyzeChunk(
   usage: UsageAccumulator,
 ): Promise<ChunkResult> {
   const prompt = buildChunkPrompt(relativePath, chunkIndex, totalChunks, chunkContent);
+  logger.info(`analyzeChunk: ${relativePath} chunk ${chunkIndex + 1}/${totalChunks} → askLLM`);
   let raw: string;
   try {
     const result = await askLLM(prompt);
     raw = result.content;
     addUsage(usage, result.usage);
-  } catch {
+    logger.info(
+      `analyzeChunk: ${relativePath} chunk ${chunkIndex + 1}/${totalChunks} done (model=${result.usage.model}, in=${result.usage.inputTokens}, out=${result.usage.outputTokens})`,
+    );
+  } catch (cause: unknown) {
+    const msg = cause instanceof Error ? cause.message : String(cause);
+    logger.warn(`analyzeChunk: askLLM failed for ${relativePath} chunk ${chunkIndex + 1}/${totalChunks}: ${msg}`);
     return { language: FALLBACK_LANGUAGE, analysis: emptyAnalysis() };
   }
   const parsed = tryParse(raw);
   if (parsed === null) {
+    logger.warn(
+      `analyzeChunk: LLM response not valid JSON for ${relativePath} chunk ${chunkIndex + 1}/${totalChunks}: ${raw.slice(0, 200)}`,
+    );
     return { language: FALLBACK_LANGUAGE, analysis: emptyAnalysis() };
   }
   return parseFileAnalysisJson(parsed);
@@ -104,13 +120,23 @@ async function condenseRecursively(
     return first;
   }
   const prompt = buildCondensePrompt(relativePath, items);
-  if (tokenLen(prompt) <= CONDENSE_CONTEXT_LIMIT) {
+  const promptTokens = tokenLen(prompt);
+  if (promptTokens <= CONDENSE_CONTEXT_LIMIT) {
+    logger.info(
+      `condenseRecursively: ${relativePath} depth=${depth} items=${items.length} promptTokens=${promptTokens} → single LLM call`,
+    );
     return await condenseOne(prompt, items, usage);
   }
   const budget = Math.max(CONDENSE_CONTEXT_LIMIT - CONDENSE_PROMPT_OVERHEAD, 2_000);
   const batches = batchByTokenBudget(items, budget);
+  logger.info(
+    `condenseRecursively: ${relativePath} depth=${depth} items=${items.length} promptTokens=${promptTokens} > ${CONDENSE_CONTEXT_LIMIT} → ${batches.length} batches`,
+  );
   const batchResults: ChunkResult[] = [];
-  for (const batch of batches) {
+  for (const [batchIndex, batch] of batches.entries()) {
+    logger.info(
+      `condenseRecursively: ${relativePath} depth=${depth} batch ${batchIndex + 1}/${batches.length} items=${batch.length}`,
+    );
     const batchPrompt = buildCondensePrompt(relativePath, batch);
     batchResults.push(await condenseOne(batchPrompt, batch, usage));
   }
@@ -125,8 +151,10 @@ async function condenseOne(prompt: string, fallback: ChunkResult[], usage: Usage
     if (parsed !== null) {
       return parseFileAnalysisJson(parsed);
     }
-  } catch {
-    // fall through to dedup
+    logger.warn(`condenseOne: LLM response not valid JSON for ${fallback.length} items; falling back to dedup`);
+  } catch (cause: unknown) {
+    const msg = cause instanceof Error ? cause.message : String(cause);
+    logger.warn(`condenseOne: askLLM failed for ${fallback.length} items; falling back to dedup: ${msg}`);
   }
   return dedupAnalyses(fallback);
 }

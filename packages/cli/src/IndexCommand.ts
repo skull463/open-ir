@@ -4,6 +4,7 @@ import { getConfigValue } from "@bb/config";
 import { ensureServerRunning, ServerStartTimeoutError } from "./serverSpawn.ts";
 import { getJson, HttpClientError, postJson } from "./httpClient.ts";
 import { createProgressBar, createSpinner, error, type ProgressBar } from "./output.ts";
+import { startLogTailer, type LogTailer } from "./logTailer.ts";
 
 interface IndexResponse {
   knowledgeId: string;
@@ -17,16 +18,24 @@ export function buildIndexCommand(): Command {
     .argument("<git-url>", "https URL of the repository")
     .option("--branch <name>", "branch to index (defaults to 'main' on the server)")
     .option("--token <pat>", "GitHub PAT for private repos")
+    .option(
+      "--verbose",
+      "stream the server log file to the terminal during the run (set log level via `bytebell set log-level debug` for finer-grained output)",
+    )
     .action(runIndex);
   return cmd;
 }
 
-async function runIndex(gitUrl: string, options: { branch?: string; token?: string }): Promise<void> {
+async function runIndex(
+  gitUrl: string,
+  options: { branch?: string; token?: string; verbose?: boolean },
+): Promise<void> {
   if (!/^https?:\/\//u.test(gitUrl)) {
     error(`invalid git URL: ${gitUrl}`, "expected https://… form");
     process.exitCode = 1;
     return;
   }
+  let tailer: LogTailer | null = null;
   try {
     let ctx: Awaited<ReturnType<typeof ensureServerRunning>>;
     if (
@@ -40,6 +49,9 @@ async function runIndex(gitUrl: string, options: { branch?: string; token?: stri
       ctx = await ensureServerRunning((line) => spinner.update(line));
       spinner.stop(true, `Server started (logs: ${ctx.logPath ?? "n/a"})`);
     }
+    if (options.verbose === true) {
+      tailer = await startLogTailer("server");
+    }
     const body: Record<string, string> = { repoUrl: gitUrl };
     if (options.branch !== undefined) {
       body["branch"] = options.branch;
@@ -51,6 +63,10 @@ async function runIndex(gitUrl: string, options: { branch?: string; token?: stri
     await pollJobStatus(response.knowledgeId, response.jobId);
   } catch (cause: unknown) {
     handleError(cause);
+  } finally {
+    if (tailer !== null) {
+      await tailer.stop();
+    }
   }
 }
 

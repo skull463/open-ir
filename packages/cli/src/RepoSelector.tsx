@@ -143,9 +143,9 @@ export function RepoSelector({ items, title, multi = false, confirm, onDone }: R
       </Box>
       {items.map((item, i) => (
         <Box key={item.knowledgeId}>
-          <Text color={i === index ? "cyan" : undefined}>{i === index ? "▶ " : "  "}</Text>
+          <Text color={i === index ? "cyan" : "gray"}>{i === index ? "▶ " : "  "}</Text>
           {multi ? <Text>{selected.has(i) ? "[x] " : "[ ] "}</Text> : null}
-          <Text color={i === index ? "cyan" : undefined}>{item.label}</Text>
+          <Text color={i === index ? "cyan" : "gray"}>{item.label}</Text>
           <Text dimColor> {item.detail}</Text>
         </Box>
       ))}

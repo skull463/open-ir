@@ -15,7 +15,7 @@ by `@bb/queue`. For each job, runs the active `IngestionStrategy` over
 the populated `~/.bytebell/repos/<knowledgeId>/` directory and persists
 per-file results to Mongo (`raw` collection via `@bb/mongo`) **and**
 Neo4j (`:File` nodes + `:HAS_KEYWORD` / `:HAS_CLASS` / `:HAS_FUNCTION`
-/ `:HAS_IMPORT` rels via `@bb/neo4j`). v1 ships one strategy —
+/ `:HAS_IMPORT_INTERNAL` / `:HAS_IMPORT_EXTERNAL` rels via `@bb/neo4j`). v1 ships one strategy —
 `BasicFileAnalysisStrategy` — implementing the deliberately minimal
 "very basic file analysis" approach.
 
@@ -86,7 +86,7 @@ worker hardcodes a single `IngestionStrategy` instance (currently
 - Raw documents (one per scanned file) — written via `upsertRawFile`
   from `@bb/mongo`. Compound key `(knowledgeId, relativePath)`.
 - `:File` graph nodes + `:HAS_FILE` / `:HAS_KEYWORD` / `:HAS_CLASS` /
-  `:HAS_FUNCTION` / `:HAS_IMPORT` relationships — written via
+  `:HAS_FUNCTION` / `:HAS_IMPORT_INTERNAL` / `:HAS_IMPORT_EXTERNAL` relationships — written via
   `upsertFileNode` from `@bb/neo4j`.
 
 ## Invariants

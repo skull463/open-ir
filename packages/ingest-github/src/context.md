@@ -23,7 +23,8 @@ split.
   then dual-writes:
   - `upsertRawFile` to Mongo's `raw` collection
   - `upsertFileNode` to Neo4j (creates `:File` + clears stale
-    `:HAS_KEYWORD / :HAS_CLASS / :HAS_FUNCTION / :HAS_IMPORT` rels +
+    `:HAS_KEYWORD / :HAS_CLASS / :HAS_FUNCTION / :HAS_IMPORT_INTERNAL /
+:HAS_IMPORT_EXTERNAL` rels +
     re-attaches fresh ones).
 - **[worker.ts](worker.ts)** — BullMQ handlers and the strategy
   selector. Module-scoped `STRATEGY: IngestionStrategy = new

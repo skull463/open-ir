@@ -27,9 +27,10 @@ The package owns:
   one-shot session and returns rows as plain objects
 - Schema bootstrap (`ensureKnowledgeIndexes`) — uniqueness constraints
   for `:Knowledge / :File / :Keyword / :Class / :Function / :Module`,
-  plus three fulltext indexes that power `@bb/mcp` retrieval
-  (`idx_file_purpose_summary_ft`, `idx_keyword_name_ft`,
-  `idx_symbol_signature_ft`). Tolerant of pre-existing indexes (Neo4j
+  plus four fulltext indexes that power `@bb/mcp` retrieval
+  (`idx_file_purpose_summary_ft`, `idx_file_business_context_ft`,
+  `idx_keyword_name_ft`, `idx_symbol_signature_ft`). Tolerant of
+  pre-existing indexes (Neo4j
   refuses constraints when a matching plain index already exists; we
   log + skip)
 - Knowledge-node CRUD (`upsertKnowledgeNode`, `setKnowledgeStateInGraph`,
@@ -123,6 +124,7 @@ Fulltext indexes (idempotent via `IF NOT EXISTS`, consumed by `@bb/mcp`
 search/lookup tools — never read inside this package):
 
 - `idx_file_purpose_summary_ft` — `(File.purpose, File.summary)`
+- `idx_file_business_context_ft` — `(File.businessContext)`
 - `idx_keyword_name_ft` — `(Keyword.name)`
 - `idx_symbol_signature_ft` — `(Class|Function).signature`
 

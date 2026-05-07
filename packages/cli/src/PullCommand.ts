@@ -5,6 +5,7 @@ import { ensureServerRunning, ServerStartTimeoutError } from "./serverSpawn.ts";
 import { getJson, HttpClientError, postJson } from "./httpClient.ts";
 import { createProgressBar, createSpinner, error, info, type ProgressBar } from "./output.ts";
 import { startLogTailer, type LogTailer } from "./logTailer.ts";
+import { promptRepoSelector } from "./repoSelectorPrompt.ts";
 
 interface PullResponse {
   knowledgeId: string;
@@ -24,8 +25,8 @@ interface RepoStatus {
 export function buildPullCommand(): Command {
   const cmd = new Command("pull");
   cmd
-    .description("Re-index an already-added GitHub repo at the branch's current HEAD.")
-    .argument("<knowledge-id>", "knowledge id returned by `bytebell index`")
+    .description("Re-index a previously added GitHub repo at the branch's current HEAD.")
+    .argument("[knowledge-id]", "knowledge id (omit to pick interactively from the indexed repos)")
     .option("--commit <sha>", "specific commit hash to anchor against (defaults to branch HEAD)")
     .option("--token <pat>", "GitHub PAT for private repos")
     .option("--verbose", "stream the server log file to the terminal during the run")
@@ -34,14 +35,9 @@ export function buildPullCommand(): Command {
 }
 
 async function runPull(
-  knowledgeId: string,
+  knowledgeId: string | undefined,
   options: { commit?: string; token?: string; verbose?: boolean },
 ): Promise<void> {
-  if (knowledgeId.length === 0) {
-    error("knowledge id is required");
-    process.exitCode = 1;
-    return;
-  }
   let tailer: LogTailer | null = null;
   try {
     let ctx: Awaited<ReturnType<typeof ensureServerRunning>>;
@@ -56,11 +52,19 @@ async function runPull(
       ctx = await ensureServerRunning((line) => spinner.update(line));
       spinner.stop(true, `Server started (logs: ${ctx.logPath ?? "n/a"})`);
     }
+
+    // No id supplied → interactive picker, github-only (pull doesn't apply to local repos).
+    const targetId = knowledgeId !== undefined && knowledgeId.length > 0 ? knowledgeId : await pickKnowledgeId();
+    if (targetId === null) {
+      info("No repo selected.");
+      return;
+    }
+
     if (options.verbose === true) {
       tailer = await startLogTailer("server");
     }
 
-    const body: Record<string, string> = { knowledgeId };
+    const body: Record<string, string> = { knowledgeId: targetId };
     if (options.commit !== undefined) {
       body["latestCommitHash"] = options.commit;
     }
@@ -70,11 +74,11 @@ async function runPull(
     const response = await postJson<PullResponse>("/api/v1/github/pull", body);
 
     if (response.noOp === true) {
-      info(`No-op: knowledge ${knowledgeId} already at commit ${response.commitHash ?? "(unknown)"}`);
+      info(`No-op: knowledge ${targetId} already at commit ${response.commitHash ?? "(unknown)"}`);
       return;
     }
     if (response.jobId === undefined) {
-      error(`Pull was not enqueued for knowledge ${knowledgeId}`);
+      error(`Pull was not enqueued for knowledge ${targetId}`);
       process.exitCode = 1;
       return;
     }
@@ -86,6 +90,17 @@ async function runPull(
       await tailer.stop();
     }
   }
+}
+
+async function pickKnowledgeId(): Promise<string | null> {
+  const result = await promptRepoSelector({
+    title: "Select a repo to pull",
+    filterKind: "github",
+    emptyMessage: "No indexed GitHub repos. Run `bytebell index <url>` first.",
+    multi: false,
+  });
+  // Single-mode call → `picked` always has exactly one entry.
+  return result === null ? null : (result.picked[0]?.item.knowledgeId ?? null);
 }
 
 async function pollJobStatus(knowledgeId: string, jobId: string): Promise<void> {

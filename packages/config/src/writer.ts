@@ -30,6 +30,13 @@ export function ensureBytebellHome(): void {
   fs.mkdirSync(home, { recursive: true, mode: DIR_MODE });
   if (!fs.existsSync(getConfigPath())) {
     atomicWrite(DEFAULT_CONFIG);
+    return;
+  }
+  const raw = JSON.parse(fs.readFileSync(getConfigPath(), "utf8")) as Record<string, unknown>;
+  const expected = Object.keys(configSchema.shape);
+  if (expected.some((k) => !(k in raw))) {
+    atomicWrite(configSchema.parse(raw));
+    __notifyConfigChanged();
   }
 }
 

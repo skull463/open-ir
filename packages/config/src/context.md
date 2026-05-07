@@ -19,7 +19,11 @@ package-level contract; this file documents how the source tree is split.
   `isConfigComplete`. Subscribes to the cache invalidator on module load.
 - **[writer.ts](writer.ts)** — `ensureBytebellHome`, `setConfigValue`, atomic
   `tmp → fsync → rename` write. Notifies the invalidator after a successful
-  write.
+  write. `ensureBytebellHome` writes `DEFAULT_CONFIG` on first run, and on
+  subsequent runs migrates the on-disk file by rewriting it with merged
+  defaults whenever any top-level schema key is missing — so PRs that add
+  defaulted fields populate existing installs at next boot, not just fresh
+  installs. Idempotent: a second call with no missing keys is a no-op.
 
 `ConfigIncompleteError` lives in `@bb/errors`, not here.
 

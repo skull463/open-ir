@@ -9,9 +9,11 @@
 It ships two binaries from a single workspace:
 
 - **`bytebell-server`** — a single Express daemon hosting ingestion routes (`/api/v1/...`), the MCP transport (`/mcp`, HTTP + SSE), and BullMQ workers in-process.
-- **`bytebell`** — an Ink/React TUI driven by commander subcommands (index, clean, ls, set, models, keys, cost, server, mcp, telemetry, update). Interactive only — no `-p` / headless mode.
+- **`bytebell`** — an Ink/React TUI driven by commander subcommands (`boot`, `index`, `ingest`, `ls`, `delete`, `set`, `server`, `shutdown`, `stats`). Interactive only — no `-p` / headless mode.
 
-The system is **BYO-infra** (the user runs Mongo, Neo4j, Redis), **license-gated** (signed JWT issued at first run; required to boot the server), and ships **always-on telemetry, optionally can be opted out** that streams full request/response logs and anonymous usage stats to ByteBell. Everything is single-tenant with a hardcoded `orgId="local"`. There is no auth, no users, no orgs.
+The system is **BYO-infra** (the user runs Mongo, Neo4j, Redis). Everything is single-tenant with a hardcoded `orgId="local"`. There is no auth, no users, no orgs, and the local server makes no outbound calls except to OpenRouter for LLM completions.
+
+The repository is licensed under **AGPL-3.0 with an additional non-commercial use clause** — see [LICENSE](LICENSE) at the repo root. Commercial use requires a separate license; there is no in-process license-gating.
 
 Architecturally, it is a **package-first Bun workspace** under `packages/*` with `@bb/*` naming. See [docs/arch.md](docs/arch.md) for the full PRD.
 
@@ -20,13 +22,14 @@ Architecturally, it is a **package-first Bun workspace** under `packages/*` with
 ## High-Level Flow
 
 ```
-TUI / HTTP client → Express (bytebell-server) → BullMQ (in-process) → Phase Pipeline → Graph + Storage
+TUI / HTTP client → Express (bytebell-server) → BullMQ (in-process) → IngestionStrategy → Graph + Storage
                                               ↘ MCP tools → Neo4j / Mongo retrieval
 ```
 
 - The CLI never touches Mongo / Neo4j / Redis directly — it only talks HTTP to `bytebell-server`.
-- Ingestion is asynchronous, phase-based, resumable. Workers run **inside** the server process; there is no separate worker fleet.
-- MCP requests verify the license on every call, then dispatch to the same Mongo + Neo4j the ingestion side wrote.
+- Ingestion is asynchronous via BullMQ. Workers run **inside** the server process; there is no separate worker fleet.
+- A worker (e.g. `handleGithubIndex`) clones the repo, runs the active `IngestionStrategy` (today: `BasicFileAnalysisStrategy` — file-walk + per-file LLM analysis), upserts file rows to Mongo + file nodes to Neo4j, and transitions `KnowledgeState`.
+- MCP requests dispatch to the same Mongo + Neo4j the ingestion side wrote.
 
 ---
 
@@ -39,11 +42,10 @@ TUI / HTTP client → Express (bytebell-server) → BullMQ (in-process) → Phas
 - **Databases**: MongoDB, Neo4j (BYO — user-supplied URIs)
 - **Queue**: BullMQ (Redis-backed, in-process workers)
 - **Cache + State**: Redis (BYO)
-- **Local persistence**: `~/.bytebell/` (config, license, logs, cost ledger SQLite)
+- **Local persistence**: `~/.bytebell/` (config, logs, cost ledger SQLite)
 - **LLM Provider**: **OpenRouter only**
-- **AST**: Tree-sitter
-- **Logging**: Winston + telemetry transport
-- **Secret storage**: OS keychain via `keytar`, fallback to passphrase-encrypted `keys.json`
+- **Logging**: Winston (file + stdout)
+- **Secret storage**: plaintext in `~/.bytebell/config.json` (mode `0600`). OS-keychain integration is not implemented.
 - **Package manager**: Bun (workspaces)
 
 ---
@@ -55,16 +57,15 @@ Packages live under `packages/*` and are arranged in tiers. **Imports flow downw
 ```
 Binaries          server, cli
         ↑
-Domain            mcp, ingest-core, ingest-github, ingest-custom,
-                  metadata-optimizer, telemetry
+Domain            mcp, ingest-github
         ↑
-Strategy          queue, graph
+Strategy          queue
         ↑
 Cross-cutting     llm
         ↑
 Infrastructure    config, logger, mongo, neo4j, redis
         ↑
-Kernel            types
+Kernel            types, errors
 ```
 
 - `@bb/server` and `@bb/cli` are **the only deployables**. They never import each other — they communicate over HTTP only (enforced by an ESLint boundary rule).
@@ -90,24 +91,16 @@ Each package owns exactly one concern. If a package needs a second name to descr
 ### 4. Strict Separation of Layers
 
 - **Routes** → HTTP shape only (parse + validate + delegate)
-- **Controllers/Handlers** → Request orchestration
-- **Services** → Business logic
-- **Processors** → Phase pipeline execution
-- **Workers** → Async job execution (in-process, BullMQ)
-- **Adapters** (mongo / neo4j / redis / sqlite) → External system I/O
+- **Services** → Business logic + queue submission
+- **Workers** → Async job execution (in-process, BullMQ); each worker dispatches to an `IngestionStrategy`
+- **Strategies** → How a cloned repo is turned into Mongo rows + Neo4j nodes
+- **Adapters** (`@bb/mongo`, `@bb/neo4j`, `@bb/redis`) → External system I/O
 
 No layer skips another. The TUI is a special case: it is a thin HTTP client over the same routes; it does not reach into adapters.
 
-### 5. Phase-Based Processing
+### 5. Strategy-Based Ingestion
 
-All ingestion follows deterministic phases. Each phase:
-
-- Has explicit inputs and outputs
-- Persists progress before yielding
-- Is independently retryable
-- Verifies prior-phase state before running
-
-Pipelines never assume the previous phase succeeded — they check.
+Ingestion is dispatched through `IngestionStrategy` (`@bb/ingest-github/Strategy.ts`). The active strategy today is `BasicFileAnalysisStrategy` — file-walk + per-file LLM analysis, returning `IngestionResult` (files analysed + per-model token breakdown). New ingestion shapes (AST extraction, dependency-graph extraction, etc.) land as new strategies behind the same interface, never as ad-hoc forks of the worker.
 
 ### 6. Reliability Over Speed
 
@@ -124,15 +117,14 @@ Pipelines never assume the previous phase succeeded — they check.
 - LLM outputs are untrusted until normalized
 - Knowledge entities are immutable once `PROCESSED` — new versions, never mutations
 
-### 8. Observability + Telemetry-by-Design
+### 8. Observability
 
-- Structured logging via `@bb/logger`
+- Structured logging via `@bb/logger` (file + stdout, written to `~/.bytebell/logs/`)
 - Request and job IDs propagate across pipelines
 - Health checks for every external system (Mongo / Neo4j / Redis probes)
 - Every LLM call is recorded in the local cost ledger (`cost-ledger.sqlite`)
-- Every HTTP + MCP event is buffered to ndjson and shipped by `@bb/telemetry` to ByteBell, tagged with `license_id`
 
-Telemetry is **always-on by design** for v1 (this is a research data flow). License issuance is **independent** of telemetry — disabling telemetry does not bypass licensing.
+There is **no outbound telemetry**. The server does not phone home; logs and the cost ledger stay on the user's machine.
 
 ### 9. Identifiers
 
@@ -140,7 +132,7 @@ Telemetry is **always-on by design** for v1 (this is a research data flow). Lice
 - MongoDB `_id` is internal only
 - UUID fields are indexed and unique
 - Job IDs are globally traceable
-- `install_id` (UUID) is generated locally on first run; `license_id` comes from the issue endpoint
+- `install_id` (UUID, generated locally on first run, stored at `~/.bytebell/install_id`) is a stable local identifier used by the cost ledger and CLI dashboard. It is never transmitted off the machine.
 
 ---
 
@@ -155,28 +147,27 @@ States are explicit, never inferred. Transitions are persisted before the next p
 
 ---
 
-## License + Local Config Layout
+## Local Config Layout
 
 The `~/.bytebell/` directory is the **single source of truth** for runtime configuration. There is no `.env` file (see Rule of Env Vars).
 
 ```
 ~/.bytebell/
   config.json           server_port, mongo_uri, neo4j_uri/user/password,
-                        redis_url, openrouter_model, concurrency.{pdf,website,github,bitbucket}
-  keys.json             encrypted OpenRouter key (only when OS keychain is unavailable)
-  license.json          signed JWT { license_id, install_id, issued_at, expires_at, tier }
-  install_id            UUID generated on first run
+                        redis_url, openrouter_api_key, openrouter_model,
+                        concurrency.github, log_level, log_retention_days
+                        (mode 0600; openrouter_api_key stored in plaintext)
+  install_id            UUID generated on first run (local-only, never transmitted)
+  repos/<knowledgeId>/  cloned source trees for every indexed repo
   logs/
     server-YYYY-MM-DD.log
     cli-YYYY-MM-DD.log
-    telemetry-buffer.ndjson
   pid                   running server PID
-  cost-ledger.sqlite    one row per OpenRouter call (powers `bytebell cost`)
 ```
 
+A cost ledger at `~/.bytebell/cost-ledger.sqlite` is **planned** but not yet wired — `@bb/llm` currently issues OpenRouter calls without writing per-call rows. There is no OS-keychain integration; `openrouter_api_key` lives in `config.json`.
+
 - `bytebell set <key> <value>` is the only sanctioned write path to `config.json`. Manual edits work but are not advertised.
-- License has a 30-day TTL. CLI auto-refreshes within 7 days of expiry. Offline past expiry → server hard-fails until reachable.
-- Public key for offline JWT signature verification is **embedded in source**; rotation is a release event.
 
 ---
 
@@ -193,7 +184,7 @@ These are enforced. Violations block PRs.
 Every contributor — human or AI agent — must, before making any change:
 
 1. Read this `CLAUDE.md` end-to-end at least once per session.
-2. Read [docs/arch.md](docs/arch.md) when working on architecture, ingestion flow, license, telemetry, or distribution.
+2. Read [docs/arch.md](docs/arch.md) when working on architecture, ingestion flow, or distribution.
 3. Read the `context.md` of every package and folder you will modify, plus the `context.md` of every package you import from.
 4. If a `context.md` is missing where one is required, stop and create it (or flag it) before making changes.
 5. If the code contradicts `context.md`, treat `context.md` as authoritative for _intent_ — investigate the drift and update one or the other in the same PR. Never silently align one to the other.
@@ -286,7 +277,6 @@ If a piece of infra is missing from `config.json`, the server prints the exact `
 
 - Wraps every OpenRouter call
 - Records cost via `calculateCostFromModelTokens()` into `~/.bytebell/cost-ledger.sqlite`
-- Surfaces token totals to telemetry
 
 LLM outputs are probabilistic. They must be:
 
@@ -298,30 +288,23 @@ The user-facing model list is curated (5–10 top models). `bytebell models set`
 
 ---
 
-## Rule of License Verification
+## Rule of License File
 
-The server is license-gated. The license check is independent of telemetry.
+The repository is licensed under **AGPL-3.0 with an additional non-commercial use clause**. The `LICENSE` file at the repo root is authoritative; README and CLAUDE.md only summarise it.
 
-- `bytebell-server` verifies `~/.bytebell/license.json` on boot **and on every MCP request**, using the embedded public key
-- Missing / invalid signature / expired → refuse to boot or refuse to handle the request, with the message `bytebell license refresh`
-- A future telemetry-disable flag does **not** disable license issuance or verification
-- Anyone forking the source can remove the check — that is acceptable. The gate is a soft contract for installs of the official build
+- Commercial use is governed by license terms.
 
-Do not add fallback paths that skip verification "for development." Use a real, valid license issued from staging.
+- Do not introduce code paths that materially weaken AGPL copyleft (e.g. dynamic-linking shims that argue the running server is not a derivative work). If a feature requires that posture, raise it before implementing.
+- New code files should carry an SPDX header: `// SPDX-License-Identifier: AGPL-3.0-only WITH non-commercial-clause` (matches the LICENSE file).
 
 ---
 
-## Rule of Telemetry
+## Rule of No Outbound Calls
 
-Telemetry is always-on in v1.
+The local server makes no outbound network calls except to OpenRouter for LLM completions. There is no telemetry, no analytics, no license-issuance call, no auto-update probe.
 
-- All HTTP + MCP request/response bodies (with `keys.json` values redacted) are written to `~/.bytebell/logs/telemetry-buffer.ndjson`
-- The buffer is flushed every 60 s (or on `SIGTERM`) to the ByteBell ingest endpoint
-- Each event is tagged with `license_id`
-- Buffer caps at 100 MB with exponential-backoff retries
-- The OSS README must clearly disclose this data flow
-
-A `bytebell telemetry disable` flag is **out of scope for v1** and must not be added without explicit product sign-off.
+- Do not add a `@bb/telemetry` package, a `telemetry-buffer.ndjson`, a `https://*.bytebell.ai` endpoint call, or any background HTTP shipper.
+- If observability requirements change in the future, raise the proposal explicitly — do not add a phone-home flow as a side effect of another feature.
 
 ---
 
@@ -412,12 +395,10 @@ Every package and every major subfolder MUST contain a `context.md`.
 
 ## Naming Conventions
 
-- Processors: `GithubProcessor.ts`
-- Phases: `ClonePhase.ts`, `ParsePhase.ts`
-- Strategies: `FlatFolderStrategy.ts`
-- Enums: `*.enum.ts`
-- Ink components (panes, forms): `DashboardPane.tsx`, `SetupForm.tsx` — `.tsx` because Ink renders JSX to the terminal
-- Commander subcommand entry points: `IndexCommand.ts`, `CleanCommand.ts` — plain `.ts`, no JSX
+- Strategies: `BasicFileAnalysisStrategy.ts` (one class per file, `*Strategy.ts`)
+- HTTP route builders (server): `githubIndexRoute.ts`, `deleteRoute.ts` (camelCase + `Route.ts`, each exports a `buildXRoute()` factory)
+- Commander subcommand entry points (CLI): `IndexCommand.ts`, `IngestCommand.ts` — plain `.ts`, no JSX
+- Ink components (CLI forms / pickers): `SetupForm.tsx`, `DeleteSelector.tsx` — `.tsx` because Ink renders JSX to the terminal
 - Services: single-responsibility, named for what they do
 - Types: live in the package's `types/` or root `index.ts`
 - Avoid ambiguous names (`Manager`, `Helper`, `Util`)
@@ -428,16 +409,16 @@ Every package and every major subfolder MUST contain a `context.md`.
 
 Bytebell-public is **a local research instrument**, not a hosted service.
 
-It exists so a single developer, an OSS community, or a research team can run a durable knowledge engine on their own infrastructure — turning raw repos, PDFs, and websites into a queryable graph and exposing them through MCP. The license + telemetry pipeline closes the loop back to ByteBell so that real-world usage informs the engine's evolution.
+It exists so a single developer, an OSS community, or a research team can run a durable knowledge engine on their own infrastructure — turning raw repos into a queryable graph and exposing them through MCP. Everything stays on the user's machine; the engine does not phone home.
 
 Design for:
 
 - **Clarity over cleverness**
 - **Explicit ownership** — every behavior has exactly one home package
-- **Local-first** — no hidden cloud dependencies beyond license + telemetry
+- **Local-first** — no hidden cloud dependencies; OpenRouter is the only outbound call
 - **Deterministic pipelines** over heuristics
 - **Recoverability** over performance shortcuts
-- **Auditability** — every LLM-derived fact is traceable to its source via the cost ledger and telemetry buffer
+- **Auditability** — every LLM-derived fact is traceable to its source via the cost ledger and structured logs
 - **Long-term maintainability** over rapid hacks
 
 Prefer:

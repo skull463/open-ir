@@ -62,8 +62,7 @@ This package does **not** own:
 
 - `~/.bytebell/install_id` — assigned to a later package
 - `~/.bytebell/keys.json` — out of scope for v0
-- `~/.bytebell/license.json` — separate package
-- `~/.bytebell/logs/` — `@bb/logger`/`@bb/telemetry`
+- `~/.bytebell/logs/` — `@bb/logger`
 - `~/.bytebell/cost-ledger.sqlite` — `@bb/llm`
 
 ## Invariants
@@ -95,9 +94,7 @@ No HTTP, no DB, no logger. This package boots before everything else.
 
 - `install_id` generation/reading (deferred ownership)
 - OS keychain / `keys.json` / encrypted secrets
-- License JWT
 - Logger initialization
-- Telemetry
 - A `bytebell set` CLI command (lives in `@bb/cli`; uses `setConfigValue`
   primitive)
 

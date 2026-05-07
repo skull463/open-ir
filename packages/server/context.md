@@ -42,9 +42,6 @@ The package does **not** own:
 
 - Worker handler bodies (those live in `@bb/ingest-github`)
 - Knowledge / Raw schema (lives in `@bb/types` + `@bb/mongo`)
-- License gating ([docs/arch.md:104-106](../../docs/arch.md#L104-L106) —
-  deferred until `@bb/license` exists)
-- Telemetry shipping (`@bb/telemetry` — deferred)
 - Auth / rate-limit / CORS — single-tenant, localhost-only
 
 ## Public exports
@@ -126,8 +123,6 @@ POST /sse/messages?sessionId=…             legacy SSE messages — owned by @b
 
 ## What is intentionally out of scope (v0)
 
-- License gate on `/api/v1/*` routes — defer until `@bb/license` exists
-- Telemetry / request logging — defer until `@bb/telemetry` lands
 - Auth / rate-limiting / CORS — localhost-only single-tenant
 - OpenAPI schemas per [CLAUDE.md _Rule of API Logging & Documentation_](../../CLAUDE.md) — defer
 - Tar-streaming for `/api/v1/local/index` — JSON `{ sourcePath }` is

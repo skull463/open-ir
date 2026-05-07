@@ -66,12 +66,10 @@ infra/docker/docker-compose.yml up -d`, polls
 The package does **not** own:
 
 - Any other subcommand (index, ls, clean, models, keys, cost, server,
-  mcp, telemetry, update) — all deferred per the catalog below.
+  mcp, update) — all deferred per the catalog below.
 - Live infra connection probes — the CLI cannot import `@bb/mongo` /
   `@bb/redis` per the tier rule. Format-only validation in v0; future
   `bytebell config doctor` will probe via a running server.
-- License issuance ([docs/arch.md:96-99](../../docs/arch.md#L96-L99)) —
-  separate subsystem.
 - The Ink dashboard (`bytebell` no-args) — needs the server's HTTP API
   - activity feed.
 - OpenRouter API key handling — own subcommand (`bytebell keys set`)
@@ -165,7 +163,6 @@ will touch when implemented. Only the **bolded** entries ship in v0.
 | `bytebell server stop \| status \| logs`         | Kill / inspect `bytebell-server`, tail server logs (start is shipped — see above)                                    | After `@bb/server` health surface           |
 | `bytebell mcp`                                   | Print MCP endpoint URL + sample MCP-client config                                                                    | After dashboard pane                        |
 | `bytebell infra up \| down \| status \| logs`    | Thin wrapper over `docker compose` for users who want explicit infra control                                         | If usage demands it post-v0                 |
-| `bytebell telemetry status`                      | Read telemetry buffer ndjson stats                                                                                   | After `@bb/telemetry`                       |
 | `bytebell update`                                | Detect install method, run matching update, restart server                                                           | Release-engineering follow-up               |
 
 ## What is intentionally out of scope (v0)
@@ -175,7 +172,6 @@ will touch when implemented. Only the **bolded** entries ship in v0.
 - Live connection probes inside the setup form
 - First-run auto-launch of setup form (needs the dashboard pane first)
 - OpenRouter API key in the setup form (separate `bytebell keys set`)
-- License auto-issue on first run
 - Tests — workspace has no test infra yet
 - Color theming via `kleur` / `picocolors` — manual ANSI for now
 - Distinct exit codes per failure mode (today: `1` = typed/handled error,

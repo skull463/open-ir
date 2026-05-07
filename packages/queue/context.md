@@ -33,7 +33,7 @@ The package does **not** own:
 - Recovery / restart / orphan re-enqueue (deferred — see _Out of scope_)
 - Progress reporting, status validation, batch processing, admin
   pause/resume/cancel (all out of scope for OSS v0)
-- Telemetry of job lifecycle events (deferred to `@bb/telemetry`)
+- Outbound telemetry of job lifecycle events (out of scope; structured `@bb/logger` output is the only sink)
 
 ## Public exports
 

@@ -65,8 +65,8 @@ Each call constructs its own `fetch` request.
 
 None. `askLLM` is a pure function over its arguments + workspace config.
 No memoization, no module-scoped client, no in-memory request log. The
-cost ledger described in [docs/arch.md:137](../../docs/arch.md#L137) is
-**not** owned by v0 — it lands when telemetry / `bytebell cost` ships.
+cost ledger described in [docs/arch.md](../../docs/arch.md) is **not**
+owned by v0 — it lands when `bytebell cost` ships.
 
 ## Invariants
 
@@ -106,7 +106,7 @@ cost ledger described in [docs/arch.md:137](../../docs/arch.md#L137) is
 
 ## What is intentionally out of scope (v0)
 
-- Cost ledger (`~/.bytebell/cost-ledger.sqlite`) — lands with telemetry
+- Cost ledger (`~/.bytebell/cost-ledger.sqlite`) — lands with `bytebell cost`
 - Streaming responses
 - Tool / function calling
 - A `askJsonLLM<T>(prompt, schema)` JSON-mode wrapper — caller does
@@ -125,7 +125,7 @@ needs strict JSON:
 2. Re-export from `src/index.ts`.
 3. Update _Public exports_ here.
 
-Adding a cost ledger when telemetry lands:
+Adding a cost ledger when `bytebell cost` lands:
 
 1. New file `src/ledger.ts` writing to
    `~/.bytebell/cost-ledger.sqlite` via `bun:sqlite`.

@@ -140,4 +140,10 @@ Add `-v` to also drop the named volumes (destroys all indexed data).
 
 ## License
 
-Open source under the project's licence — but the running server is meant for local single-tenant use. No remote network surface; everything binds to `127.0.0.1`.
+Bytebell is released under **AGPL-3.0 with an additional non-commercial use clause** — see [LICENSE](LICENSE) for the authoritative text.
+
+- Personal, academic, research, and non-profit use are unrestricted under AGPL-3.0 (network-copyleft applies — see the LICENSE file for what that means in practice).
+- **Commercial use** — including use by or on behalf of a for-profit entity, or any use that generates revenue — is covered by ByteBell's separately-licensed **Enterprise** edition (commercial-use grant + additional features + support). Contact `saurav@bytebell.ai`.
+- The running server itself does **not** verify a license; governance is by license terms, not by code.
+
+The server is meant for local single-tenant use. No remote network surface; everything binds to `127.0.0.1`.

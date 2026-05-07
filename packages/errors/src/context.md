@@ -77,8 +77,8 @@ No cross-file imports inside the package; no cycles possible.
   a new `<area>-errors.ts` file (e.g. `neo4j-errors.ts`, `redis-errors.ts`),
   never appended to an existing file.
 - **`override readonly name` set on every class.** The string equals the
-  class name. `@bb/logger` and `@bb/telemetry` discriminate on this; renames
-  are a coordinated workspace change.
+  class name. `@bb/logger` discriminates on this; renames are a
+  coordinated workspace change.
 - **Typed metadata, not message parsing.** Every class exposes structured
   fields (`hint`, `missing`, `hints`, `cause`) — consumers read those fields
   directly instead of regexing `error.message`.
@@ -86,9 +86,8 @@ No cross-file imports inside the package; no cycles possible.
   accepts a connection URI must redact userinfo before composing
   `super(...)`. See `redactUri` in `mongo-errors.ts` for the canonical
   pattern.
-- **No I/O, no logging.** This package never imports `@bb/logger`,
-  `@bb/telemetry`, or any infra package — those packages import _from_ this
-  one.
+- **No I/O, no logging.** This package never imports `@bb/logger` or any
+  infra package — those packages import _from_ this one.
 
 ## Adding an error class
 

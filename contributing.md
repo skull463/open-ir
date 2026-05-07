@@ -128,10 +128,10 @@ feat  fix  refactor  perf  docs  style  test  chore  build  ci  revert
 | Type       | When to use                                                          | Example                                                         |
 | ---------- | -------------------------------------------------------------------- | --------------------------------------------------------------- |
 | `feat`     | A new user-facing capability or public API surface.                  | `feat(ingest-github): add resumable clone phase`                |
-| `fix`      | A bug fix in shippe d behavior.                                      | `fix(mcp): verify license on every request`                     |
+| `fix`      | A bug fix in shipped behavior.                                       | `fix(mcp): handle empty result set in smart_search`             |
 | `refactor` | Internal restructuring with no behavior change.                      | `refactor(queue): extract worker bootstrap into its own module` |
 | `perf`     | A change whose primary goal is performance.                          | `perf(graph): batch neo4j writes during parse phase`            |
-| `docs`     | Documentation only — `*.md`, JSDoc, `context.md`, `docs/`.           | `docs(arch): clarify telemetry buffer flush cadence`            |
+| `docs`     | Documentation only — `*.md`, JSDoc, `context.md`, `docs/`.           | `docs(arch): clarify cost-ledger lifecycle and reset semantics` |
 | `style`    | Formatting, whitespace, semicolons — no code-meaning change.         | `style: apply prettier to packages/cli`                         |
 | `test`     | Adding or correcting tests; no production-code change.               | `test(ingest-core): cover phase resume after process restart`   |
 | `chore`    | Housekeeping that doesn't fit elsewhere (deps, scripts, configs).    | `chore(deps): bump bun to 1.1.34`                               |
@@ -142,10 +142,10 @@ feat  fix  refactor  perf  docs  style  test  chore  build  ci  revert
 Multi-line example with body and footer (note the blank lines required by `body-leading-blank` and `footer-leading-blank`):
 
 ```
-fix(mcp): verify license on every request
+fix(queue): dedupe retries by job-level idempotency key
 
-The previous handler only checked the license at boot, so a process
-that started with a valid license could keep serving after expiry.
+Without a dedupe key, BullMQ retries were re-running the parse phase
+and double-writing nodes whenever a worker crashed mid-job.
 
 Refs: BB-142
 ```

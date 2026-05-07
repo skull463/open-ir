@@ -9,9 +9,9 @@ be imported by every higher tier.
 ## Responsibility
 
 Single catalog of every typed error class thrown across the workspace.
-Centralizing them gives the logger and telemetry shipper a stable
-discriminator (`error.name`) so structured logs can identify failure modes
-without each package re-introducing its own error namespace.
+Centralizing them gives the logger a stable discriminator (`error.name`)
+so structured logs can identify failure modes without each package
+re-introducing its own error namespace.
 
 Today the catalog covers:
 
@@ -43,8 +43,7 @@ Today the catalog covers:
   userinfo in URI), `Neo4jNotConnectedError` (`_getDriver()` called
   before `connectNeo4j()`).
 
-New error classes land here as new packages are introduced (license,
-telemetry, etc.).
+New error classes land here as new packages are introduced.
 
 ## Public exports
 
@@ -76,11 +75,10 @@ None. Pure class declarations.
 
 ## Invariants
 
-1. **No I/O, no logging, no telemetry.** This package never imports
-   `@bb/logger` or `@bb/telemetry` — those packages import _from_ this one.
+1. **No I/O, no logging.** This package never imports `@bb/logger` —
+   `@bb/logger` imports _from_ this one.
 2. **Stable `name`.** Every class sets `override readonly name` to its class
-   name. The logger / telemetry shipper key off this string; renaming is a
-   coordinated change.
+   name. The logger keys off this string; renaming is a coordinated change.
 3. **Credential redaction.** Any error message that includes a connection
    URI must redact userinfo (see `redactUri` in `mongo-errors.ts`).
 4. **Typed metadata over string parsing.** Errors carry structured fields

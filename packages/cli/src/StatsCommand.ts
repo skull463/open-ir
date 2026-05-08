@@ -57,17 +57,37 @@ function renderRepos(repos: StatsRepoEntry[]): void {
 }
 
 function renderCommits(commits: StatsCommitEntry[]): void {
-  const headers = ["NAME", "COMMIT", "INPUT", "OUTPUT", "COST", "TIME (ms)", "FILES"];
-  const rows = commits.map((c) => [
-    c.repoName,
-    c.commitHash.slice(0, 8),
-    c.inputTokens.toLocaleString(),
-    c.outputTokens.toLocaleString(),
-    formatCost(c.estimatedCost),
-    String(c.processingTimeMs),
-    String(c.filesAnalyzed),
-  ]);
-  table(headers, rows);
+  // Group by repo so commits stay readable when multiple repos are indexed.
+  // Preserves the API's ordering within each group; groups appear in the
+  // order their first commit shows up (= most-recent activity first).
+  const grouped = new Map<string, StatsCommitEntry[]>();
+  for (const c of commits) {
+    const bucket = grouped.get(c.repoName);
+    if (bucket === undefined) {
+      grouped.set(c.repoName, [c]);
+    } else {
+      bucket.push(c);
+    }
+  }
+
+  const headers = ["COMMIT", "INPUT", "OUTPUT", "COST", "TIME (ms)", "FILES"];
+  let first = true;
+  for (const [repoName, group] of grouped) {
+    if (!first) {
+      process.stdout.write("\n");
+    }
+    first = false;
+    process.stdout.write(`  ${repoName}\n`);
+    const rows = group.map((c) => [
+      c.commitHash.slice(0, 8),
+      c.inputTokens.toLocaleString(),
+      c.outputTokens.toLocaleString(),
+      formatCost(c.estimatedCost),
+      String(c.processingTimeMs),
+      String(c.filesAnalyzed),
+    ]);
+    table(headers, rows);
+  }
 }
 
 function formatCost(value: number): string {

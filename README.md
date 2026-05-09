@@ -1,106 +1,68 @@
 # Bytebell
 
-Local, single-tenant knowledge engine. Ingests GitHub repos into a Neo4j graph and exposes them to MCP-capable LLM clients (Claude Code, Claude Desktop, Cursor, …) over a local HTTP endpoint. Everything runs on your machine — no cloud, no telemetry, no auth.
+**A local knowledge graph for your codebase, served over MCP.**
 
-## Prerequisites
+Bytebell indexes a repo into a Neo4j graph where every file node carries an LLM-generated `purpose`, `summary`, and `businessContext` — so Claude Code, Cursor, and other MCP-capable agents can answer questions about your code without reading the whole repo into context. All local. No telemetry. No auth.
 
-- [Bun](https://bun.sh) ≥ 1.1 — the runtime + workspace manager.
-- [Docker](https://www.docker.com/) — for Mongo + Neo4j + Redis (managed by `bytebell boot`).
-- An [OpenRouter](https://openrouter.ai) API key — used by the file analyser.
+## Quickstart
 
-## Install
+> Looking for the full CLI reference? Every `bytebell` subcommand, flag, and option lives in **[commands.md](commands.md)**. The Quickstart below is the minimum sequence from zero to a queryable graph.
 
-```bash
-git clone https://github.com/ByteBell/Bytebell-oss.git
-cd Bytebell-oss
-bun install
-cd packages/cli && bun link && cd ../..
-```
+### Prerequisites
 
-After `bun link`, `bytebell` is on your `PATH`. Verify with `bytebell --help`.
+- [Bun](https://bun.sh) ≥ 1.1 — runtime + workspace manager.
+- [Docker](https://www.docker.com/) — for the local Mongo + Neo4j + Redis stack `bytebell boot` brings up.
+- An [OpenRouter](https://openrouter.ai) API key — every per-file analysis call goes through OpenRouter.
 
-## Configure (one-time)
+### Install
 
-Two values you have to set yourself:
+See [commands.md](commands.md) for install steps. Once installed, verify with `bytebell --help`.
+
+### Configure
+
+Two values to set yourself — everything else is auto-provisioned on first boot:
 
 ```bash
 bytebell set openrouter-api-key sk-or-…
 bytebell set openrouter-model anthropic/claude-sonnet-4.6
 ```
 
-Everything else (Mongo URI, Neo4j URI/user/password, Redis URL, server port) is auto-filled the first time you `bytebell boot`. The Neo4j password is freshly generated and stored in `~/.bytebell/config.json` (mode `0600`).
+There is no `.env` file anywhere. `~/.bytebell/config.json` (mode `0600`) is the single source of truth, and `bytebell set` is the only sanctioned way to write to it. If you already run Mongo / Neo4j / Redis and don't want the Docker stack, see [Bring your own infrastructure](#bring-your-own-infrastructure) below.
 
-## Boot
+### Boot
 
 ```bash
 bytebell boot
 ```
 
-What happens:
+What happens, in order:
 
-1. Pre-flight check — refuses to start if either OpenRouter key is blank.
-2. Auto-fills any missing infra config keys with local-docker defaults; generates a Neo4j password if one isn't set.
-3. `docker compose up -d` brings up `bytebell-mongo`, `bytebell-neo4j`, `bytebell-redis` (named volumes — data persists across reboots).
-4. Polls `docker compose ps` until all three services report `healthy`.
-5. Spawns `bytebell-server` (HTTP on `127.0.0.1:8080`, MCP at `/mcp`).
+1. **Pre-flight check** — refuses to start if either OpenRouter key is blank.
+2. **Auto-fill** — fills any missing infra config keys with local-Docker defaults; generates a Neo4j password if one isn't set.
+3. **Stack up** — `docker compose up -d` brings up `bytebell-mongo`, `bytebell-neo4j`, `bytebell-redis` (named volumes — data persists across reboots).
+4. **Health gate** — polls `docker compose ps` until all three services report `healthy`.
+5. **Server up** — spawns `bytebell-server` (HTTP on `127.0.0.1:8080`, MCP at `/mcp`).
 
-First boot pulls images, so it may take a couple of minutes. Subsequent boots are fast.
+First boot pulls images and can take a couple of minutes. Subsequent boots are fast.
 
-## Index a repository
-
-Public repo:
+### Index a repo
 
 ```bash
 bytebell index https://github.com/anthropics/claude-code
+# private repo: add --token <github-pat>; never paste the PAT positionally
+bytebell ls   # watch state: CREATED → QUEUED → INGESTED → PROCESSING → PROCESSED
 ```
 
-Private repo (use `--token`, never paste a PAT into a positional arg):
+When the row reads `PROCESSED`, the graph is fully populated and the MCP tools will return results for that repo. Local directories work too: `bytebell ingest /path/to/source-tree`.
 
-```bash
-bytebell index https://github.com/your-org/your-repo --token <github-pat>
-```
+### Connect an MCP client
 
-Watch progress:
-
-```bash
-bytebell ls
-# ID         SOURCE                  STATE       UPDATED           FILES
-# 87067fbe…  github:org/your-repo    PROCESSING  2026-05-06 00:11  0
-```
-
-States flow `CREATED → QUEUED → INGESTED → PROCESSING → PROCESSED`. When the row reads `PROCESSED`, the graph is fully populated and the MCP tools will return results.
-
-You can also ingest a local directory:
-
-```bash
-bytebell ingest /path/to/source-tree
-```
-
-## Inspect token & cost stats
-
-```bash
-bytebell stats
-```
-
-Shows totals (input tokens, output tokens, estimated USD cost), a per-repo breakdown, and per-commit rows including processing time and files analysed. Cost is computed against live OpenRouter pricing; entries whose model has no published pricing show as `unknown`.
-
-## Delete an indexed entry
-
-```bash
-bytebell delete
-```
-
-Lists every indexed knowledge entry as an arrow-keyable picker. Selecting one and confirming `y` cancels any pending BullMQ jobs for that knowledge, removes the Knowledge subgraph from Neo4j (`DETACH DELETE`), and removes the Mongo `knowledge`, `raw`, and `processing_stats` rows tagged with that id. Press `Esc` (or `n` at the confirm step) to cancel.
-
-## Connect an MCP client
-
-The MCP endpoint is at `http://127.0.0.1:8080/mcp` (Streamable HTTP). For Claude Code:
-
-```bash
-claude mcp add --transport http bytebell http://127.0.0.1:8080/mcp
-```
-
-For other clients (Claude Desktop / Cursor / Continue), add this to your MCP config:
+| Client         | Setup                                                                |
+| -------------- | -------------------------------------------------------------------- |
+| Claude Code    | `claude mcp add --transport http bytebell http://127.0.0.1:8080/mcp` |
+| Claude Desktop | Add the JSON snippet below to your MCP config file                   |
+| Cursor         | Same JSON snippet in `~/.cursor/mcp.json`                            |
+| Continue       | Same JSON snippet in `~/.continue/config.json`                       |
 
 ```json
 {
@@ -113,37 +75,221 @@ For other clients (Claude Desktop / Cursor / Continue), add this to your MCP con
 }
 ```
 
-The server registers three tools — `smart_search`, `keyword_lookup`, `retrieve_file` — plus a bundled skill at `bytebell://skills/index` that the client can fetch and install once per session for the recommended workflow.
+The server registers `smart_search`, `keyword_lookup`, and `retrieve_file`, plus a bundled skill at `bytebell://skills/index` that the client can fetch and install once per session for the recommended workflow.
 
-## Stop & re-boot
+## What Bytebell does
 
-```bash
-bytebell shutdown   # stops the server only — Docker keeps running
-bytebell boot       # warm restart, fast
+You point `bytebell` at a repo. It clones the source, walks every file, and for each file calls an LLM (via OpenRouter) to extract a structured `FileAnalysis`: a one-paragraph **purpose**, a longer **summary** of what the file does and how it fits the architecture, a **business context** line tying it to the product domain, plus the file's classes, functions, keywords, and imports.
+
+Those outputs are persisted into two stores:
+
+- **Neo4j** receives a `:File` node enriched with `purpose`, `summary`, `businessContext`, `language`, `sha`, and `sizeBytes`, linked via `:HAS_CLASS`, `:HAS_FUNCTION`, `:HAS_KEYWORD`, `:HAS_IMPORT_INTERNAL`, and `:HAS_IMPORT_EXTERNAL` to deduplicated child nodes shared across the whole graph. Fulltext indexes cover purpose+summary, business context, keyword names, and class/function signatures.
+- **MongoDB** receives the raw file content, language, SHA256, and the full `FileAnalysis` JSON for cite-back and exact retrieval.
+
+LLM clients then query that graph through three MCP tools — `smart_search`, `keyword_lookup`, `retrieve_file` — which together cover fused semantic + structural search, reverse entity-to-file lookup, and targeted content reads. They let an agent answer questions like _"Which files implement our retry/backoff policy and where is it configured?"_ without reading the entire repo into context.
+
+```mermaid
+flowchart LR
+    CLI["bytebell CLI / TUI"] -- HTTP --> Server["bytebell-server<br/>(Express)"]
+    Client["MCP-capable LLM client<br/>Claude Code, Cursor, …"] -- MCP --> Server
+    Server -- enqueues --> Q["BullMQ in-process worker"]
+    Q --> Strategy["IngestionStrategy<br/>per-file LLM"]
+    Strategy -- LLM call --> OR["OpenRouter"]
+    Strategy -- raw + analysis --> Mongo[("MongoDB")]
+    Strategy -- enriched node --> Neo[("Neo4j")]
+    Server -. retrieval .-> Mongo
+    Server -. retrieval .-> Neo
 ```
 
-To stop the containers too:
+## Who this is for
 
-```bash
-docker compose -f infra/docker/docker-compose.yml down
+- **Solo engineers and small teams** who want a Claude / Cursor / Continue session to _actually_ know their codebase — not just whatever the tool can fit in a context window — without sending source to a third party.
+- **OSS communities and academic research groups** who need a durable, reproducible code-knowledge index they can re-index from a single command.
+- **Anyone running an MCP-capable agent on a private codebase** where compliance, IP, or just personal preference rules out hosted RAG-over-your-repo SaaS.
+
+It is **not** a hosted product, not a chat UI, and not a multi-tenant platform. There is exactly one tenant — `orgId="local"` — and the server binds to `127.0.0.1`. If you want hosted, multi-tenant, or commercial-use rights, see the [Enterprise](#enterprise) section.
+
+## How it works
+
+### Ingest
+
+`bytebell index <url>` (or `bytebell ingest <path>`) submits a job to an in-process BullMQ queue. The worker dispatches to an `IngestionStrategy` — today, `BasicFileAnalysisStrategy` ([packages/ingest-github/src/BasicFileAnalysisStrategy.ts](packages/ingest-github/src/BasicFileAnalysisStrategy.ts)). It clones the repo to `~/.bytebell/repos/<knowledgeId>/`, walks every file, runs a per-file OpenRouter call, and persists raw content to Mongo + the enriched node to Neo4j.
+
+The per-file LLM call returns a single JSON object with this shape:
+
+```jsonc
+{
+  "purpose": "Why this file exists. Max ~300 tokens.",
+  "summary": "What it does, key patterns, architecture role. Max ~600 tokens.",
+  "businessContext": "Product/domain impact. 2–3 lines, max ~100 tokens.",
+  "classes": ["ExactName (~L3-29): What it represents", "..."],
+  "functions": ["exact_name (~L42-58): Primary responsibility", "..."],
+  "keywords": ["domain-term-1", "domain-term-2", "..."],
+  "importsInternal": ["./relative/paths.ts", "..."],
+  "importsExternal": ["express", "neo4j-driver", "..."],
+}
 ```
 
-Add `-v` to also drop the named volumes (destroys all indexed data).
+`classes` and `functions` carry approximate line ranges so `retrieve_file` can later pull the right slice without re-reading the whole file. **Re-indexing is diff-aware**: on `bytebell pull`, the strategy compares each file's SHA256 to the prior `:File.sha` and only re-analyses files whose hash changed. LLM cost is proportional to actual code churn, not to repo size.
+
+### Graph shape
+
+```mermaid
+graph LR
+    K[":Knowledge"]
+    F[":File<br/>purpose, summary,<br/>businessContext"]
+    KW[":Keyword"]
+    C[":Class"]
+    Fn[":Function"]
+    M[":Module"]
+    K -- HAS_FILE --> F
+    F -- HAS_KEYWORD --> KW
+    F -- HAS_CLASS --> C
+    F -- HAS_FUNCTION --> Fn
+    F -- HAS_IMPORT_INTERNAL --> M
+    F -- HAS_IMPORT_EXTERNAL --> M
+```
+
+One `:Knowledge` node per indexed repo owns its `:File` nodes. Each `:File` carries `purpose`, `summary`, `businessContext`, `language`, `sha`, `sizeBytes`, and a `relativePath` unique within its `knowledgeId`. From every file, the five `:HAS_*` edges link to deduplicated `:Keyword`, `:Class`, `:Function`, and `:Module` nodes that are global across the whole graph — the same library, the same exported function, the same domain term resolves to one node no matter how many repos reference it. Constraints make `(knowledgeId, relativePath)` unique on `:File`; fulltext indexes back the natural-language search side. Source: [packages/neo4j/src/files.ts](packages/neo4j/src/files.ts), [packages/neo4j/src/indexes.ts](packages/neo4j/src/indexes.ts).
+
+There are no cross-file call edges in the current schema — that's a deliberate tradeoff for ingestion simplicity and language-agnostic ingest. Future strategies will add them, plugged in behind the same `IngestionStrategy` interface.
+
+### Retrieval
+
+Three MCP tools, registered at `http://127.0.0.1:8080/mcp`:
+
+- **`smart_search(query, k=20)`** — fused six-channel search across File `purpose`/`summary`, `businessContext`, paths, keyword names, class/function signatures, and module imports. Returns deduplicated, ranked top-K files with folder clustering. Use first.
+- **`keyword_lookup(term)`** — reverse lookup. A search term resolves to all matching named entities (keywords, classes, functions, module names) and the files linked to each.
+- **`retrieve_file`** — three operations: `metadata` (purpose, summary, businessContext, classes/functions with line ranges, imports), `content` (read specific line ranges or search within one file with surrounding context), `bulk_search` (parallel scan of up to 50 files for a string).
+
+```mermaid
+flowchart TD
+    Q["Question from agent"] --> SS["smart_search"]
+    SS --> KL["keyword_lookup<br/>(optional)"]
+    SS --> RM["retrieve_file metadata<br/>→ class/function line ranges"]
+    KL --> RM
+    RM --> RC["retrieve_file content<br/>→ exact line slice"]
+    RC --> A["Cited answer"]
+```
+
+Most well-formed code questions resolve in 2–4 tool calls. No re-clone, no full-file dumps, no embeddings round-trip.
+
+## Day-to-day commands
+
+| Command                                                       | Purpose                                                                            |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `bytebell ls`                                                 | List indexed knowledge entries with state.                                         |
+| `bytebell stats`                                              | Ingestion totals, per-repo breakdown, per-commit token usage.                      |
+| `bytebell mcp stats`                                          | MCP usage: input/output tokens, monthly breakdown.                                 |
+| `bytebell pull`                                               | Re-index a previously-added GitHub repo at branch HEAD (diff-aware).               |
+| `bytebell delete`                                             | Picker; cancels jobs, drops the Knowledge subgraph from Neo4j, removes Mongo rows. |
+| `bytebell shutdown`                                           | Stop the server. Docker keeps running.                                             |
+| `bytebell boot`                                               | Warm restart.                                                                      |
+| `docker compose -f infra/docker/docker-compose.yml down [-v]` | Stop containers (and optionally drop volumes — destroys all indexed data).         |
+
+Full reference, including every flag and option: [commands.md](commands.md).
+
+## Bring your own infrastructure
+
+By default, `bytebell boot` provisions a local Docker stack (`bytebell-mongo`, `bytebell-neo4j`, `bytebell-redis`) with auto-generated credentials. If you already run Mongo, Neo4j, and Redis (or want to use a managed service), set the connection details before booting and the Docker step is skipped:
+
+```bash
+bytebell set mongo-uri      mongodb://user:pass@host:27017/bytebell
+bytebell set neo4j-uri      bolt://host:7687
+bytebell set neo4j-user     neo4j
+bytebell set neo4j-password <your-password>
+bytebell set redis-url      redis://host:6379
+```
+
+Docker is not required on the host in this mode. See the [Configuration reference](#configuration-reference) for the full key list.
+
+## Architecture at a glance
+
+A single Bun-built Express daemon, `bytebell-server`, hosts the ingestion HTTP routes, the MCP transport (Streamable HTTP + SSE), and the BullMQ workers all in-process. The CLI is a thin Ink/React TUI that only ever talks HTTP to that daemon — it never touches Mongo, Neo4j, or Redis directly. Workers run in the server's lifecycle; there is no separate worker fleet.
+
+For the full PRD — package tiers, state machine, HTTP route catalogue, verification checklist, distribution strategy — see [docs/arch.md](docs/arch.md).
+
+## Configuration reference
+
+Settings live in `~/.bytebell/config.json` and are written exclusively by `bytebell set <key> <value>` (or by first-run auto-fill on `bytebell boot`). Keys:
+
+| Key                  | Purpose                                  | Default                              |
+| -------------------- | ---------------------------------------- | ------------------------------------ |
+| `openrouter-api-key` | API key for per-file LLM analysis        | _(required, blank by default)_       |
+| `openrouter-model`   | OpenRouter model slug used for analysis  | _(required)_                         |
+| `mongo-uri`          | MongoDB connection string                | `mongodb://localhost:27017/bytebell` |
+| `neo4j-uri`          | Neo4j Bolt URI                           | `bolt://localhost:7687`              |
+| `neo4j-user`         | Neo4j auth user                          | `neo4j`                              |
+| `neo4j-password`     | Neo4j auth password                      | _(generated on first boot)_          |
+| `redis-url`          | Redis URL for BullMQ                     | `redis://localhost:6379`             |
+| `server-port`        | Local HTTP/MCP port                      | `8080`                               |
+| `concurrency-github` | Concurrent files analysed per GitHub job | tuned per box                        |
+| `log-level`          | Winston log level                        | `info`                               |
+| `log-retention-days` | Daily log retention                      | `14`                                 |
+
+If a piece of infra is missing, the server prints the exact `bytebell set …` command you need and refuses to boot — it never silently reads `process.env`.
 
 ## Where things live
 
-- `~/.bytebell/config.json` — runtime config (URIs, OpenRouter key, log level, …)
+- `~/.bytebell/config.json` — runtime config (URIs, OpenRouter key, log level, …), mode `0600`
 - `~/.bytebell/repos/<knowledgeId>/…` — cloned source trees for every indexed repo
 - `~/.bytebell/logs/server-YYYY-MM-DD.log` — daily server log
+- `~/.bytebell/logs/cli-YYYY-MM-DD.log` — daily CLI log
 - `~/.bytebell/pid` — running server PID (unlinked on graceful shutdown)
+- `~/.bytebell/install_id` — local-only UUID, never transmitted
 - `infra/docker/.env` — generated; contains the Neo4j password (gitignored)
+
+## Project layout
+
+The workspace is organised as 13 `@bb/*` packages in tier order — kernel (`@bb/types`, `@bb/errors`) → infrastructure (`@bb/config`, `@bb/logger`, `@bb/mongo`, `@bb/neo4j`, `@bb/redis`) → cross-cutting (`@bb/llm`) → strategy (`@bb/queue`) → domain (`@bb/mcp`, `@bb/ingest-github`) → binaries (`@bb/server`, `@bb/cli`). Imports flow downward only; the two binaries communicate over HTTP and never import each other (enforced by an ESLint boundary rule). Each package has a `context.md` describing its contract. See [docs/arch.md](docs/arch.md) for the full tier map.
+
+## Why this design — research grounding
+
+Bytebell's shape — _build a code graph at ingest time, enrich every node with LLM-derived structured semantics, then serve retrieval against the joined surface_ — tracks a converging body of recent work showing that purely structural retrieval (AST / call-graph) and purely semantic retrieval (embeddings) each leave large performance on the table, and that combining them at indexing time unlocks the gains.
+
+**Graphs beat flat retrieval for code.** Repository-level graphs from AST + imports + call structure consistently outperform flat embedding retrieval on real engineering tasks.
+
+- RepoGraph ([2410.14684](https://arxiv.org/abs/2410.14684), ICLR 2025) — +32.8% on SWE-bench.
+- CodexGraph ([2408.03910](https://arxiv.org/abs/2408.03910), NAACL 2025) — agents query a code graph DB; beats similarity-only retrieval.
+- CGM ([2505.16901](https://arxiv.org/abs/2505.16901)) — graph + node semantics; 43% on SWE-bench Lite.
+- Citation-Grounded Code Comprehension ([2512.12117](https://arxiv.org/abs/2512.12117)) — argues LLM-only and embedding-only both fail; hybrid wins.
+
+**LLM-generated semantic enrichment closes the vocabulary gap.** Identifiers and call edges don't capture intent — natural-language summaries on each node let retrieval match what a developer _means_, not just what the code _spells_.
+
+- Tram ([2305.11074](https://arxiv.org/abs/2305.11074), ACL 2023) — semantic enrichment beats flat sentence-level retrieval.
+- LLM Agents Improve Semantic Code Search ([2408.11058](https://arxiv.org/abs/2408.11058)) — LLM-injected metadata improves embedding-based retrieval.
+- Knowledge-Graph-Based Repo-Level Code Generation ([2505.14394](https://arxiv.org/abs/2505.14394)) — graph captures structure; LLM context fills semantic gaps.
+- Sense and Sensitivity ([2505.13353](https://arxiv.org/abs/2505.13353)) — lexical and semantic recall are different capabilities; supports the `summary` (semantic) vs Mongo raw (lexical) split.
+
+**Structured summaries and hierarchy beat blob summarization.** Explicit fields — purpose, inputs, outputs, business context — aggregated bottom-up let retrieval match at the right level of abstraction. This maps directly onto Bytebell's `purpose` / `summary` / `businessContext` schema.
+
+- Hierarchical Repo-Level Code Summarization for Business Applications ([2501.07857](https://arxiv.org/abs/2501.07857), ICSE LLM4Code 2025) — closest motivational match: structured per-unit summaries aggregated to file/package level, grounded in business context.
+- Beyond Function Level ([2502.16704](https://arxiv.org/abs/2502.16704)) — class/repo context in summaries beats function-only.
+- Code-Craft ([2504.08975](https://arxiv.org/abs/2504.08975)) — closest published peer; bottom-up LLM summaries from a code graph; +82% top-1 retrieval precision on 7,531 functions.
+- Hierarchical Summarization (Springer 2025) — project/dir/file summaries at indexing time; Pass@10 of 0.89 on real Jira issues, beats flat retrieval and standard RAG.
+
+**Hybrid structure + semantics, served as memory.** The most recent work converges on serving the joined graph through a memory-style retrieval interface — exactly what MCP gives us.
+
+- Codebase-Memory ([2603.27277](https://arxiv.org/abs/2603.27277)) — MCP-served knowledge graph with LLM-derived metadata; reports 10× token reduction.
+
+The design choices follow directly: each `:File` node carries LLM-generated semantics alongside `:HAS_CLASS` / `:HAS_FUNCTION` / `:HAS_KEYWORD` / `:HAS_IMPORT_*` edges (structure), and the three MCP tools fuse both surfaces at query time.
+
+## Enterprise
+
+Bytebell-public is the OSS edition. ByteBell also offers a separately-licensed **Enterprise** edition for organizations that need a commercial-use grant, hardening, and direct support. Enterprise typically includes:
+
+- A commercial-use grant covering use by or on behalf of for-profit entities, including SaaS deployments and revenue-generating applications.
+- Hardened multi-tenant deployment patterns, SSO / SCIM, audit logging, and data-isolation guarantees.
+- Additional ingestion strategies (cross-file call graphs, dependency-graph extraction, PDF and design-doc ingestion) and additional MCP tools.
+- Access to the managed ByteBell knowledge surface and connectors to internal sources (Confluence, Jira, Notion, GitHub Enterprise, …).
+- Engineering support and SLAs for production deployments.
+
+To discuss Enterprise licensing, evaluation, or services, contact `saurav@bytebell.ai`.
+
+## Contributing
+
+Hooks, commit conventions, and pre-push gates are documented in [contributing.md](contributing.md). Architectural rules — file-size limits, tier boundaries, the `context.md` requirement, the Bun-only and OpenRouter-only constraints — live in [CLAUDE.md](CLAUDE.md) and apply to every PR.
 
 ## License
 
-Bytebell is released under **AGPL-3.0 with an additional non-commercial use clause** — see [LICENSE](LICENSE) for the authoritative text.
-
-- Personal, academic, research, and non-profit use are unrestricted under AGPL-3.0 (network-copyleft applies — see the LICENSE file for what that means in practice).
-- **Commercial use** — including use by or on behalf of a for-profit entity, or any use that generates revenue — is covered by ByteBell's separately-licensed **Enterprise** edition (commercial-use grant + additional features + support). Contact `saurav@bytebell.ai`.
-- The running server itself does **not** verify a license; governance is by license terms, not by code.
-
-The server is meant for local single-tenant use. No remote network surface; everything binds to `127.0.0.1`.
+Bytebell is released under **AGPL-3.0 with an additional non-commercial use clause** — see [LICENSE](LICENSE) for the authoritative text. Personal, academic, research, and non-profit use are unrestricted under AGPL-3.0 (network-copyleft applies). **Commercial use** is governed by license terms and is covered by the [Enterprise edition](#enterprise) (`saurav@bytebell.ai`). The running server itself does **not** verify a license; governance is by license terms, not by code. The server is meant for local single-tenant use — no remote network surface; everything binds to `127.0.0.1`.

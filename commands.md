@@ -82,19 +82,20 @@ Commands:
   help [command]   display help for command
 ```
 
-| Command    | Purpose                                                                  |
-| ---------- | ------------------------------------------------------------------------ |
-| `set`      | Write a value to `~/.bytebell/config.json` (interactive form if no args) |
-| `boot`     | Start Docker infra (mongo + neo4j + redis) and the bytebell-server       |
-| `shutdown` | Stop the bytebell-server (Docker infra is left running)                  |
-| `server`   | Manage the bytebell-server daemon                                        |
-| `index`    | Index a remote git repository                                            |
-| `pull`     | Re-index a previously added GitHub repo at branch HEAD (or a given SHA)  |
-| `ingest`   | Ingest a local directory                                                 |
-| `ls`       | List indexed knowledge entries                                           |
-| `delete`   | Pick an entry and delete it from Mongo + Neo4j                           |
-| `stats`    | Show ingestion totals, per-repo breakdown, per-commit token usage        |
-| `mcp`      | Manage and view MCP usage                                                |
+| Command     | Purpose                                                                  |
+| ----------- | ------------------------------------------------------------------------ |
+| `set`       | Write a value to `~/.bytebell/config.json` (interactive form if no args) |
+| `boot`      | Start Docker infra (mongo + neo4j + redis) and the bytebell-server       |
+| `shutdown`  | Stop the bytebell-server (Docker infra is left running)                  |
+| `server`    | Manage the bytebell-server daemon                                        |
+| `index`     | Index a remote git repository                                            |
+| `pull`      | Re-index a previously added GitHub repo at branch HEAD (or a given SHA)  |
+| `ingest`    | Ingest a local directory                                                 |
+| `ls`        | List indexed knowledge entries                                           |
+| `delete`    | Pick an entry and delete it from Mongo + Neo4j                           |
+| `stats`     | Show ingestion totals, per-repo breakdown, per-commit token usage        |
+| `mcp`       | Parent command for MCP usage subcommands                                 |
+| `mcp stats` | Show input/output token stats for MCP (global + monthly breakdown)       |
 
 ---
 

@@ -24,7 +24,9 @@ This package does **not** read from `process.env` and never will.
 
 ```ts
 type LogLevel
+type LlmProvider
 const LOG_LEVELS: readonly LogLevel[]
+const LLM_PROVIDERS: readonly LlmProvider[]
 interface BytebellConfig
 type ConfigValue<K extends Config>
 type ConfigValueMap
@@ -47,8 +49,11 @@ The `Config` enum lives in `@bb/types`; `ConfigIncompleteError` lives in
 
 Config keys (v0): `server_port`, `mongo_uri`, `neo4j_uri`, `neo4j_user`,
 `neo4j_password`, `redis_url`, `openrouter_api_key`, `openrouter_model`,
-`concurrency.{pdf,website,github,bitbucket}`, `log_level`,
-`log_retention_days`.
+`openrouter_fallback_model_1..4`, `concurrency.github`, `log_level`,
+`log_retention_days`, `llm_cache_enabled`, `llm_provider` (`openrouter`
+default | `ollama`), `ollama_url` (default `http://localhost:11434`),
+`ollama_model` (free-form, empty default — user picks any model their
+local Ollama daemon has pulled).
 
 Anything not in this list is internal — do not import from subpaths.
 

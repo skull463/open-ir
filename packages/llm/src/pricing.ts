@@ -1,4 +1,5 @@
-import type { ModelTokenBreakdown } from "@bb/types";
+import { getConfigValue } from "@bb/config";
+import { Config, type ModelTokenBreakdown } from "@bb/types";
 
 const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
 const PRICING_TIMEOUT_MS = 8_000;
@@ -85,7 +86,18 @@ function resolvePrice(prices: Map<string, ModelPrice>, model: string): ModelPric
   return undefined;
 }
 
+function isOllamaProvider(): boolean {
+  try {
+    return getConfigValue(Config.LlmProvider) === "ollama";
+  } catch {
+    return false;
+  }
+}
+
 export async function estimateCostUsd(model: string, inputTokens: number, outputTokens: number): Promise<number> {
+  if (isOllamaProvider()) {
+    return 0;
+  }
   const prices = await getPricing();
   if (prices.size === 0) {
     return COST_UNKNOWN;

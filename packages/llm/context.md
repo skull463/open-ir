@@ -4,23 +4,39 @@
 
 Cross-cutting. Depends on Kernel (`@bb/types` for `Config`, `@bb/errors`
 for typed error classes) and Infrastructure (`@bb/config` for the
-OpenRouter API key + model). May be imported by Domain (`@bb/ingest-*`,
-`@bb/mcp`, future `@bb/metadata-optimizer`) and Binaries (`@bb/server`).
-Never by `@bb/cli`.
+provider switch, OpenRouter key/model, and Ollama URL/model). May be
+imported by Domain (`@bb/ingest-*`, `@bb/mcp`, future
+`@bb/metadata-optimizer`) and Binaries (`@bb/server`). Never by
+`@bb/cli`.
 
 ## Responsibility
 
-Single, minimal OpenRouter-backed LLM call surface for v0:
+Minimal multi-provider LLM call surface for v0. The active backend is
+selected by `Config.LlmProvider` (`"openrouter"` default, or
+`"ollama"`):
 
-- `askLLM(prompt, opts?)` — POST to OpenRouter's chat-completions endpoint
+- `askLLM(prompt, opts?)` — dispatches to either
+  `src/openrouter.ts` or `src/ollama.ts` depending on
+  `Config.LlmProvider`. Returns
+  `{ content, usage: { model, inputTokens, outputTokens } }`. Caller
+  never sees the provider; the result shape is identical across
+  backends.
+- **OpenRouter mode** — POST to OpenRouter's chat-completions endpoint
   using `Config.OpenrouterApiKey` + `Config.OpenrouterModel` as the
   primary model, plus `Config.OpenrouterFallbackModel1..4` as the
   fallback chain. The request body includes a `models: [...]` array
   when the deduplicated chain has ≥2 non-empty entries; OpenRouter
-  routes among them and bills only the responder. Returns
-  `{ content, usage: { model, inputTokens, outputTokens } }` where
-  `model` is the actual model the gateway routed to. Tokens come straight
-  from OpenRouter's `usage.prompt_tokens` / `usage.completion_tokens`.
+  routes among them and bills only the responder. `usage.model` is the
+  actual model the gateway picked. Tokens come straight from
+  OpenRouter's `usage.prompt_tokens` / `usage.completion_tokens`.
+- **Ollama mode** — POST to `${Config.OllamaUrl}/api/chat` with
+  `{ model: Config.OllamaModel, messages, stream: false }`. Single
+  model per request — no fallback chain (Ollama does not have a
+  multi-model fan-out). The model string is free-form: any model the
+  user has pulled into their Ollama daemon works (`llama3.1`,
+  `qwen2.5-coder:7b`, custom Modelfile names — we do not validate).
+  `inputTokens` ← `prompt_eval_count`, `outputTokens` ← `eval_count`.
+  Cost is reported as `$0` (see `estimateCostUsd` short-circuit).
 - `estimateCostUsd(model, inputTokens, outputTokens)` and
   `estimateCostFromBreakdown(modelTokens)` — async cost helpers backed
   by a one-shot fetch of OpenRouter's `/api/v1/models` (cached in module
@@ -68,9 +84,12 @@ Implemented in `src/cache.ts`:
 
 - **Location**: `~/.bytebell/repos/llmdecisions/<sha256-hex>.json` (one
   file per cache key). Resolved via `@bb/config`'s `getBytebellHome()`.
-- **Key**: `sha256(JSON.stringify({ prompt, systemPrompt, modelChain }))`
-  where `modelChain` is the resolved deduped capped-at-3 chain.
-  `timeoutMs` is intentionally excluded.
+- **Key**: `sha256(JSON.stringify({ provider, prompt, systemPrompt, modelChain }))`
+  where `provider` is `"openrouter"` or `"ollama"` and `modelChain` is
+  the resolved chain (capped-at-3 for OpenRouter, single-element for
+  Ollama). `timeoutMs` is intentionally excluded. `provider` is part
+  of the key so the same prompt + model string can be cached
+  separately when run through different backends.
 - **Entry shape**:
   `{ key, content, usage, modelChain, hitCount, createdAt, lastHitAt }`.
   Prompts are not stored — the hash is sufficient for lookup.
@@ -100,9 +119,12 @@ it. The cost ledger described in [docs/arch.md](../../docs/arch.md) is
 
 ## Invariants
 
-1. **OpenRouter only.** No direct Anthropic / OpenAI / Gemini calls. The
-   user-facing model list is curated; the URL is fixed at
-   `https://openrouter.ai/api/v1/chat/completions`.
+1. **OpenRouter or local Ollama, nothing else.** No direct
+   Anthropic / OpenAI / Gemini / Bedrock SDKs. OpenRouter URL is fixed
+   at `https://openrouter.ai/api/v1/chat/completions`; Ollama URL is
+   user-configured via `Config.OllamaUrl` (default
+   `http://localhost:11434`). Provider is selected by
+   `Config.LlmProvider`.
 2. **No env reads.** API key + model come from `getConfigValue(...)`. No
    `process.env`, no `.env`. Repo-wide ESLint rule blocks `process.env`.
 3. **OpenRouter-native fallback chain.** The request body sends
@@ -143,7 +165,10 @@ it. The cost ledger described in [docs/arch.md](../../docs/arch.md) is
   `JSON.parse` with a try/catch fallback today
 - Per-call prompt logging
 - Cache TTL / automatic eviction — manual `rm` for now
-- Provider abstraction — OpenRouter is the only backend
+- Per-usage-record provider persistence — Ollama `$0` cost is keyed
+  off the _current_ `Config.LlmProvider`. Historical OpenRouter rows
+  still price correctly because their model IDs resolve in
+  OpenRouter's pricing map regardless of the current provider.
 
 ## How to extend
 

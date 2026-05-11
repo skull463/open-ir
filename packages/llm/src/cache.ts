@@ -9,6 +9,7 @@ import type { AskLlmUsage } from "./client.ts";
 const CACHE_DIR_NAME = "repos/llmdecisions";
 
 export interface CacheKeyInput {
+  provider: string;
   prompt: string;
   systemPrompt: string | null;
   modelChain: string[];
@@ -34,6 +35,7 @@ export function isCacheEnabled(): boolean {
 
 export function computeCacheKey(input: CacheKeyInput): string {
   const canonical = JSON.stringify({
+    provider: input.provider,
     prompt: input.prompt,
     systemPrompt: input.systemPrompt,
     modelChain: input.modelChain,

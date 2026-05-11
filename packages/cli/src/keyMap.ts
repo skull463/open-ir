@@ -1,4 +1,4 @@
-import { LOG_LEVELS, setConfigValue, type LogLevel } from "@bb/config";
+import { LLM_PROVIDERS, LOG_LEVELS, setConfigValue, type LlmProvider, type LogLevel } from "@bb/config";
 import { Config } from "@bb/types";
 
 type Setter = (raw: string) => void;
@@ -34,6 +34,14 @@ function parseLogLevel(raw: string): LogLevel {
     throw new Error(`Invalid value for "log-level": expected one of ${LOG_LEVELS.join(", ")}, got "${raw}"`);
   }
   return raw as LogLevel;
+}
+
+function parseLlmProvider(raw: string): LlmProvider {
+  const allowed: readonly string[] = LLM_PROVIDERS;
+  if (!allowed.includes(raw)) {
+    throw new Error(`Invalid value for "llm-provider": expected one of ${LLM_PROVIDERS.join(", ")}, got "${raw}"`);
+  }
+  return raw as LlmProvider;
 }
 
 function parseBoolean(raw: string, key: string): boolean {
@@ -126,6 +134,21 @@ export const KEY_MAP: Record<string, KeyEntry> = {
     configKey: Config.LlmCacheEnabled,
     redact: false,
     setter: (s) => setConfigValue(Config.LlmCacheEnabled, parseBoolean(s, "llm_cache_enabled")),
+  },
+  "llm-provider": {
+    configKey: Config.LlmProvider,
+    redact: false,
+    setter: (s) => setConfigValue(Config.LlmProvider, parseLlmProvider(s)),
+  },
+  "ollama-url": {
+    configKey: Config.OllamaUrl,
+    redact: false,
+    setter: (s) => setConfigValue(Config.OllamaUrl, s),
+  },
+  "ollama-model": {
+    configKey: Config.OllamaModel,
+    redact: false,
+    setter: (s) => setConfigValue(Config.OllamaModel, s),
   },
 };
 

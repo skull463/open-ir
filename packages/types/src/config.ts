@@ -15,4 +15,7 @@ export enum Config {
   LogLevel = "log_level",
   LogRetentionDays = "log_retention_days",
   LlmCacheEnabled = "llm_cache_enabled",
+  LlmProvider = "llm_provider",
+  OllamaUrl = "ollama_url",
+  OllamaModel = "ollama_model",
 }

@@ -1,14 +1,13 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import { logger } from "@bb/logger";
 import type { MetaPaths } from "src/types/meta-paths.ts";
+import type { SourceReader } from "src/types/pipeline.ts";
 import { readBigFiles } from "src/strategies/flat-folder/big-file/detector.ts";
 import { inspect } from "src/strategies/flat-folder/big-file/cache.ts";
 import { processBigFile } from "src/strategies/flat-folder/big-file/index.ts";
 
 export interface BackfillBigFilesInput {
   knowledgeId: string;
-  repoDir: string;
+  source: SourceReader;
   metaPaths: MetaPaths;
 }
 
@@ -30,7 +29,12 @@ export async function backfillBigFiles(input: BackfillBigFilesInput): Promise<Ba
       continue;
     }
     try {
-      const content = await readFile(path.join(input.repoDir, entry.relativePath), "utf8");
+      const content = await input.source.readFile(entry.relativePath);
+      if (content.length === 0) {
+        failed += 1;
+        logger.warn(`phase4: empty content for ${entry.relativePath}; skipping`);
+        continue;
+      }
       await processBigFile({
         knowledgeId: input.knowledgeId,
         metaPaths: input.metaPaths,

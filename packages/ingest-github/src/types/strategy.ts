@@ -1,5 +1,6 @@
 import type { GithubIndexPayload } from "@bb/types";
 import type { MetaPaths } from "./meta-paths.ts";
+import type { ArchiveSink, SourceReader } from "./pipeline.ts";
 
 export interface StrategyContext {
   knowledgeId: string;
@@ -10,7 +11,8 @@ export interface StrategyContext {
 export interface StrategyInput {
   payload: GithubIndexPayload;
   branch: string;
-  repoDir: string;
+  source: SourceReader;
+  archiveSink?: ArchiveSink;
   metaPaths: MetaPaths;
   context: StrategyContext;
 }

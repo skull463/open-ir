@@ -3,10 +3,9 @@ import { tokenLen } from "@bb/llm";
 import { logger } from "@bb/logger";
 import { Config } from "@bb/types";
 import { getConfigValue } from "@bb/config";
-import type { FileAnalyzer, SkipDecider } from "src/types/pipeline.ts";
+import type { ArchiveSink, FileAnalyzer, SkipDecider, SourceReader } from "src/types/pipeline.ts";
 import type { MetaPaths } from "src/types/meta-paths.ts";
 import type { BigFileEntry } from "src/types/big-file.ts";
-import { scanRepository } from "src/pipeline/scan.ts";
 import { withConcurrency } from "src/pipeline/concurrency.ts";
 import { throwIfCancelled, CancellationError } from "src/pipeline/cancellation.ts";
 import { makeSkipDecider } from "src/pipeline/skip-decisions/index.ts";
@@ -16,10 +15,11 @@ import { writeBigFiles } from "src/strategies/flat-folder/big-file/detector.ts";
 
 export interface ClassifyPhaseInput {
   knowledgeId: string;
-  repoDir: string;
+  source: SourceReader;
   metaPaths: MetaPaths;
   analyzer: FileAnalyzer;
   skipDecider?: SkipDecider;
+  archiveSink?: ArchiveSink;
 }
 
 export interface ClassifyPhaseResult {
@@ -38,11 +38,13 @@ export async function classifyAndAnalyseSmall(input: ClassifyPhaseInput): Promis
   let oversizedStubs = 0;
   let failed = 0;
 
-  const skipDecider = input.skipDecider ?? makeSkipDecider({ repositoryName: path.basename(input.repoDir) });
+  const repositoryHint =
+    input.source.localRepoDir.length > 0 ? path.basename(input.source.localRepoDir) : input.knowledgeId;
+  const skipDecider = input.skipDecider ?? makeSkipDecider({ repositoryName: repositoryHint });
 
   const pending: Promise<void>[] = [];
 
-  for await (const entry of scanRepository(input.repoDir, { skipDecider })) {
+  for await (const entry of input.source.scan({ skipDecider })) {
     throwIfCancelled(input.knowledgeId);
 
     if (entry.kind === "oversized") {
@@ -73,12 +75,21 @@ export async function classifyAndAnalyseSmall(input: ClassifyPhaseInput): Promis
       continue;
     }
 
+    const fileContent = entry.content;
+    const filePath = entry.relativePath;
     pending.push(
       limit(async () => {
         try {
           throwIfCancelled(input.knowledgeId);
           const condensed = await analyseScannedFile(input.analyzer, entry);
           await saveCondensed(input.metaPaths, condensed);
+          if (input.archiveSink !== undefined) {
+            await input.archiveSink.push({
+              knowledgeId: input.knowledgeId,
+              relativePath: filePath,
+              content: fileContent,
+            });
+          }
           smallFilesAnalysed += 1;
         } catch (cause: unknown) {
           if (cause instanceof CancellationError) {

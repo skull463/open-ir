@@ -11,18 +11,33 @@ import {
   COMBINED_CODE_ANALYSIS_SYSTEM_PROMPT,
   buildFileAnalysisUserPrompt,
 } from "./strategies/flat-folder/prompts/file-analysis.ts";
+import type { SourceFactory } from "./types/pipeline.ts";
 
-function buildSharedRunner(): ReturnType<typeof createPipelineRunner> {
+/**
+ * Optional dependencies for the GitHub workers. Today only one field is
+ * exposed: a source factory. Documented in `docs/extension-points.md`.
+ * The open-source binary leaves this undefined — the default disk reader
+ * runs unchanged.
+ */
+export interface RegisterGithubWorkersDeps {
+  sourceFactory?: SourceFactory;
+}
+
+function buildRunner(sourceFactory: SourceFactory | undefined): ReturnType<typeof createPipelineRunner> {
   const fileAnalyzer = createLlmFileAnalyzer({
     buildSystemPrompt: () => COMBINED_CODE_ANALYSIS_SYSTEM_PROMPT,
     buildUserPrompt: buildFileAnalysisUserPrompt,
   });
   const strategy = createFlatFolderStrategy({ fileAnalyzer });
-  return createPipelineRunner({ reposRootDir: reposRoot(), strategy });
+  const runnerDeps: Parameters<typeof createPipelineRunner>[0] = { reposRootDir: reposRoot(), strategy };
+  if (sourceFactory !== undefined) {
+    runnerDeps.sourceFactory = sourceFactory;
+  }
+  return createPipelineRunner(runnerDeps);
 }
 
-export function registerGithubWorkers(): void {
-  const runner = buildSharedRunner();
+export function registerGithubWorkers(deps: RegisterGithubWorkersDeps = {}): void {
+  const runner = buildRunner(deps.sourceFactory);
   registerWorker(JobType.GithubIndex, createGithubIngestHandler({ runner }));
   registerWorker(JobType.GithubPull, async (msg): Promise<void> => {
     logger.warn(`github_pull migrating to flat-folder — job ${msg.id} parked`);
@@ -34,14 +49,28 @@ export function registerGithubWorkers(): void {
 }
 
 export function registerLocalIngestWorker(): void {
-  const runner = buildSharedRunner();
+  const runner = buildRunner(undefined);
   registerWorker(JobType.LocalIngest, createLocalIngestHandler({ runner }));
 }
 
 export { createFlatFolderStrategy } from "./strategies/flat-folder/index.ts";
 export { createLlmFileAnalyzer } from "./adapters/llm-file-analyzer.ts";
+export { createDiskSourceReader } from "./pipeline/disk-source-reader.ts";
 export type { IngestStrategy, StrategyInput, StrategyResult, StrategyContext } from "./types/strategy.ts";
-export type { FileAnalyzer, AnalyzedFileResult } from "./types/pipeline.ts";
+export type {
+  FileAnalyzer,
+  AnalyzedFileResult,
+  ScanEntry,
+  ScannedFile,
+  OversizedFile,
+  ScanDeps,
+  SourceReader,
+  ArchiveSink,
+  ArchiveSinkInput,
+  SourceFactory,
+  SourceFactoryInput,
+  SourceFactoryResult,
+} from "./types/pipeline.ts";
 export type { CondensedFileAnalysis } from "./types/condensed-file-analysis.ts";
 export { fetchLatestCommitHash, parseGithubRepo } from "./githubApi.ts";
 export type { ParsedRepo } from "./githubApi.ts";

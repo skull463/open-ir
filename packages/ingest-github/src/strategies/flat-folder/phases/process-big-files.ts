@@ -1,7 +1,6 @@
-import path from "node:path";
-import { readFile } from "node:fs/promises";
 import { logger } from "@bb/logger";
 import type { MetaPaths } from "src/types/meta-paths.ts";
+import type { SourceReader } from "src/types/pipeline.ts";
 import { throwIfCancelled, CancellationError } from "src/pipeline/cancellation.ts";
 import { readBigFiles } from "src/strategies/flat-folder/big-file/detector.ts";
 import { inspect } from "src/strategies/flat-folder/big-file/cache.ts";
@@ -9,7 +8,7 @@ import { processBigFile } from "src/strategies/flat-folder/big-file/index.ts";
 
 export interface ProcessBigFilesInput {
   knowledgeId: string;
-  repoDir: string;
+  source: SourceReader;
   metaPaths: MetaPaths;
 }
 
@@ -38,13 +37,17 @@ export async function processBigFilesQueue(input: ProcessBigFilesInput): Promise
       cached += 1;
       continue;
     }
-    const absolutePath = path.join(input.repoDir, entry.relativePath);
     let content: string;
     try {
-      content = await readFile(absolutePath, "utf8");
+      content = await input.source.readFile(entry.relativePath);
     } catch (cause: unknown) {
       failed += 1;
       logger.warn(`phase2: read failed for ${entry.relativePath}: ${describe(cause)}`);
+      continue;
+    }
+    if (content.length === 0) {
+      failed += 1;
+      logger.warn(`phase2: empty content for ${entry.relativePath}; skipping`);
       continue;
     }
     try {

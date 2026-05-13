@@ -29,6 +29,10 @@ Domain (sub-folder of `@bb/ingest-github`).
   `skip-decisions/context.md`. Active when `Config.SkipDecisionEnabled =
 true` (default). Consumed by `scan.ts` via the optional `skipDecider`
   dep; built by `classifyAndAnalyseSmall` if not injected.
+- `disk-source-reader.ts` — `createDiskSourceReader({ repoDir, commitHash })`
+  returns a `SourceReader` that wraps `scanRepository` + `node:fs.readFile`.
+  The default reader the open-source binary always uses, unless the caller
+  injects a `sourceFactory` (see `docs/extension-points.md`).
 - `scan.ts` — async generator `scanRepository(rootDir, deps?)` yielding `ScanEntry`
   (`kind: "file"` or `kind: "oversized"`). A file is `oversized` when its
   byte size exceeds `Config.AbsoluteFileSizeCap` (skipped before read) or
@@ -36,10 +40,17 @@ true` (default). Consumed by `scan.ts` via the optional `skipDecider`
   enters the big-file phase). Both thresholds are config-driven — no
   magic numbers in this file. `readScannedFile` re-reads a file by
   absolute path for the big-file phase which streams content lazily.
-- `run.ts` — `createPipelineRunner({ reposRootDir, strategy })` builds an
-  `IngestRunnerDeps` that dispatches on payload shape: GitHub payloads go
-  through clone + branch resolve + strategy execute + commit persistence;
-  local payloads skip the clone. `resolveOrgId(payload)` returns
+- `run.ts` — `createPipelineRunner({ reposRootDir, strategy, sourceFactory? })`
+  builds an `IngestRunnerDeps`. GitHub payloads run: branch resolve,
+  source-reader construction, strategy execute, commit persistence. Local
+  payloads skip the clone. The source reader is chosen by the optional
+  `sourceFactory` parameter: if undefined (open-source default), the
+  runner builds a `DiskSourceReader` via `source.ts.syncRepository` +
+  `readHeadCommitHash`. If a factory is supplied, the runner calls it
+  with `{ knowledgeId, payload, branch }` and uses the returned reader +
+  commit hash; the local clone is skipped. The factory may also return an
+  `archiveSink` which the strategy then threads through to its
+  analyse phase. `resolveOrgId(payload)` returns
   `payload.orgId ?? getConfigValue(Config.OrgId)` — the only place orgId
   is resolved. State transitions (`CREATED → QUEUED → INGESTED → …`) are
   persisted to Mongo + Neo4j via `transitionState`, and

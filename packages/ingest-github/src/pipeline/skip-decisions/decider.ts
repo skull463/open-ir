@@ -91,13 +91,17 @@ export function makeSkipDecider(deps: SkipDeciderDeps = {}): SkipDecider {
 async function askLlmDecision(input: SkipDeciderInput, repositoryName: string | undefined): Promise<boolean> {
   const maxChars = getConfigValue(Config.SkipDecisionMaxCharsForLlm);
   let content: string;
-  try {
-    const raw = await readFile(input.absolutePath, "utf8");
-    content = raw.slice(0, maxChars);
-  } catch (cause: unknown) {
-    const msg = cause instanceof Error ? cause.message : String(cause);
-    logger.warn(`skip-decisions: cannot read ${input.relativePath} for LLM check (${msg}); defaulting to reject`);
-    return false;
+  if (input.content !== undefined) {
+    content = input.content.slice(0, maxChars);
+  } else {
+    try {
+      const raw = await readFile(input.absolutePath, "utf8");
+      content = raw.slice(0, maxChars);
+    } catch (cause: unknown) {
+      const msg = cause instanceof Error ? cause.message : String(cause);
+      logger.warn(`skip-decisions: cannot read ${input.relativePath} for LLM check (${msg}); defaulting to reject`);
+      return false;
+    }
   }
 
   logger.info(

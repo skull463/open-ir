@@ -13,12 +13,14 @@ Domain (composes infra: `@bb/config`, `@bb/llm`, `@bb/mongo`, `@bb/neo4j`,
 
 - **[index.ts](index.ts)** — public surface. `registerGithubWorkers`,
   `registerLocalIngestWorker`, `createFlatFolderStrategy`,
-  `createLlmFileAnalyzer`, plus the strategy / pipeline type re-exports and
-  the legacy `parseGithubRepo` / `fetchLatestCommitHash` exports (kept for
-  the pull plan). The two `register*` factories compose the runner against
-  the flat-folder strategy and register BullMQ handlers. `GithubPull` is
-  registered but the handler throws `IngestError("…being migrated…")` — the
-  HTTP route mirrors this at 503.
+  `createLlmFileAnalyzer`, `createDiskSourceReader`, the
+  `SourceReader` / `ArchiveSink` / `SourceFactory` port types, plus
+  `parseGithubRepo` / `fetchLatestCommitHash` (kept for the pull plan).
+  `registerGithubWorkers` accepts one optional `sourceFactory` injection
+  parameter so downstream consumers can replace the default disk-based
+  clone-and-read; the open-source binary always leaves it undefined. for the
+  seam. `GithubPull` is registered but the handler throws
+  `IngestError("…being migrated…")` — the HTTP route mirrors this at 503.
 - **[githubApi.ts](githubApi.ts)** — `parseGithubRepo(repoUrl)` and
   `fetchLatestCommitHash(owner, repo, branch, gitToken?)`. **Pull-only
   utility**; revisit in the pull plan. Kept in place rather than deleted so

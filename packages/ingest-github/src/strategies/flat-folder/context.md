@@ -8,12 +8,13 @@ sub-phase boundary.
 ## Phases
 
 1. **classify-and-analyse-small** (`phases/classify-and-analyse-small.ts`) —
-   walks `scanRepository(repoDir)`; small files → LLM file-analysis → write
-   `CondensedFileAnalysis`. Oversized files → write a stub. Big-by-tokens
+   walks `source.scan({ skipDecider })`; small files → LLM file-analysis →
+   write `CondensedFileAnalysis` Oversized files → write a stub. Big-by-tokens
    files → append to `bigFiles.json` for Phase 2.
 2. **process-big-files** (`phases/process-big-files.ts`) — reads
-   `bigFiles.json`, dispatches `processBigFile` per entry sequentially
-   (chunk-level concurrency inside).
+   `bigFiles.json`, calls `source.readFile(relativePath)` per entry,
+   dispatches `processBigFile` sequentially (chunk-level concurrency
+   inside).
 3. **backfill-fields** (`backfill/fields.ts`) — top up `keywords`,
    `sideEffects`, `configDependencies`, `dataFlowDirection` on condensed
    entries that miss them. Idempotent.
@@ -55,3 +56,13 @@ sub-phase boundary.
 - `throwIfCancelled(knowledgeId)` runs at every phase boundary and between
   big-file chunks. A cancellation re-throws past the strategy boundary so
   the orchestrator clears the cancel flag without setting FAILED state.
+- **All file content access goes through `input.source` (a `SourceReader`).**
+  No phase calls `fs.readFile`, `path.join(repoDir, …)`, or
+  `scanRepository(rootDir)` directly. This keeps the strategy decoupled
+  from any specific reader implementation; any caller that supplies an
+  alternative reader through the `sourceFactory` hook (see
+  `docs/extension-points.md`) gets the same seven-phase pipeline unchanged.
+- **Archive push is best-effort.** Phase 1 calls `input.archiveSink?.push`
+  after `saveCondensed`; failures inside the sink are logged WARN and do
+  not interrupt the analyse loop. The open-source binary never wires a
+  sink — `archiveSink` is undefined and the call is skipped entirely.

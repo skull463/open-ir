@@ -7,11 +7,12 @@ import { IngestError } from "@bb/errors";
 import { logger } from "@bb/logger";
 import type { IngestRunnerDeps, IngestRunnerInput } from "src/types/ingest-runner.ts";
 import type { IngestStrategy } from "src/types/strategy.ts";
-import type { PipelineSummary } from "src/types/pipeline.ts";
+import type { ArchiveSink, PipelineSummary, SourceFactory, SourceReader } from "src/types/pipeline.ts";
 import { ensureMetaDirs, ensureReposRoot, metaPathsFor, repoCloneDir } from "./paths.ts";
 import { readHeadCommitHash, syncRepository } from "./source.ts";
 import { resolveBranch } from "./branch.ts";
 import { CancellationError, clearCancellation, throwIfCancelled } from "./cancellation.ts";
+import { createDiskSourceReader } from "./disk-source-reader.ts";
 
 function resolveOrgId(payload: { orgId?: string }): string {
   if (typeof payload.orgId === "string" && payload.orgId.length > 0) {
@@ -23,6 +24,13 @@ function resolveOrgId(payload: { orgId?: string }): string {
 export interface CreatePipelineRunnerDeps {
   reposRootDir: string;
   strategy: IngestStrategy;
+  /**
+   * Optional source factory. When provided, GitHub-ingest skips the default
+   * disk clone and uses the factory's returned reader instead. The factory is
+   * documented in `docs/extension-points.md`; the open-source binary never
+   * supplies one.
+   */
+  sourceFactory?: SourceFactory;
 }
 
 export function createPipelineRunner(deps: CreatePipelineRunnerDeps): IngestRunnerDeps {
@@ -32,14 +40,18 @@ export function createPipelineRunner(deps: CreatePipelineRunnerDeps): IngestRunn
     run: async (input: IngestRunnerInput): Promise<PipelineSummary> => {
       const payload = input.payload;
       if (isGithubPayload(payload)) {
-        return await runGithub(deps.strategy, payload);
+        return await runGithub(deps.strategy, payload, deps.sourceFactory);
       }
       return await runLocal(deps.strategy, payload);
     },
   };
 }
 
-async function runGithub(strategy: IngestStrategy, payload: GithubIndexPayload): Promise<PipelineSummary> {
+async function runGithub(
+  strategy: IngestStrategy,
+  payload: GithubIndexPayload,
+  sourceFactory: SourceFactory | undefined,
+): Promise<PipelineSummary> {
   const { knowledgeId } = payload;
   clearCancellation(knowledgeId);
   const startedAt = Date.now();
@@ -47,32 +59,50 @@ async function runGithub(strategy: IngestStrategy, payload: GithubIndexPayload):
   try {
     throwIfCancelled(knowledgeId);
     const branch = resolveBranch(knowledgeId, payload);
-    await ensureReposRoot();
-    const repoDir = repoCloneDir(knowledgeId);
-    const cloneOpts: { repoUrl: string; branch: string; destinationDir: string; gitToken?: string } = {
-      repoUrl: payload.repoUrl,
-      branch,
-      destinationDir: repoDir,
-    };
-    if (payload.gitToken !== undefined) {
-      cloneOpts.gitToken = payload.gitToken;
-    }
-    await syncRepository(cloneOpts);
 
-    const commitHash = await readHeadCommitHash(repoDir);
-    if (commitHash === "unknown") {
-      throw new IngestError(knowledgeId, "could not resolve HEAD commit hash after clone");
+    let source: SourceReader;
+    let archiveSink: ArchiveSink | undefined;
+    let commitHash: string;
+
+    if (sourceFactory !== undefined) {
+      const factoryResult = await sourceFactory({ knowledgeId, payload, branch });
+      source = factoryResult.source;
+      commitHash = factoryResult.commitHash;
+      archiveSink = factoryResult.archiveSink;
+      logger.info(`pipeline/run: source factory wired (knowledgeId=${knowledgeId}, commit=${commitHash.slice(0, 12)})`);
+    } else {
+      await ensureReposRoot();
+      const repoDir = repoCloneDir(knowledgeId);
+      const cloneOpts: { repoUrl: string; branch: string; destinationDir: string; gitToken?: string } = {
+        repoUrl: payload.repoUrl,
+        branch,
+        destinationDir: repoDir,
+      };
+      if (payload.gitToken !== undefined) {
+        cloneOpts.gitToken = payload.gitToken;
+      }
+      await syncRepository(cloneOpts);
+      commitHash = await readHeadCommitHash(repoDir);
+      if (commitHash === "unknown") {
+        throw new IngestError(knowledgeId, "could not resolve HEAD commit hash after clone");
+      }
+      source = createDiskSourceReader({ repoDir, commitHash });
     }
+
     const metaPaths = metaPathsFor(knowledgeId);
     await ensureMetaDirs(metaPaths);
 
-    const result = await strategy.execute({
+    const strategyInput: Parameters<typeof strategy.execute>[0] = {
       payload,
       branch,
-      repoDir,
+      source,
       metaPaths,
       context: { knowledgeId, orgId: resolveOrgId(payload), repoId: knowledgeId },
-    });
+    };
+    if (archiveSink !== undefined) {
+      strategyInput.archiveSink = archiveSink;
+    }
+    const result = await strategy.execute(strategyInput);
 
     await persistStats({
       knowledgeId,
@@ -113,10 +143,12 @@ async function runLocal(strategy: IngestStrategy, payload: LocalIngestPayload): 
     const metaPaths = metaPathsFor(knowledgeId);
     await ensureMetaDirs(metaPaths);
 
+    const source = createDiskSourceReader({ repoDir: rootDir, commitHash: `local-${startedAt}` });
+
     const result = await strategy.execute({
       payload: { knowledgeId, repoUrl: `local:${rootDir}` },
       branch: "local",
-      repoDir: rootDir,
+      source,
       metaPaths,
       context: { knowledgeId, orgId: resolveOrgId(payload), repoId: knowledgeId },
     });

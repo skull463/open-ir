@@ -18,21 +18,25 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
   return {
     name: "flat-folder",
     async execute(input: StrategyInput): Promise<StrategyResult> {
-      const { context, repoDir, metaPaths, payload, branch } = input;
+      const { context, source, archiveSink, metaPaths, payload, branch } = input;
       const { knowledgeId, orgId, repoId } = context;
 
       logger.info(`flat-folder: phase1 (classify + analyse small) starting for ${knowledgeId}`);
       throwIfCancelled(knowledgeId);
-      const phase1 = await classifyAndAnalyseSmall({
+      const phase1Input: Parameters<typeof classifyAndAnalyseSmall>[0] = {
         knowledgeId,
-        repoDir,
+        source,
         metaPaths,
         analyzer: deps.fileAnalyzer,
-      });
+      };
+      if (archiveSink !== undefined) {
+        phase1Input.archiveSink = archiveSink;
+      }
+      const phase1 = await classifyAndAnalyseSmall(phase1Input);
 
       logger.info(`flat-folder: phase2 (process big files) starting`);
       throwIfCancelled(knowledgeId);
-      const phase2 = await processBigFilesQueue({ knowledgeId, repoDir, metaPaths });
+      const phase2 = await processBigFilesQueue({ knowledgeId, source, metaPaths });
 
       logger.info(`flat-folder: phase3 (backfill missing fields) starting`);
       throwIfCancelled(knowledgeId);
@@ -40,7 +44,7 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
 
       logger.info(`flat-folder: phase4 (backfill big files) starting`);
       throwIfCancelled(knowledgeId);
-      await backfillBigFiles({ knowledgeId, repoDir, metaPaths });
+      await backfillBigFiles({ knowledgeId, source, metaPaths });
 
       logger.info(`flat-folder: phase5 (folder summaries) starting`);
       throwIfCancelled(knowledgeId);

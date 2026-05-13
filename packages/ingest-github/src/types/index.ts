@@ -10,6 +10,13 @@ export type {
   SkipDecider,
   SkipDeciderInput,
   SkipDecision,
+  SourceReader,
+  ScanDeps,
+  ArchiveSink,
+  ArchiveSinkInput,
+  SourceFactory,
+  SourceFactoryInput,
+  SourceFactoryResult,
 } from "./pipeline.ts";
 export type { MetaPaths } from "./meta-paths.ts";
 export type { CondensedFileAnalysis } from "./condensed-file-analysis.ts";

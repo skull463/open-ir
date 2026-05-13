@@ -14,7 +14,13 @@ Domain (sub-folder of `@bb/ingest-github`).
 - `pipeline.ts` — `ScannedFile`, `OversizedFile`, `ScanEntry`, `FileAnalyzer`
   port, `AnalyzedFileResult`, `PipelineDeps`, `PipelineSummary`,
   `SkipDecider` / `SkipDeciderInput` / `SkipDecision` (the unknown-extension
-  gate port; implementation lives under `pipeline/skip-decisions/`).
+  gate port; implementation lives under `pipeline/skip-decisions/`),
+  `SourceReader` / `ScanDeps` (the repository-read abstraction; default
+  implementation in `pipeline/disk-source-reader.ts`), `ArchiveSink` /
+  `ArchiveSinkInput` (an optional non-fatal sink that the open-source
+  binary never calls), and `SourceFactory` / `SourceFactoryInput` /
+  `SourceFactoryResult` (the optional injection hook surfaced through
+  `registerGithubWorkers`; see `docs/extension-points.md`).
 - `meta-paths.ts` — `MetaPaths` shape (`~/.bytebell/repos/.meta/<knowledgeId>/...`).
 - `file-analysis.ts` — `FALLBACK_LANGUAGE = "unknown"` and `emptyFileAnalysis()`
   factory. Both consumed by the LLM adapter and the big-file condenser.

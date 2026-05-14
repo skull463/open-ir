@@ -65,14 +65,14 @@ llmCallContext`, which every LLM call site downstream consumes. State
 - `pull.ts` — `runPull(msg, pullFactory?)` orchestrates the pull job.
   When `pullFactory` is provided, it returns `{source, diff, targetCommit,
 archiveSink?}` and `runPull` skips `syncRepository` + `materialiseEndpoints`
-  + `assertReachableFromBranch` + `computePullDiff` + `checkoutCommit` —
-  the factory is the sole source of truth. When `pullFactory` is undefined
-  (open-source default), the legacy git-based path runs. Either path
-  produces the same downstream pipeline: snapshot prior version,
-  `analyseChangedFiles` (now reading via `SourceReader`),
-  `processBigFilesQueue`, `backfillMissingFields`, `backfillBigFiles`,
-  `runSelectiveFolderSummary`, `summariseRepo`, `storePullAnalysis`.
-  Mirrors `run.ts` for `llmCallContext` extraction from payload.
+  - `assertReachableFromBranch` + `computePullDiff` + `checkoutCommit` —
+    the factory is the sole source of truth. When `pullFactory` is undefined
+    (open-source default), the legacy git-based path runs. Either path
+    produces the same downstream pipeline: snapshot prior version,
+    `analyseChangedFiles` (now reading via `SourceReader`),
+    `processBigFilesQueue`, `backfillMissingFields`, `backfillBigFiles`,
+    `runSelectiveFolderSummary`, `summariseRepo`, `storePullAnalysis`.
+    Mirrors `run.ts` for `llmCallContext` extraction from payload.
 - `branch.ts` — `resolveBranch(knowledgeId, payload)`. Defaults to `main` when
   the payload omits it; rejects branch names that don't match `^[\w./-]+$`
   with `IngestError` (defence against shell-injection into git args).

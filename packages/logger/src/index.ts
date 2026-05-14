@@ -1,7 +1,13 @@
 import type winston from "winston";
 import { getLogger } from "./logger.ts";
 
-export { getLogger, seedLoggerFactory, shutdownLoggers, __isLoggerFactorySeeded, __resetLoggersForTests } from "./logger.ts";
+export {
+  getLogger,
+  seedLoggerFactory,
+  shutdownLoggers,
+  __isLoggerFactorySeeded,
+  __resetLoggersForTests,
+} from "./logger.ts";
 export type { LoggerScope, LoggerFactory } from "./logger.ts";
 
 export { getLogsDir, ensureLogsDir } from "./dirs.ts";

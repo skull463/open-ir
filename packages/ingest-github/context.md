@@ -59,25 +59,25 @@ The package does **not** own:
 
 ```ts
 // High-level registration (OSS standalone wires this once at boot)
-function registerGithubWorkers(deps?: RegisterGithubWorkersDeps): void  // wires GithubIndex + GithubPull
-function registerLocalIngestWorker(): void                              // wires LocalIngest
+function registerGithubWorkers(deps?: RegisterGithubWorkersDeps): void; // wires GithubIndex + GithubPull
+function registerLocalIngestWorker(): void; // wires LocalIngest
 
 interface RegisterGithubWorkersDeps {
-  sourceFactory?: SourceFactory;  // index-side hook
-  pullFactory?: PullFactory;      // pull-side hook (provides reader + diff + targetCommit)
+  sourceFactory?: SourceFactory; // index-side hook
+  pullFactory?: PullFactory; // pull-side hook (provides reader + diff + targetCommit)
 }
 
 // Lower-level building blocks (downstream consumers with their own queue
 // skip registerGithubWorkers and wire these against their own registry)
-function createPipelineRunner(deps: CreatePipelineRunnerDeps): IngestRunnerDeps
-function createGithubIngestHandler(deps: IngestJobHandlerDeps): (msg) => Promise<void>
-function createLocalIngestHandler(deps: IngestJobHandlerDeps): (msg) => Promise<void>
-function runPull(msg: JobMessage<GithubPullPayload>, pullFactory?: PullFactory): Promise<void>
-function reposRoot(): string
+function createPipelineRunner(deps: CreatePipelineRunnerDeps): IngestRunnerDeps;
+function createGithubIngestHandler(deps: IngestJobHandlerDeps): (msg) => Promise<void>;
+function createLocalIngestHandler(deps: IngestJobHandlerDeps): (msg) => Promise<void>;
+function runPull(msg: JobMessage<GithubPullPayload>, pullFactory?: PullFactory): Promise<void>;
+function reposRoot(): string;
 
-function createFlatFolderStrategy(deps): IngestStrategy
-function createLlmFileAnalyzer(deps): FileAnalyzer
-function createDiskSourceReader(deps): SourceReader
+function createFlatFolderStrategy(deps): IngestStrategy;
+function createLlmFileAnalyzer(deps): FileAnalyzer;
+function createDiskSourceReader(deps): SourceReader;
 ```
 
 The optional `sourceFactory` lets downstream consumers inject a custom

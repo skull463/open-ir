@@ -34,15 +34,15 @@ Domain (composes infra: `@bb/config`, `@bb/llm`, `@bb/mongo`, `@bb/neo4j`,
   - `CondensedFileAnalysis`.
   - GitHub helpers: `parseGithubRepo` / `fetchLatestCommitHash` /
     `fetchRecentCommits`.
-  `registerGithubWorkers` accepts optional `sourceFactory` (index) and
-  `pullFactory` (pull) injections through `RegisterGithubWorkersDeps`;
-  the open-source binary leaves both undefined. It registers both
-  `JobType.GithubIndex` (full re-index, via `runner.run` + optional
-  `sourceFactory`) and `JobType.GithubPull` (incremental diff-and-apply
-  via `runPull` + optional `pullFactory`). Downstream consumers that
-  bring their own queue (e.g. the enterprise wrapper using `@bytebell/queue`)
-  skip `registerGithubWorkers` entirely and call `createPipelineRunner`,
-  `createGithubIngestHandler`, and `runPull` directly.
+    `registerGithubWorkers` accepts optional `sourceFactory` (index) and
+    `pullFactory` (pull) injections through `RegisterGithubWorkersDeps`;
+    the open-source binary leaves both undefined. It registers both
+    `JobType.GithubIndex` (full re-index, via `runner.run` + optional
+    `sourceFactory`) and `JobType.GithubPull` (incremental diff-and-apply
+    via `runPull` + optional `pullFactory`). Downstream consumers that
+    bring their own queue (e.g. the enterprise wrapper using `@bytebell/queue`)
+    skip `registerGithubWorkers` entirely and call `createPipelineRunner`,
+    `createGithubIngestHandler`, and `runPull` directly.
 - **[githubApi.ts](githubApi.ts)** — `parseGithubRepo(repoUrl)` and
   `fetchLatestCommitHash(owner, repo, branch, gitToken?)`. **Pull-only
   utility**; revisit in the pull plan. Kept in place rather than deleted so

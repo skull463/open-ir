@@ -1,6 +1,6 @@
 import path from "node:path";
 import { readFile, stat } from "node:fs/promises";
-import { tokenLen } from "@bb/llm";
+import { tokenLen, type AskLlmOptions } from "@bb/llm";
 import { logger } from "@bb/logger";
 import { Config } from "@bb/types";
 import { getConfigValue } from "@bb/config";
@@ -28,6 +28,7 @@ export interface AnalyseChangedInput {
    * effort — errors from the callback are swallowed.
    */
   onFileProcessed?: () => Promise<void> | void;
+  llmCallContext?: AskLlmOptions;
 }
 
 export interface AnalyseChangedResult {
@@ -166,7 +167,7 @@ export async function analyseChangedFiles(input: AnalyseChangedInput): Promise<A
       limit(async () => {
         try {
           throwIfCancelled(input.knowledgeId);
-          const condensed = await analyseScannedFile(input.analyzer, scanned);
+          const condensed = await analyseScannedFile(input.analyzer, scanned, input.llmCallContext);
           await saveCondensed(input.metaPaths, condensed);
           smallFilesAnalysed += 1;
         } catch (cause: unknown) {

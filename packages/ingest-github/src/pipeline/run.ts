@@ -142,6 +142,11 @@ async function runGithub(
     await setKnowledgeCommit(knowledgeId, commitHash);
     await transitionState(knowledgeId, KnowledgeState.Processed);
 
+    const totalMs = Date.now() - startedAt;
+    logger.info(
+      `pipeline/run: ✓ github_index complete (knowledgeId=${knowledgeId}, commit=${commitHash.slice(0, 12)}, files=${result.filesAnalyzed}, folders=${result.foldersSummarised}, nodes=${result.graphNodesWritten}, ${totalMs}ms)`,
+    );
+
     return {
       filesAnalyzed: result.filesAnalyzed,
       foldersSummarised: result.foldersSummarised,

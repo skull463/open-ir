@@ -18,6 +18,15 @@ export declare const fetchLatestCommitHash: (...args: any[]) => any;
 export declare const fetchRecentCommits: (...args: any[]) => any;
 export declare const parseGithubRepo: (...args: any[]) => any;
 
+export interface BootstrapRuntimeOptions {
+  config: unknown;
+  loggerFactory: (scope: string) => unknown;
+}
+export declare function bootstrapRuntime(opts: BootstrapRuntimeOptions): Promise<void>;
+
+export declare const COMBINED_CODE_ANALYSIS_SYSTEM_PROMPT: string;
+export declare function buildFileAnalysisUserPrompt(input: { relativePath: string; content: string }): string;
+
 export type CreatePipelineRunnerDeps = any;
 export type IngestJobHandlerDeps = any;
 export type IngestRunnerDeps = any;

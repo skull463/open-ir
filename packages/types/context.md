@@ -32,30 +32,21 @@ llmModel?, llmKeyId? }` mixin that lets downstream consumers carry per-job
 QUEUED → INGESTED → PROCESSING → PROCESSED ↘ FAILED`) referenced by
   `@bb/queue` (writes `QUEUED`), `@bb/mongo` (`setKnowledgeState`), and
   future ingest workers.
+- `KnowledgeDoc`, `KnowledgeSource`, `GithubKnowledgeSource`,
+  `LocalKnowledgeSource`, `KnowledgeInfo` — the cross-package shape of the
+  Mongo `knowledge` document. Split into two substructures with
+  non-overlapping responsibilities: `KnowledgeSource` discriminates the
+  upstream type (github vs local) and carries per-kind ingestion state —
+  for github, the current head commit and the full commit history; for
+  local, the on-disk path. `KnowledgeInfo` carries the repo coordinates the
+  pipeline reads on every run (URL and branch); it has an open shape so
+  downstream consumers can attach extra fields without forcing schema
+  changes here. The pull pipeline reads URL and branch off `KnowledgeInfo`
+  directly — there is no fallback chain to `KnowledgeSource`.
 
-Future inhabitants (added on need basis): full `Knowledge`, `Raw`,
-`Node`, `MCP*` document shapes — the cross-package domain types named in
+Future inhabitants (added on need basis): full `Raw`, `Node`, `MCP*`
+document shapes — the cross-package domain types named in
 [docs/arch.md:69](../../docs/arch.md#L69).
-
-## Public exports
-
-```ts
-enum Config { ... }
-
-enum JobType     { GithubIndex, GithubPull, LocalIngest }
-enum JobPriority { Low, Normal, High }
-interface PayloadLlmOverrides { llmApiKey?, llmProvider?: string, llmModel?, llmKeyId? }
-interface GithubIndexPayload extends PayloadLlmOverrides { knowledgeId, repoUrl, branch?, commitHash?, gitToken?, orgId? }
-interface GithubPullPayload  extends PayloadLlmOverrides { knowledgeId, orgId?, targetCommitHash?, gitToken? }
-interface LocalIngestPayload { knowledgeId, rootDir, orgId? }
-interface JobMessage<P>      { id, type, priority, knowledgeId, attempt, createdAt, payload }
-type      PayloadFor<T extends JobType>
-
-enum KnowledgeState { Created, Queued, Ingested, Processing, Processed, Failed }
-```
-
-Add new shared types here only when **two or more** packages need to refer
-to the same shape.
 
 ## Data ownership
 

@@ -1,8 +1,9 @@
 import { Config, KnowledgeState, type GithubPullPayload, type JobMessage } from "@bb/types";
 import { getConfigValue } from "@bb/config";
-import { getKnowledge, recordProcessingStats, setKnowledgeCommit, setKnowledgeState } from "@bb/mongo";
+import { getKnowledge, setKnowledgeCommit, setKnowledgeState } from "@bb/mongo";
 import { setKnowledgeStateInGraph, snapshotFilesToVersion, type NodeScope } from "@bb/neo4j";
-import { estimateCostFromBreakdown, type AskLlmOptions } from "@bb/llm";
+import { type AskLlmOptions } from "@bb/llm";
+import { describe, persistPullStats, repoNameFromUrl } from "./pull-helpers.ts";
 import { IngestError, KnowledgeNotFoundError } from "@bb/errors";
 import { logger } from "@bb/logger";
 import { ensureMetaDirs, metaPathsFor, repoCloneDir, ensureReposRoot } from "./paths.ts";
@@ -77,8 +78,11 @@ export async function runPull(msg: JobMessage<GithubPullPayload>, pullFactory?: 
     );
   }
 
-  const branch = knowledge.source.branch ?? "main";
-  const repoUrl = knowledge.source.repoUrl;
+  const branch = knowledge.info.branch ?? "main";
+  const repoUrl = knowledge.info.repoUrl;
+  if (repoUrl === undefined || repoUrl.length === 0) {
+    throw new IngestError(knowledgeId, "pull requires knowledge.info.repoUrl");
+  }
   const gitToken = msg.payload.gitToken;
 
   clearCancellation(knowledgeId);
@@ -261,50 +265,4 @@ export async function runPull(msg: JobMessage<GithubPullPayload>, pullFactory?: 
 async function transitionState(knowledgeId: string, state: KnowledgeState): Promise<void> {
   await setKnowledgeState(knowledgeId, state);
   await setKnowledgeStateInGraph(knowledgeId, state).catch(() => undefined);
-}
-
-interface PersistPullStatsInput {
-  knowledgeId: string;
-  repoName: string;
-  commitHash: string;
-  filesAnalyzed: number;
-  foldersSummarised: number;
-  processingTimeMs: number;
-}
-
-async function persistPullStats(input: PersistPullStatsInput): Promise<void> {
-  const estimatedCost = await estimateCostFromBreakdown({});
-  await recordProcessingStats({
-    knowledgeId: input.knowledgeId,
-    repoName: input.repoName,
-    commitHash: input.commitHash,
-    modelTokens: {},
-    estimatedCost,
-    totalBatches: 1,
-    totalFiles: input.filesAnalyzed,
-    totalFolders: input.foldersSummarised,
-    filesAnalyzed: input.filesAnalyzed,
-    processingTimeMs: input.processingTimeMs,
-  });
-}
-
-function repoNameFromUrl(repoUrl: string): string {
-  try {
-    const segments = new URL(repoUrl).pathname
-      .split("/")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-    const repo = segments.at(-1)?.replace(/\.git$/u, "");
-    const owner = segments.at(-2);
-    if (owner !== undefined && repo !== undefined) {
-      return `${owner}/${repo}`;
-    }
-  } catch {
-    // fall through
-  }
-  return repoUrl;
-}
-
-function describe(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
 }

@@ -36,9 +36,20 @@ package-level contract; this file documents how the source tree is split.
   also carries an optional `orgId?` so downstream multi-tenant workers
   can scope Mongo/Neo4j lookups by org.
 - **[knowledge.ts](knowledge.ts)** — the `KnowledgeState` enum modeling
-  the lifecycle in [CLAUDE.md](../../../CLAUDE.md). v0 only ships the
-  enum; the full `Knowledge` document interface lands when domain CRUD
-  helpers in `@bb/mongo` need it.
+  the lifecycle in [CLAUDE.md](../../../CLAUDE.md), plus the
+  `KnowledgeDoc` document interface and its substructures:
+  - `KnowledgeSource` is a discriminated union (`GithubKnowledgeSource | LocalKnowledgeSource`)
+    that captures **what kind of upstream produced this knowledge** plus per-kind
+    state. For github: `commitId` (current head) and `commitHashes` (history).
+    For local: `sourcePath`. `source` does **not** carry `repoUrl` or `branch` —
+    those live on `info` (see below).
+  - `KnowledgeInfo` carries the human-readable repo coordinates the pipeline
+    needs every run: `repoUrl`, `branch`, plus an open index signature so
+    downstream consumers can stash extra fields without forcing schema changes
+    here. The pull pipeline reads `knowledge.info.repoUrl` / `knowledge.info.branch`
+    directly — that's the single source of truth for the URL/branch, no fallback.
+  - `KnowledgeDoc` carries both: `source` for upstream-type + indexed-commit
+    state, `info` for repo coordinates. Both are required on every doc.
 
 ## Module dependency graph
 

@@ -8,6 +8,8 @@ import { logger } from "@bb/logger";
 import type { IngestRunnerDeps, IngestRunnerInput } from "src/types/ingest-runner.ts";
 import type { IngestStrategy } from "src/types/strategy.ts";
 import type { ArchiveSink, PipelineSummary, SourceFactory, SourceReader } from "src/types/pipeline.ts";
+import type { ProgressContextFactory } from "src/progress/types.ts";
+import { nullProgressContextFactory } from "src/progress/NullProgressReporter.ts";
 import { ensureMetaDirs, ensureReposRoot, metaPathsFor, repoCloneDir } from "./paths.ts";
 import { readHeadCommitHash, syncRepository } from "./source.ts";
 import { resolveBranch } from "./branch.ts";
@@ -49,16 +51,23 @@ export interface CreatePipelineRunnerDeps {
    * supplies one.
    */
   sourceFactory?: SourceFactory;
+  /**
+   * Optional progress context factory. When provided, the runner emits
+   * pre-strategy phase changes (`clone`, `scan`) so SSE clients see liveness
+   * during the network/disk-bound prelude. Defaults to a no-op.
+   */
+  progressContextFactory?: ProgressContextFactory;
 }
 
 export function createPipelineRunner(deps: CreatePipelineRunnerDeps): IngestRunnerDeps {
+  const progressContextFactory = deps.progressContextFactory ?? nullProgressContextFactory;
   return {
     reposRootDir: deps.reposRootDir,
     strategy: deps.strategy,
     run: async (input: IngestRunnerInput): Promise<PipelineSummary> => {
       const payload = input.payload;
       if (isGithubPayload(payload)) {
-        return await runGithub(deps.strategy, payload, deps.sourceFactory);
+        return await runGithub(deps.strategy, payload, deps.sourceFactory, progressContextFactory);
       }
       return await runLocal(deps.strategy, payload);
     },
@@ -69,11 +78,14 @@ async function runGithub(
   strategy: IngestStrategy,
   payload: GithubIndexPayload,
   sourceFactory: SourceFactory | undefined,
+  progressContextFactory: ProgressContextFactory,
 ): Promise<PipelineSummary> {
   const { knowledgeId } = payload;
   clearCancellation(knowledgeId);
   const startedAt = Date.now();
   await transitionState(knowledgeId, KnowledgeState.Processing);
+  const progressContext = progressContextFactory(knowledgeId);
+  let strategyStarted = false;
   try {
     throwIfCancelled(knowledgeId);
     const branch = resolveBranch(knowledgeId, payload);
@@ -82,6 +94,7 @@ async function runGithub(
     let archiveSink: ArchiveSink | undefined;
     let commitHash: string;
 
+    progressContext.phaseChanged("clone");
     if (sourceFactory !== undefined) {
       const factoryResult = await sourceFactory({ knowledgeId, payload, branch });
       source = factoryResult.source;
@@ -107,6 +120,7 @@ async function runGithub(
       source = createDiskSourceReader({ repoDir, commitHash });
     }
 
+    progressContext.phaseChanged("scan");
     const metaPaths = metaPathsFor(knowledgeId);
     await ensureMetaDirs(metaPaths);
 
@@ -129,6 +143,7 @@ async function runGithub(
     if (archiveSink !== undefined) {
       strategyInput.archiveSink = archiveSink;
     }
+    strategyStarted = true;
     const result = await strategy.execute(strategyInput);
 
     await persistStats({
@@ -161,6 +176,9 @@ async function runGithub(
       throw cause;
     }
     await transitionState(knowledgeId, KnowledgeState.Failed).catch(() => undefined);
+    if (!strategyStarted) {
+      progressContext.failed(describe(cause));
+    }
     throw new IngestError(knowledgeId, `github_index pipeline failed: ${describe(cause)}`, cause);
   }
 }

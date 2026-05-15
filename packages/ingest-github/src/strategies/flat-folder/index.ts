@@ -79,7 +79,7 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
         progressContext.phaseChanged("folder_analysis");
         logger.info(`flat-folder: phase5 (folder summaries) starting`);
         throwIfCancelled(knowledgeId);
-        const phase5 = await runFolderSummaryPhase(knowledgeId, metaPaths, llmCallContext);
+        const phase5 = await runFolderSummaryPhase(knowledgeId, metaPaths, llmCallContext, progressContext);
 
         progressContext.phaseChanged("indexing");
         logger.info(`flat-folder: phase6 (repo summary) starting`);
@@ -98,6 +98,7 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
           payload,
           branch,
           metaPaths,
+          progressContext,
         });
 
         progressContext.completed();

@@ -43,7 +43,7 @@ true` (default). Consumed by `scan.ts` via the optional `skipDecider`
   unknown-extension gate uses per-job credentials. `readScannedFile`
   re-reads a file by absolute path for the big-file phase which streams
   content lazily.
-- `run.ts` — `createPipelineRunner({ reposRootDir, strategy, sourceFactory? })`
+- `run.ts` — `createPipelineRunner({ reposRootDir, strategy, sourceFactory?, progressContextFactory? })`
   builds an `IngestRunnerDeps`. GitHub payloads run: branch resolve,
   source-reader construction, strategy execute, commit persistence. Local
   payloads skip the clone. The source reader is chosen by the optional
@@ -61,7 +61,15 @@ true` (default). Consumed by `scan.ts` via the optional `skipDecider`
 llmCallContext`, which every LLM call site downstream consumes. State
   transitions (`CREATED → QUEUED → INGESTED → …`) are persisted to Mongo
   - Neo4j via `transitionState`, and `CancellationError` is re-thrown
-    without flipping to FAILED.
+    without flipping to FAILED. The optional `progressContextFactory`
+    is the runner's own `ProgressContext` source: `runGithub` emits
+    `phaseChanged("clone")` before `syncRepository` (or before the
+    `sourceFactory` call) and `phaseChanged("scan")` before invoking
+    `strategy.execute`, so SSE clients see liveness during the
+    network/disk-bound prelude. On a non-`CancellationError` throw the
+    runner emits `failed(message)` only when the strategy has not yet
+    started — once `strategy.execute` is reached, the strategy owns
+    terminal emission and the runner stays silent to avoid double-FAILED.
 - `pull.ts` — `runPull(msg, pullFactory?, progressContextFactory?)` orchestrates the pull job.
   Reads `repoUrl` and `branch` directly off `knowledge.info.*` (loaded via
   `@bb/mongo.getKnowledge`). The `KnowledgeSource` discriminator (`kind`) is

@@ -37,8 +37,11 @@ The strategy emits progress through the `ProgressContext` port defined in
 `progressContextFactory`; absent → `nullProgressContextFactory`
 (no-op, OSS default).
 
-- **Boundary events** are emitted by `index.ts`:
-  - `phaseChanged("file_analysis")` before phase 1
+- **Boundary events** are split between the runner and the strategy:
+  - `phaseChanged("clone")` and `phaseChanged("scan")` are emitted by
+    `pipeline/run.ts` (the runner) before `strategy.execute` is called,
+    so the SSE stream stays alive during the network/disk-bound prelude.
+  - `phaseChanged("file_analysis")` is emitted by `index.ts` before phase 1
   - `phaseChanged("folder_analysis")` before phase 5
   - `phaseChanged("indexing")` before phase 6 (which feeds phase 7)
   - `completed()` after phase 7 returns
@@ -49,6 +52,9 @@ The strategy emits progress through the `ProgressContext` port defined in
   - phase 2 → `big_files_queue`; inner `processBigFile` adds
     `big_file:<relativePath>` for chunk pulses
   - phase 3 → `backfill`; phase 4 → `backfill:big_files`
+  - phase 5 → no sub-phase, fixed total = directly-grouped folder count
+  - phase 7 → `folders` then `files`, both `growing` (drained from
+    on-disk async generators)
 - **Total mode**: phase 1, phase 3, and any other streaming-iterator loop
   use `total: { kind: "growing" }` (denominator grows as `source.scan`
   yields). Phases 2 and 4, plus the big-file chunk pool, know their size

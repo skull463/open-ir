@@ -9,6 +9,7 @@ import type { MetaPaths } from "src/types/meta-paths.ts";
 import { encodeMetaPath } from "src/pipeline/paths.ts";
 import { withConcurrency } from "src/pipeline/concurrency.ts";
 import { throwIfCancelled, CancellationError } from "src/pipeline/cancellation.ts";
+import type { ProgressContext } from "src/progress/types.ts";
 import { iterateCondensed } from "./big-file/storage.ts";
 import { directFolderOf } from "./folder-path.ts";
 import { FOLDER_ANALYSIS_SYSTEM_PROMPT, folderAnalysisUserPrompt } from "./prompts/folder-summary.ts";
@@ -92,36 +93,48 @@ export async function runFolderSummaryPhase(
   knowledgeId: string,
   metaPaths: MetaPaths,
   llmCallContext?: AskLlmOptions,
+  progressContext?: ProgressContext,
 ): Promise<{ succeeded: number; failed: number }> {
   const concurrentWorkers = getConfigValue(Config.ConcurrentWorkers);
   const limit = withConcurrency(concurrentWorkers);
   const groups = await groupByDirectFolder(metaPaths);
   let succeeded = 0;
   let failed = 0;
-  const tasks: Promise<void>[] = [];
-  for (const [folderPath, files] of groups.entries()) {
-    tasks.push(
-      limit(async () => {
-        try {
-          throwIfCancelled(knowledgeId);
-          const summary = await summariseFolder(folderPath, files, llmCallContext);
-          if (summary !== null) {
-            await persistFolderSummary(metaPaths, summary);
-            succeeded += 1;
-          } else {
+  const reporter = progressContext?.reporter({
+    phase: "folder_analysis",
+    total: { kind: "fixed", total: groups.size },
+  });
+  await reporter?.start();
+  try {
+    const tasks: Promise<void>[] = [];
+    for (const [folderPath, files] of groups.entries()) {
+      tasks.push(
+        limit(async () => {
+          try {
+            throwIfCancelled(knowledgeId);
+            const summary = await summariseFolder(folderPath, files, llmCallContext);
+            if (summary !== null) {
+              await persistFolderSummary(metaPaths, summary);
+              succeeded += 1;
+            } else {
+              failed += 1;
+            }
+          } catch (cause: unknown) {
+            if (cause instanceof CancellationError) {
+              throw cause;
+            }
             failed += 1;
+            logger.warn(`phase5: folder summary failed for ${folderPath || "<root>"}`);
+          } finally {
+            reporter?.increment(1, { fileName: folderPath || "<root>" });
           }
-        } catch (cause: unknown) {
-          if (cause instanceof CancellationError) {
-            throw cause;
-          }
-          failed += 1;
-          logger.warn(`phase5: folder summary failed for ${folderPath || "<root>"}`);
-        }
-      }),
-    );
+        }),
+      );
+    }
+    await Promise.all(tasks);
+  } finally {
+    reporter?.stop();
   }
-  await Promise.all(tasks);
   logger.info(`phase5 done: foldersSummarised=${succeeded} failed=${failed}`);
   return { succeeded, failed };
 }

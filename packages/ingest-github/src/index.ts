@@ -35,7 +35,11 @@ function buildRunner(
     buildUserPrompt: buildFileAnalysisUserPrompt,
   });
   const strategy = createFlatFolderStrategy({ fileAnalyzer, progressContextFactory });
-  const runnerDeps: Parameters<typeof createPipelineRunner>[0] = { reposRootDir: reposRoot(), strategy };
+  const runnerDeps: Parameters<typeof createPipelineRunner>[0] = {
+    reposRootDir: reposRoot(),
+    strategy,
+    progressContextFactory,
+  };
   if (sourceFactory !== undefined) {
     runnerDeps.sourceFactory = sourceFactory;
   }

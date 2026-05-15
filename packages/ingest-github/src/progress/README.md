@@ -15,7 +15,7 @@ A host binary supplies a `ProgressContextFactory(knowledgeId)`. `@bb/server` doe
 
 ## Public API
 
-- `ProgressPhase` — `"file_analysis" | "folder_analysis" | "indexing"`
+- `ProgressPhase` — `"clone" | "scan" | "file_analysis" | "folder_analysis" | "indexing"`. `clone` and `scan` are emitted by `runGithub` (the runner) before the strategy starts, so SSE clients see liveness during the network/disk-bound prelude. `file_analysis`, `folder_analysis`, and `indexing` are emitted by the strategy.
 - `ProgressTotalMode` — `{ kind: "fixed"; total }` or `{ kind: "growing"; initialTotal? }`
 - `ProgressReporterInput` — phase + sub-phase + total mode + optional restart-seed hook
 - `ProgressReporter` — `start / increment / incrementSeen / setTotal / stop`

@@ -15,7 +15,8 @@ export function buildLsCommand(): Command {
   const cmd = new Command("ls");
   cmd
     .description("List indexed knowledge entries.")
-    .option("-i, --interactive", "Use interactive selector to browse entries.")
+    .option("-i, --interactive", "Use interactive selector to browse entries.", true)
+    .option("--no-interactive", "Display a plain table instead of the interactive selector.")
     .action(runLs);
   return cmd;
 }
@@ -42,7 +43,7 @@ async function runLs(options: { interactive?: boolean }): Promise<void> {
       return;
     }
 
-    if (options.interactive === true) {
+    if (options.interactive !== false) {
       await promptLsInteractive(repos);
       return;
     }

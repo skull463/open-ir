@@ -53,23 +53,17 @@ true` (default). Consumed by `scan.ts` via the optional `skipDecider`
   with `{ knowledgeId, payload, branch }` and uses the returned reader +
   commit hash; the local clone is skipped. The factory may also return an
   `archiveSink` which the strategy then threads through to its
-  analyse phase. `resolveOrgId(payload)` returns
-  `payload.orgId ?? getConfigValue(Config.OrgId)` — the only place orgId
-  is resolved. `llmCallContextFromPayload(payload)` extracts the optional
-  `{ llmApiKey, llmProvider, llmModel }` overrides from the payload and
-  packs them into an `AskLlmOptions` bag stored on `StrategyContext.
-llmCallContext`, which every LLM call site downstream consumes. State
-  transitions (`CREATED → QUEUED → INGESTED → …`) are persisted to Mongo
-  - Neo4j via `transitionState`, and `CancellationError` is re-thrown
-    without flipping to FAILED. The optional `progressContextFactory`
-    is the runner's own `ProgressContext` source: `runGithub` emits
-    `phaseChanged("clone")` before `syncRepository` (or before the
-    `sourceFactory` call) and `phaseChanged("scan")` before invoking
-    `strategy.execute`, so SSE clients see liveness during the
-    network/disk-bound prelude. On a non-`CancellationError` throw the
-    runner emits `failed(message)` only when the strategy has not yet
-    started — once `strategy.execute` is reached, the strategy owns
-    terminal emission and the runner stays silent to avoid double-FAILED.
+  analyse phase. State transitions (`CREATED → QUEUED → INGESTED → …`) are
+  persisted to Mongo + Neo4j via `transitionState`, and `CancellationError`
+  is re-thrown without flipping to FAILED. The optional
+  `progressContextFactory` is the runner's own `ProgressContext` source:
+  `runGithub` emits `phaseChanged("clone")` before `syncRepository` (or before the
+  `sourceFactory` call) and `phaseChanged("scan")` before invoking
+  `strategy.execute`, so SSE clients see liveness during the
+  network/disk-bound prelude. On a non-`CancellationError` throw the
+  runner emits `failed(message)` only when the strategy has not yet
+  started — once `strategy.execute` is reached, the strategy owns
+  terminal emission and the runner stays silent to avoid double-FAILED.
 - `pull.ts` — `runPull(msg, pullFactory?, progressContextFactory?)` orchestrates the pull job.
   Reads `repoUrl` and `branch` directly off `knowledge.info.*` (loaded via
   `@bb/mongo.getKnowledge`). The `KnowledgeSource` discriminator (`kind`) is
@@ -84,7 +78,6 @@ archiveSink?}` and `runPull` skips `syncRepository` + `materialiseEndpoints`
     `analyseChangedFiles` (now reading via `SourceReader`),
     `processBigFilesQueue`, `backfillMissingFields`, `backfillBigFiles`,
     `runSelectiveFolderSummary`, `summariseRepo`, `storePullAnalysis`.
-    Mirrors `run.ts` for `llmCallContext` extraction from payload.
     Mirrors the index-side strategy orchestrator for progress: builds one
     `ProgressContext` per job from the optional `progressContextFactory`
     (default `nullProgressContextFactory`), emits `phaseChanged` at
@@ -92,11 +85,19 @@ archiveSink?}` and `runPull` skips `syncRepository` + `materialiseEndpoints`
     the context into every phase that takes a `progressContext?` field,
     and finishes with `completed()` on success or `failed(message)` on a
     non-`CancellationError` throw.
-- `pull-helpers.ts` — small pure helpers extracted from `pull.ts` to keep it
-  under the 300-line cap: `persistPullStats` writes the per-commit row into
-  `processing_stats`, `repoNameFromUrl` parses an owner/repo display name out
-  of a GitHub URL with a graceful fallback, and `describe` flattens an
-  `unknown` cause to a short string for `IngestError` messages.
+- `stats.ts` — shared helpers for handling all ingestion processing statistics,
+  repository name resolutions, and error-string descriptions: `persistStats`
+  writes the per-commit row into `processing_stats`, `repoNameFromUrl` parses
+  an owner/repo display name out of a GitHub URL with a graceful fallback, and
+  `describe` flattens an `unknown` cause to a short string for `IngestError`
+  messages.
+- `context.ts` — shared helpers to resolve pipeline organization IDs and parse
+  optional LLM context parameter overrides from payload messages:
+  `resolveOrgId(payload)` returns `payload.orgId ?? getConfigValue(Config.OrgId)`
+  (the only place orgId is resolved), and `llmCallContextFromPayload(payload)`
+  extracts the optional `{ llmApiKey, llmProvider, llmModel }` overrides
+  from the payload and packs them into an `AskLlmOptions` bag stored on
+  `StrategyContext.llmCallContext`.
 - `branch.ts` — `resolveBranch(knowledgeId, payload)`. Defaults to `main` when
   the payload omits it; rejects branch names that don't match `^[\w./-]+$`
   with `IngestError` (defence against shell-injection into git args).
@@ -114,10 +115,10 @@ archiveSink?}` and `runPull` skips `syncRepository` + `materialiseEndpoints`
 - Sibling files in this folder may import each other.
 - Down: `src/types/*` only (intra-package, via the `src/*` alias).
 - Up: `@bb/config`, `@bb/types`, `@bb/errors`, `@bb/logger`, `node:*`.
-- `run.ts` additionally imports `@bb/mongo`, `@bb/neo4j`, and `@bb/llm`
-  for state transitions, graph state writes, and cost estimation
-  respectively — it is the orchestrator that owns those side effects so
-  the strategies stay pure.
+- `run.ts` and `pull.ts` additionally import `@bb/mongo` and `@bb/neo4j`
+  for state transitions and graph state writes respectively.
+- `stats.ts` imports `@bb/mongo` and `@bb/llm` for persisting stats and
+  estimating cost respectively.
 - Forbidden: importing from `../strategies`, `../adapters`, `../handlers`.
 
 ## Invariants

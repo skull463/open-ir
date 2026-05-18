@@ -7,12 +7,18 @@ export enum KnowledgeState {
   Failed = "FAILED",
 }
 
+export interface CommitHashRecord {
+  hash: string;
+  inputTokens: string;
+  outputTokens: string;
+}
+
 export interface GithubKnowledgeSource {
   kind: "github";
   /** Current head pointer — the most recently indexed commit. */
   commitId?: string;
   /** Every commit this knowledge has been indexed at, oldest → newest. Pull appends to this list. */
-  commitHashes?: string[];
+  commitHashes?: (string | CommitHashRecord)[];
 }
 
 export interface LocalKnowledgeSource {

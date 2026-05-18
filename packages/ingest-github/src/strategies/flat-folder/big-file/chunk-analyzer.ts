@@ -32,6 +32,7 @@ export async function analyzeChunk(chunk: FileChunk, llmCallContext?: AskLlmOpti
       endLine: chunk.endLine,
       language,
       analysis,
+      tokenUsage: { inputTokens: response.usage.inputTokens, outputTokens: response.usage.outputTokens },
     };
   } catch (cause: unknown) {
     const msg = cause instanceof Error ? cause.message : String(cause);

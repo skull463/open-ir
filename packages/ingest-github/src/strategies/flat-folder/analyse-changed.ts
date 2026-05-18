@@ -33,6 +33,7 @@ export interface AnalyseChangedResult {
   oversizedStubs: number;
   skipped: number;
   failed: number;
+  tokenUsage: { inputTokens: number; outputTokens: number };
 }
 
 /**
@@ -77,6 +78,8 @@ export async function analyseChangedFiles(input: AnalyseChangedInput): Promise<A
   let oversizedStubs = 0;
   let skipped = 0;
   let failed = 0;
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
 
   const pending: Promise<void>[] = [];
 
@@ -190,6 +193,10 @@ export async function analyseChangedFiles(input: AnalyseChangedInput): Promise<A
                 content: fileContent,
               });
             }
+            if (condensed.tokenUsage) {
+              totalInputTokens += condensed.tokenUsage.inputTokens;
+              totalOutputTokens += condensed.tokenUsage.outputTokens;
+            }
             smallFilesAnalysed += 1;
           } catch (cause: unknown) {
             if (cause instanceof CancellationError) {
@@ -223,6 +230,7 @@ export async function analyseChangedFiles(input: AnalyseChangedInput): Promise<A
     oversizedStubs,
     skipped,
     failed,
+    tokenUsage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
   };
 }
 

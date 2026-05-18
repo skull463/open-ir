@@ -1,9 +1,8 @@
-import { Config, KnowledgeState, type GithubPullPayload, type JobMessage } from "@bb/types";
-import { getConfigValue } from "@bb/config";
+import { KnowledgeState, type GithubPullPayload, type JobMessage } from "@bb/types";
 import { getKnowledge, setKnowledgeCommit, setKnowledgeState } from "@bb/mongo";
 import { setKnowledgeStateInGraph, snapshotFilesToVersion, type NodeScope } from "@bb/neo4j";
-import { type AskLlmOptions } from "@bb/llm";
-import { describe, persistPullStats, repoNameFromUrl } from "./pull-helpers.ts";
+import { describe, persistStats, repoNameFromUrl } from "./stats.ts";
+import { resolveOrgId, llmCallContextFromPayload } from "./context.ts";
 import { IngestError, KnowledgeNotFoundError } from "@bb/errors";
 import { logger } from "@bb/logger";
 import { ensureMetaDirs, metaPathsFor, repoCloneDir, ensureReposRoot } from "./paths.ts";
@@ -30,31 +29,6 @@ import {
 } from "src/strategies/flat-folder/prompts/file-analysis.ts";
 
 const COMMIT_HASH_RE = /^[0-9a-f]{40}$/u;
-
-function resolveOrgId(payload: { orgId?: string }): string {
-  if (typeof payload.orgId === "string" && payload.orgId.length > 0) {
-    return payload.orgId;
-  }
-  return getConfigValue(Config.OrgId);
-}
-
-function llmCallContextFromPayload(payload: {
-  llmApiKey?: string;
-  llmProvider?: string;
-  llmModel?: string;
-}): AskLlmOptions | undefined {
-  const ctx: AskLlmOptions = {};
-  if (payload.llmApiKey !== undefined && payload.llmApiKey.length > 0) {
-    ctx.apiKey = payload.llmApiKey;
-  }
-  if (payload.llmProvider === "openrouter" || payload.llmProvider === "ollama") {
-    ctx.provider = payload.llmProvider;
-  }
-  if (payload.llmModel !== undefined && payload.llmModel.length > 0) {
-    ctx.model = payload.llmModel;
-  }
-  return Object.keys(ctx).length > 0 ? ctx : undefined;
-}
 
 export async function runPull(
   msg: JobMessage<GithubPullPayload>,
@@ -193,7 +167,9 @@ export async function runPull(
     if (archiveSink !== undefined) {
       analyseChangedInput.archiveSink = archiveSink;
     }
-    await analyseChangedFiles(analyseChangedInput);
+    const phase1 = await analyseChangedFiles(analyseChangedInput);
+    let totalInputTokens = phase1.tokenUsage.inputTokens;
+    let totalOutputTokens = phase1.tokenUsage.outputTokens;
 
     logger.info(`pull: phase process big files starting`);
     throwIfCancelled(knowledgeId);
@@ -206,7 +182,9 @@ export async function runPull(
     if (llmCallContext !== undefined) {
       processBigFilesInput.llmCallContext = llmCallContext;
     }
-    await processBigFilesQueue(processBigFilesInput);
+    const phase2 = await processBigFilesQueue(processBigFilesInput);
+    totalInputTokens += phase2.tokenUsage.inputTokens;
+    totalOutputTokens += phase2.tokenUsage.outputTokens;
 
     logger.info(`pull: phase backfill fields starting`);
     throwIfCancelled(knowledgeId);
@@ -236,14 +214,18 @@ export async function runPull(
     if (llmCallContext !== undefined) {
       selectiveInput.llmCallContext = llmCallContext;
     }
-    await runSelectiveFolderSummary(selectiveInput);
+    const phase5 = await runSelectiveFolderSummary(selectiveInput);
+    totalInputTokens += phase5.tokenUsage.inputTokens;
+    totalOutputTokens += phase5.tokenUsage.outputTokens;
 
     progressContext.phaseChanged("indexing");
     logger.info(`pull: phase repo summary starting`);
     throwIfCancelled(knowledgeId);
     const orgId = resolveOrgId({ ...(knowledge.source.kind === "github" ? {} : {}) });
     const scope: NodeScope = { orgId, knowledgeId, repoId: knowledgeId };
-    const repoSummary = await summariseRepo(knowledgeId, metaPaths, llmCallContext);
+    const { summary: repoSummary, tokenUsage: repoUsage } = await summariseRepo(knowledgeId, metaPaths, llmCallContext);
+    totalInputTokens += repoUsage.inputTokens;
+    totalOutputTokens += repoUsage.outputTokens;
     if (repoSummary !== null) {
       await persistRepoSummary(metaPaths, makeRepoSummaryEnvelope(knowledgeId, orgId, repoSummary));
     }
@@ -259,15 +241,16 @@ export async function runPull(
       affectedFolders,
     });
 
-    await persistPullStats({
+    const stats = await persistStats({
       knowledgeId,
       repoName: repoNameFromUrl(repoUrl),
       commitHash: targetCommit,
       filesAnalyzed: stored.filesUpserted,
       foldersSummarised: stored.foldersUpserted,
       processingTimeMs: Date.now() - startedAt,
+      tokenUsage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
     });
-    await setKnowledgeCommit(knowledgeId, targetCommit);
+    await setKnowledgeCommit(knowledgeId, targetCommit, String(stats.inputTokens), String(stats.outputTokens));
     await transitionState(knowledgeId, KnowledgeState.Processed);
     progressContext.completed("github_pull complete");
     logger.info(

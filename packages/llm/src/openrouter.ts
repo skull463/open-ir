@@ -2,6 +2,7 @@
 import { getConfigValue } from "@bb/config";
 import { Config } from "@bb/types";
 import { LlmConfigError, LlmError } from "@bb/errors";
+import { tokenLen } from "./tokenizer.ts";
 import type { AskLlmOptions, AskLlmResult } from "./client.ts";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -94,8 +95,12 @@ export async function callOpenRouter(prompt: string, opts: AskLlmOptions, timeou
     content,
     usage: {
       model: typeof json.model === "string" && json.model.length > 0 ? json.model : model,
-      inputTokens: typeof json.usage?.prompt_tokens === "number" ? json.usage.prompt_tokens : 0,
-      outputTokens: typeof json.usage?.completion_tokens === "number" ? json.usage.completion_tokens : 0,
+      inputTokens:
+        typeof json.usage?.prompt_tokens === "number"
+          ? json.usage.prompt_tokens
+          : tokenLen((opts.systemPrompt ?? "") + prompt),
+      outputTokens:
+        typeof json.usage?.completion_tokens === "number" ? json.usage.completion_tokens : tokenLen(content),
     },
   };
 }

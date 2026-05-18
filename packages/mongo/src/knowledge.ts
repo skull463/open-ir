@@ -26,14 +26,21 @@ export async function setKnowledgeState(knowledgeId: string, state: KnowledgeSta
  *
  * Throws `KnowledgeNotFoundError` if the document doesn't exist.
  */
-export async function setKnowledgeCommit(knowledgeId: string, commitHash: string): Promise<void> {
+export async function setKnowledgeCommit(
+  knowledgeId: string,
+  commitHash: string,
+  inputTokens: string = "",
+  outputTokens: string = "",
+): Promise<void> {
   const result = await _getDb()
     .collection(Collections.Knowledge)
     .updateOne(
       { knowledgeId },
       {
         $set: { "source.commitId": commitHash, updatedAt: new Date() },
-        $addToSet: { "source.commitHashes": commitHash },
+        $addToSet: {
+          "source.commitHashes": { hash: commitHash, inputTokens, outputTokens },
+        },
       },
     );
   if (result.matchedCount === 0) {

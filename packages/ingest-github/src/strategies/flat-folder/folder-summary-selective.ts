@@ -22,6 +22,7 @@ export interface SelectiveFolderSummaryResult {
   succeeded: number;
   failed: number;
   skipped: number;
+  tokenUsage: { inputTokens: number; outputTokens: number };
 }
 
 /**
@@ -38,6 +39,8 @@ export async function runSelectiveFolderSummary(
   let succeeded = 0;
   let failed = 0;
   let skipped = 0;
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
   const tasks: Promise<void>[] = [];
   for (const [folderPath, files] of groups.entries()) {
     if (!input.affectedFolders.has(folderPath)) {
@@ -48,7 +51,9 @@ export async function runSelectiveFolderSummary(
       limit(async () => {
         try {
           throwIfCancelled(input.knowledgeId);
-          const summary = await summariseFolder(folderPath, files, input.llmCallContext);
+          const { summary, tokenUsage } = await summariseFolder(folderPath, files, input.llmCallContext);
+          totalInputTokens += tokenUsage.inputTokens;
+          totalOutputTokens += tokenUsage.outputTokens;
           if (summary !== null) {
             await persistFolderSummary(input.metaPaths, summary);
             succeeded += 1;
@@ -67,5 +72,5 @@ export async function runSelectiveFolderSummary(
   }
   await Promise.all(tasks);
   logger.info(`pull-folder-summary done: succeeded=${succeeded} failed=${failed} skipped=${skipped}`);
-  return { succeeded, failed, skipped };
+  return { succeeded, failed, skipped, tokenUsage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens } };
 }

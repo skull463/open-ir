@@ -21,6 +21,7 @@ export interface ProcessBigFilesResult {
   cached: number;
   failed: number;
   skippedOversized: number;
+  tokenUsage: { inputTokens: number; outputTokens: number };
 }
 
 export async function processBigFilesQueue(input: ProcessBigFilesInput): Promise<ProcessBigFilesResult> {
@@ -29,6 +30,8 @@ export async function processBigFilesQueue(input: ProcessBigFilesInput): Promise
   let cached = 0;
   let failed = 0;
   let skippedOversized = 0;
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
 
   const reporter = input.progressContext?.reporter({
     phase: "file_analysis",
@@ -67,7 +70,7 @@ export async function processBigFilesQueue(input: ProcessBigFilesInput): Promise
         continue;
       }
       try {
-        await processBigFile({
+        const condensed = await processBigFile({
           knowledgeId: input.knowledgeId,
           metaPaths: input.metaPaths,
           relativePath: entry.relativePath,
@@ -77,6 +80,10 @@ export async function processBigFilesQueue(input: ProcessBigFilesInput): Promise
           ...(input.progressContext !== undefined ? { progressContext: input.progressContext } : {}),
         });
         processed += 1;
+        if (condensed.tokenUsage) {
+          totalInputTokens += condensed.tokenUsage.inputTokens;
+          totalOutputTokens += condensed.tokenUsage.outputTokens;
+        }
       } catch (cause: unknown) {
         if (cause instanceof CancellationError) {
           throw cause;
@@ -89,7 +96,13 @@ export async function processBigFilesQueue(input: ProcessBigFilesInput): Promise
     logger.info(
       `phase2 done: processed=${processed} cached=${cached} failed=${failed} skippedOversized=${skippedOversized}`,
     );
-    return { processed, cached, failed, skippedOversized };
+    return {
+      processed,
+      cached,
+      failed,
+      skippedOversized,
+      tokenUsage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
+    };
   } finally {
     reporter?.stop();
   }

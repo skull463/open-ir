@@ -30,6 +30,7 @@ export interface StrategyResult {
   foldersSummarised: number;
   repoSummarised: boolean;
   graphNodesWritten: number;
+  tokenUsage: { inputTokens: number; outputTokens: number };
 }
 
 export interface IngestStrategy {

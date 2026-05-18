@@ -37,7 +37,11 @@ export declare const nullProgressContextFactory: ProgressContextFactory;
 export declare function registerGithubWorkers(deps?: RegisterGithubWorkersDeps): void;
 export declare function registerLocalIngestWorker(): void;
 
-export declare const createFlatFolderStrategy: (...args: any[]) => any;
+export interface FlatFolderStrategyDeps {
+  fileAnalyzer: FileAnalyzer;
+  progressContextFactory?: ProgressContextFactory;
+}
+export declare function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestStrategy;
 export declare const createLlmFileAnalyzer: (...args: any[]) => any;
 export declare const createDiskSourceReader: (...args: any[]) => any;
 export declare const createPipelineRunner: (...args: any[]) => any;

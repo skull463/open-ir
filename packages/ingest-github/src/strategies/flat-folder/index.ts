@@ -45,6 +45,8 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
           phase1Input.llmCallContext = llmCallContext;
         }
         const phase1 = await classifyAndAnalyseSmall(phase1Input);
+        let totalInputTokens = phase1.tokenUsage.inputTokens;
+        let totalOutputTokens = phase1.tokenUsage.outputTokens;
 
         logger.info(`flat-folder: phase2 (process big files) starting`);
         throwIfCancelled(knowledgeId);
@@ -58,6 +60,8 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
           phase2Input.llmCallContext = llmCallContext;
         }
         const phase2 = await processBigFilesQueue(phase2Input);
+        totalInputTokens += phase2.tokenUsage.inputTokens;
+        totalOutputTokens += phase2.tokenUsage.outputTokens;
 
         logger.info(`flat-folder: phase3 (backfill missing fields) starting`);
         throwIfCancelled(knowledgeId);
@@ -80,11 +84,19 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
         logger.info(`flat-folder: phase5 (folder summaries) starting`);
         throwIfCancelled(knowledgeId);
         const phase5 = await runFolderSummaryPhase(knowledgeId, metaPaths, llmCallContext, progressContext);
+        totalInputTokens += phase5.tokenUsage.inputTokens;
+        totalOutputTokens += phase5.tokenUsage.outputTokens;
 
         progressContext.phaseChanged("indexing");
         logger.info(`flat-folder: phase6 (repo summary) starting`);
         throwIfCancelled(knowledgeId);
-        const repoSummary = await summariseRepo(knowledgeId, metaPaths, llmCallContext);
+        const { summary: repoSummary, tokenUsage: repoUsage } = await summariseRepo(
+          knowledgeId,
+          metaPaths,
+          llmCallContext,
+        );
+        totalInputTokens += repoUsage.inputTokens;
+        totalOutputTokens += repoUsage.outputTokens;
         let repoSummarised = false;
         if (repoSummary !== null) {
           await persistRepoSummary(metaPaths, makeRepoSummaryEnvelope(knowledgeId, orgId, repoSummary));
@@ -108,6 +120,7 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
           foldersSummarised: phase5.succeeded,
           repoSummarised,
           graphNodesWritten: phase7.nodesWritten,
+          tokenUsage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
         };
       } catch (cause: unknown) {
         const message = cause instanceof Error ? cause.message : String(cause);

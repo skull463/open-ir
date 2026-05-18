@@ -78,6 +78,12 @@ export async function processBigFile(input: ProcessBigFileInput): Promise<Conden
 
   const chunkPaths = chunks.map((_, i) => `chunks/${encodeFolder(input.relativePath)}/chunk-${i}.json`);
   const totalTokenCount = chunks.reduce((acc, c) => acc + c.tokenCount, 0);
+
+  const chunkInputTokens = results.reduce((acc, r) => acc + (r.tokenUsage?.inputTokens ?? 0), 0);
+  const chunkOutputTokens = results.reduce((acc, r) => acc + (r.tokenUsage?.outputTokens ?? 0), 0);
+  const totalInputTokens = chunkInputTokens + (merged.tokenUsage?.inputTokens ?? 0);
+  const totalOutputTokens = chunkOutputTokens + (merged.tokenUsage?.outputTokens ?? 0);
+
   const manifest: HugeFileManifest = {
     relativePath: input.relativePath,
     totalChunks: chunks.length,
@@ -98,6 +104,7 @@ export async function processBigFile(input: ProcessBigFileInput): Promise<Conden
     totalTokenCount,
     analysedAt: new Date().toISOString(),
     analysis: merged.analysis,
+    tokenUsage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
   };
   await saveCondensed(input.metaPaths, condensed);
   return condensed;

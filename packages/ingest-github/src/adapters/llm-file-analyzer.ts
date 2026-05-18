@@ -42,9 +42,11 @@ export function createLlmFileAnalyzer(deps: LlmFileAnalyzerDeps): FileAnalyzer {
       const userPrompt = deps.buildUserPrompt(input);
       const t0 = performance.now();
       let raw: RawAnalysisJson | null = null;
+      let usage: { inputTokens: number; outputTokens: number } | undefined;
       try {
         const response = await askJsonLLM<RawAnalysisJson>(systemPrompt, userPrompt, input.llmCallContext ?? {});
         raw = response.result;
+        usage = { inputTokens: response.usage.inputTokens, outputTokens: response.usage.outputTokens };
         if (raw === null) {
           logger.warn(`llm-file-analyzer: ${input.relativePath} returned unparseable JSON`);
         }
@@ -53,9 +55,10 @@ export function createLlmFileAnalyzer(deps: LlmFileAnalyzerDeps): FileAnalyzer {
         logger.warn(`llm-file-analyzer: ${input.relativePath} askJsonLLM failed: ${msg}`);
       }
       if (raw === null) {
-        return { language: FALLBACK_LANGUAGE, analysis: emptyFileAnalysis() };
+        return { language: FALLBACK_LANGUAGE, analysis: emptyFileAnalysis(), tokenUsage: usage };
       }
       const shaped = shapeAnalysis(raw);
+      shaped.tokenUsage = usage;
       logger.info(
         `llm-file-analyzer: ✓ ${input.relativePath} (${Math.round(performance.now() - t0)}ms, lang=${shaped.language})`,
       );

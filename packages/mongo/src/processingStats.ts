@@ -25,7 +25,9 @@ export interface RecordProcessingStatsInput {
 
 const COST_UNKNOWN = -1;
 
-export async function recordProcessingStats(input: RecordProcessingStatsInput): Promise<void> {
+export async function recordProcessingStats(
+  input: RecordProcessingStatsInput,
+): Promise<{ inputTokens: number; outputTokens: number }> {
   const now = new Date();
   const totals = sumModelTokens(input.modelTokens);
   await _getDb()
@@ -54,6 +56,7 @@ export async function recordProcessingStats(input: RecordProcessingStatsInput): 
       },
       { upsert: true },
     );
+  return totals;
 }
 
 export async function aggregateStats(): Promise<StatsResponse> {

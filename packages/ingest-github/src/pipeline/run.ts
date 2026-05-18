@@ -1,8 +1,6 @@
-import { Config, KnowledgeState, type GithubIndexPayload, type LocalIngestPayload } from "@bb/types";
-import { getConfigValue } from "@bb/config";
-import { recordProcessingStats, setKnowledgeBranch, setKnowledgeCommit, setKnowledgeState } from "@bb/mongo";
+import { KnowledgeState, type GithubIndexPayload, type LocalIngestPayload } from "@bb/types";
+import { setKnowledgeBranch, setKnowledgeCommit, setKnowledgeState } from "@bb/mongo";
 import { setKnowledgeBranchInGraph, setKnowledgeStateInGraph } from "@bb/neo4j";
-import { estimateCostFromBreakdown, type AskLlmOptions } from "@bb/llm";
 import { IngestError } from "@bb/errors";
 import { logger } from "@bb/logger";
 import type { IngestRunnerDeps, IngestRunnerInput } from "src/types/ingest-runner.ts";
@@ -15,31 +13,8 @@ import { readHeadCommitHash, syncRepository } from "./source.ts";
 import { resolveBranch } from "./branch.ts";
 import { CancellationError, clearCancellation, throwIfCancelled } from "./cancellation.ts";
 import { createDiskSourceReader } from "./disk-source-reader.ts";
-
-function resolveOrgId(payload: { orgId?: string }): string {
-  if (typeof payload.orgId === "string" && payload.orgId.length > 0) {
-    return payload.orgId;
-  }
-  return getConfigValue(Config.OrgId);
-}
-
-function llmCallContextFromPayload(payload: {
-  llmApiKey?: string;
-  llmProvider?: string;
-  llmModel?: string;
-}): AskLlmOptions | undefined {
-  const ctx: AskLlmOptions = {};
-  if (payload.llmApiKey !== undefined && payload.llmApiKey.length > 0) {
-    ctx.apiKey = payload.llmApiKey;
-  }
-  if (payload.llmProvider === "openrouter" || payload.llmProvider === "ollama") {
-    ctx.provider = payload.llmProvider;
-  }
-  if (payload.llmModel !== undefined && payload.llmModel.length > 0) {
-    ctx.model = payload.llmModel;
-  }
-  return Object.keys(ctx).length > 0 ? ctx : undefined;
-}
+import { resolveOrgId, llmCallContextFromPayload } from "./context.ts";
+import { describe, persistStats, repoNameFromUrl, localRepoName } from "./stats.ts";
 
 export interface CreatePipelineRunnerDeps {
   reposRootDir: string;
@@ -148,15 +123,16 @@ async function runGithub(
     strategyStarted = true;
     const result = await strategy.execute(strategyInput);
 
-    await persistStats({
+    const stats = await persistStats({
       knowledgeId,
       repoName: repoNameFromUrl(payload.repoUrl),
       commitHash,
       filesAnalyzed: result.filesAnalyzed,
       foldersSummarised: result.foldersSummarised,
       processingTimeMs: Date.now() - startedAt,
+      tokenUsage: result.tokenUsage,
     });
-    await setKnowledgeCommit(knowledgeId, commitHash);
+    await setKnowledgeCommit(knowledgeId, commitHash, String(stats.inputTokens), String(stats.outputTokens));
     await transitionState(knowledgeId, KnowledgeState.Processed);
 
     const totalMs = Date.now() - startedAt;
@@ -170,6 +146,7 @@ async function runGithub(
       repoSummarised: result.repoSummarised,
       graphNodesWritten: result.graphNodesWritten,
       commitHash,
+      tokenUsage: result.tokenUsage,
     };
   } catch (cause: unknown) {
     if (cause instanceof CancellationError) {
@@ -213,6 +190,7 @@ async function runLocal(strategy: IngestStrategy, payload: LocalIngestPayload): 
       filesAnalyzed: result.filesAnalyzed,
       foldersSummarised: result.foldersSummarised,
       processingTimeMs: Date.now() - startedAt,
+      tokenUsage: result.tokenUsage,
     });
     await transitionState(knowledgeId, KnowledgeState.Processed);
     return {
@@ -221,6 +199,7 @@ async function runLocal(strategy: IngestStrategy, payload: LocalIngestPayload): 
       repoSummarised: result.repoSummarised,
       graphNodesWritten: result.graphNodesWritten,
       commitHash,
+      tokenUsage: result.tokenUsage,
     };
   } catch (cause: unknown) {
     if (cause instanceof CancellationError) {
@@ -237,57 +216,6 @@ async function transitionState(knowledgeId: string, state: KnowledgeState): Prom
   await setKnowledgeStateInGraph(knowledgeId, state).catch(() => undefined);
 }
 
-interface PersistStatsInput {
-  knowledgeId: string;
-  repoName: string;
-  commitHash: string;
-  filesAnalyzed: number;
-  foldersSummarised: number;
-  processingTimeMs: number;
-}
-
-async function persistStats(input: PersistStatsInput): Promise<void> {
-  const estimatedCost = await estimateCostFromBreakdown({});
-  await recordProcessingStats({
-    knowledgeId: input.knowledgeId,
-    repoName: input.repoName,
-    commitHash: input.commitHash,
-    modelTokens: {},
-    estimatedCost,
-    totalBatches: 1,
-    totalFiles: input.filesAnalyzed,
-    totalFolders: input.foldersSummarised,
-    filesAnalyzed: input.filesAnalyzed,
-    processingTimeMs: input.processingTimeMs,
-  });
-}
-
 function isGithubPayload(payload: GithubIndexPayload | LocalIngestPayload): payload is GithubIndexPayload {
   return (payload as GithubIndexPayload).repoUrl !== undefined;
-}
-
-function repoNameFromUrl(repoUrl: string): string {
-  try {
-    const segments = new URL(repoUrl).pathname
-      .split("/")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-    const repo = segments.at(-1)?.replace(/\.git$/u, "");
-    const owner = segments.at(-2);
-    if (owner !== undefined && repo !== undefined) {
-      return `${owner}/${repo}`;
-    }
-  } catch {
-    // fall through
-  }
-  return repoUrl;
-}
-
-function localRepoName(rootDir: string): string {
-  const segments = rootDir.split("/").filter((s) => s.length > 0);
-  return segments.at(-1) ?? rootDir;
-}
-
-function describe(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
 }

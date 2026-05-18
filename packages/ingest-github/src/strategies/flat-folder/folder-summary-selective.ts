@@ -1,6 +1,7 @@
 import { logger } from "@bb/logger";
 import { Config } from "@bb/types";
 import { getConfigValue } from "@bb/config";
+import type { AskLlmOptions } from "@bb/llm";
 import type { MetaPaths } from "src/types/meta-paths.ts";
 import { withConcurrency } from "src/pipeline/concurrency.ts";
 import { throwIfCancelled, CancellationError } from "src/pipeline/cancellation.ts";
@@ -14,6 +15,7 @@ export interface SelectiveFolderSummaryInput {
   knowledgeId: string;
   metaPaths: MetaPaths;
   affectedFolders: Set<string>;
+  llmCallContext?: AskLlmOptions;
 }
 
 export interface SelectiveFolderSummaryResult {
@@ -46,7 +48,7 @@ export async function runSelectiveFolderSummary(
       limit(async () => {
         try {
           throwIfCancelled(input.knowledgeId);
-          const summary = await summariseFolder(folderPath, files);
+          const summary = await summariseFolder(folderPath, files, input.llmCallContext);
           if (summary !== null) {
             await persistFolderSummary(input.metaPaths, summary);
             succeeded += 1;

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Config } from "@bb/types";
 import { getConfigValue } from "@bb/config";
+import type { AskLlmOptions } from "@bb/llm";
 import { logger } from "@bb/logger";
 import type { ChunkAnalysisResult, HugeFileManifest } from "src/types/big-file.ts";
 import type { CondensedFileAnalysis } from "src/types/condensed-file-analysis.ts";
@@ -17,6 +18,7 @@ export interface ProcessBigFileInput {
   relativePath: string;
   content: string;
   sizeBytes: number;
+  llmCallContext?: AskLlmOptions;
 }
 
 export async function processBigFile(input: ProcessBigFileInput): Promise<CondensedFileAnalysis> {
@@ -43,7 +45,7 @@ export async function processBigFile(input: ProcessBigFileInput): Promise<Conden
         results[idx] = cached;
         continue;
       }
-      const analyzed = await analyzeChunk(chunk);
+      const analyzed = await analyzeChunk(chunk, input.llmCallContext);
       await saveChunk(input.metaPaths, analyzed);
       results[idx] = analyzed;
     }

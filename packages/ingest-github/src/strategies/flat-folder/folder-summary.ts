@@ -1,6 +1,6 @@
 import { readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { askJsonLLM } from "@bb/llm";
+import { askJsonLLM, type AskLlmOptions } from "@bb/llm";
 import { logger } from "@bb/logger";
 import { Config } from "@bb/types";
 import { getConfigValue } from "@bb/config";
@@ -39,10 +39,15 @@ interface FolderSummaryJson {
 export async function summariseFolder(
   folderPath: string,
   files: CondensedFileAnalysis[],
+  llmCallContext?: AskLlmOptions,
 ): Promise<FolderSummary | null> {
   const userPrompt = folderAnalysisUserPrompt(folderPath, files);
   try {
-    const response = await askJsonLLM<FolderSummaryJson>(FOLDER_ANALYSIS_SYSTEM_PROMPT, userPrompt);
+    const response = await askJsonLLM<FolderSummaryJson>(
+      FOLDER_ANALYSIS_SYSTEM_PROMPT,
+      userPrompt,
+      llmCallContext ?? {},
+    );
     if (response.result === null) {
       logger.warn(`summariseFolder: ${folderPath || "<root>"} returned unparseable JSON`);
       return null;
@@ -86,6 +91,7 @@ export async function* iterateFolderSummaries(metaPaths: MetaPaths): AsyncGenera
 export async function runFolderSummaryPhase(
   knowledgeId: string,
   metaPaths: MetaPaths,
+  llmCallContext?: AskLlmOptions,
 ): Promise<{ succeeded: number; failed: number }> {
   const concurrentWorkers = getConfigValue(Config.ConcurrentWorkers);
   const limit = withConcurrency(concurrentWorkers);
@@ -98,7 +104,7 @@ export async function runFolderSummaryPhase(
       limit(async () => {
         try {
           throwIfCancelled(knowledgeId);
-          const summary = await summariseFolder(folderPath, files);
+          const summary = await summariseFolder(folderPath, files, llmCallContext);
           if (summary !== null) {
             await persistFolderSummary(metaPaths, summary);
             succeeded += 1;

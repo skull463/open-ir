@@ -9,8 +9,9 @@ and repo summarisation (Phases 5 and 6) live as `folder-summary.ts` and
 ## Files
 
 - `classify-and-analyse-small.ts` — Phase 1.
-  `classifyAndAnalyseSmall({knowledgeId, repoDir, metaPaths, analyzer})`
-  walks `scanRepository(repoDir)` and per entry:
+  `classifyAndAnalyseSmall({knowledgeId, source, metaPaths, analyzer,
+skipDecider?, archiveSink?, llmCallContext?})` walks `source.scan({
+skipDecider, llmCallContext })` and per entry:
   - `kind === "oversized"` → write a stub via `buildOversizedStub` +
     `saveCondensed`, and append a `too-large` row to `bigFiles.json`.
   - token count > `Config.ContextWindowLimit` → buffer a
@@ -22,11 +23,12 @@ and repo summarisation (Phases 5 and 6) live as `folder-summary.ts` and
     buffered big-file list is flushed via `writeBigFiles` after all tasks
     drain.
 - `process-big-files.ts` — Phase 2.
-  `processBigFilesQueue({knowledgeId, repoDir, metaPaths})` reads
-  `bigFiles.json`, skips `too-large` entries (counted as
+  `processBigFilesQueue({knowledgeId, source, metaPaths, llmCallContext?})`
+  reads `bigFiles.json`, skips `too-large` entries (counted as
   `skippedOversized`), short-circuits when `inspect` returns `complete`
-  (counted as `cached`), reads the file from disk, and dispatches
-  `processBigFile` sequentially per file. Cancellation re-throws past the
+  (counted as `cached`), reads the file via `source.readFile`, and
+  dispatches `processBigFile` sequentially per file with the per-job
+  `llmCallContext` threaded through. Cancellation re-throws past the
   phase; other errors are logged per file and counted as `failed`.
 - `store-flat-analysis.ts` — Phase 7.
   `storeFlatAnalysis({scope, payload, branch, metaPaths})` ensures

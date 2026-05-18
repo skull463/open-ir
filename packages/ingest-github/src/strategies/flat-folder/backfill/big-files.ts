@@ -1,4 +1,5 @@
 import { logger } from "@bb/logger";
+import type { AskLlmOptions } from "@bb/llm";
 import type { MetaPaths } from "src/types/meta-paths.ts";
 import type { SourceReader } from "src/types/pipeline.ts";
 import { readBigFiles } from "src/strategies/flat-folder/big-file/detector.ts";
@@ -9,6 +10,7 @@ export interface BackfillBigFilesInput {
   knowledgeId: string;
   source: SourceReader;
   metaPaths: MetaPaths;
+  llmCallContext?: AskLlmOptions;
 }
 
 export interface BackfillBigFilesResult {
@@ -41,6 +43,7 @@ export async function backfillBigFiles(input: BackfillBigFilesInput): Promise<Ba
         relativePath: entry.relativePath,
         content,
         sizeBytes: entry.sizeBytes,
+        ...(input.llmCallContext !== undefined ? { llmCallContext: input.llmCallContext } : {}),
       });
       reCondensed += 1;
     } catch (cause: unknown) {

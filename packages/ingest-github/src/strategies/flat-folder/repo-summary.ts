@@ -1,5 +1,5 @@
 import { writeFile } from "node:fs/promises";
-import { askJsonLLM, tokenLen } from "@bb/llm";
+import { askJsonLLM, tokenLen, type AskLlmOptions } from "@bb/llm";
 import { logger } from "@bb/logger";
 import { Config } from "@bb/types";
 import { getConfigValue } from "@bb/config";
@@ -25,7 +25,11 @@ interface RepoSummaryJson {
   keyPatterns?: unknown;
 }
 
-export async function summariseRepo(knowledgeId: string, metaPaths: MetaPaths): Promise<RepoSummary | null> {
+export async function summariseRepo(
+  knowledgeId: string,
+  metaPaths: MetaPaths,
+  llmCallContext?: AskLlmOptions,
+): Promise<RepoSummary | null> {
   const folders: FolderSummary[] = [];
   for await (const f of iterateFolderSummaries(metaPaths)) {
     folders.push(f);
@@ -42,7 +46,7 @@ export async function summariseRepo(knowledgeId: string, metaPaths: MetaPaths): 
   const oneShotPrompt = buildRepoPromptFromFolders(infos);
   if (tokenLen(oneShotPrompt) + promptOverhead <= contextLimit) {
     throwIfCancelled(knowledgeId);
-    return await callRepoSummary(oneShotPrompt);
+    return await callRepoSummary(oneShotPrompt, llmCallContext);
   }
 
   logger.info(`phase6: repo prompt > ${contextLimit} tokens; batching`);
@@ -50,7 +54,7 @@ export async function summariseRepo(knowledgeId: string, metaPaths: MetaPaths): 
   const partials: string[] = [];
   for (const batch of batches) {
     throwIfCancelled(knowledgeId);
-    const partial = await callRepoSummary(buildRepoPromptFromFolders(batch));
+    const partial = await callRepoSummary(buildRepoPromptFromFolders(batch), llmCallContext);
     if (partial !== null) {
       partials.push(JSON.stringify(partial));
     }
@@ -62,12 +66,12 @@ export async function summariseRepo(knowledgeId: string, metaPaths: MetaPaths): 
     return JSON.parse(partials[0] ?? "null") as RepoSummary | null;
   }
   throwIfCancelled(knowledgeId);
-  return await callRepoSummary(buildRepoMergePrompt(partials));
+  return await callRepoSummary(buildRepoMergePrompt(partials), llmCallContext);
 }
 
-async function callRepoSummary(userPrompt: string): Promise<RepoSummary | null> {
+async function callRepoSummary(userPrompt: string, llmCallContext?: AskLlmOptions): Promise<RepoSummary | null> {
   try {
-    const response = await askJsonLLM<RepoSummaryJson>(REPO_SUMMARY_SYSTEM_PROMPT, userPrompt);
+    const response = await askJsonLLM<RepoSummaryJson>(REPO_SUMMARY_SYSTEM_PROMPT, userPrompt, llmCallContext ?? {});
     if (response.result === null) {
       return null;
     }

@@ -27,7 +27,7 @@ interface OpenRouterResponse {
 }
 
 export function resolveOpenRouterChain(opts: AskLlmOptions): string[] {
-  const apiKey = getConfigValue(Config.OpenrouterApiKey);
+  const apiKey = opts.apiKey ?? getConfigValue(Config.OpenrouterApiKey);
   if (apiKey.length === 0) {
     throw new LlmConfigError("bytebell keys set");
   }
@@ -45,7 +45,7 @@ export function resolveOpenRouterChain(opts: AskLlmOptions): string[] {
 }
 
 export async function callOpenRouter(prompt: string, opts: AskLlmOptions, timeoutMs: number): Promise<AskLlmResult> {
-  const apiKey = getConfigValue(Config.OpenrouterApiKey);
+  const apiKey = opts.apiKey ?? getConfigValue(Config.OpenrouterApiKey);
   const cappedChain = resolveOpenRouterChain(opts);
   const model = cappedChain[0] ?? opts.model ?? getConfigValue(Config.OpenrouterModel);
 

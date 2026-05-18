@@ -62,11 +62,14 @@ function tokenLen(text: string): number;
 function encodeTokens(text: string): number[];
 function decodeTokens(tokens: number[]): string;
 
+type LlmProviderName = "openrouter" | "ollama";
 interface AskLlmOptions {
   model?: string; // overrides Config.OpenrouterModel
   fallbackModels?: string[]; // overrides Config.OpenrouterFallbackModel1..4
   timeoutMs?: number; // default 90_000
   systemPrompt?: string; // optional system role message
+  apiKey?: string; // per-call OpenRouter key override (ignored for Ollama); skips Config.OpenrouterApiKey
+  provider?: LlmProviderName; // per-call provider override; skips Config.LlmProvider
 }
 interface AskLlmResult {
   content: string;
@@ -124,10 +127,19 @@ it. The cost ledger described in [docs/arch.md](../../docs/arch.md) is
    at `https://openrouter.ai/api/v1/chat/completions`; Ollama URL is
    user-configured via `Config.OllamaUrl` (default
    `http://localhost:11434`). Provider is selected by
-   `Config.LlmProvider`.
-2. **No env reads.** API key + model come from `getConfigValue(...)`. No
-   `process.env`, no `.env`. Repo-wide ESLint rule blocks `process.env`.
-3. **OpenRouter-native fallback chain.** The request body sends
+   `Config.LlmProvider`, or by `opts.provider` when the caller wants to
+   override on a per-call basis.
+2. **Per-call credential override.** When `opts.apiKey` is set, the
+   OpenRouter call uses it directly and skips `Config.OpenrouterApiKey`.
+   This is the extension point that lets downstream consumers (e.g. the
+   enterprise wrapper) pre-resolve per-org credentials at the enqueue
+   boundary and pass them through job payloads, without the LLM client
+   knowing anything about per-org resolution. The Ollama provider is
+   keyless and ignores `opts.apiKey`.
+3. **No env reads.** API key + model come from `getConfigValue(...)` or
+   `opts.apiKey`. No `process.env`, no `.env`. Repo-wide ESLint rule
+   blocks `process.env`.
+4. **OpenRouter-native fallback chain.** The request body sends
    `models: [primary, ...fallbacks]` whenever the deduplicated chain has
    ≥2 entries. Primary is `Config.OpenrouterModel`; fallbacks come from
    four discrete slots `Config.OpenrouterFallbackModel1` through
@@ -138,12 +150,12 @@ it. The cost ledger described in [docs/arch.md](../../docs/arch.md) is
    sees a single `AskLlmResult`. BullMQ's `attempts: 3` wraps the whole
    call — retries walk the chain again, useful when a transient
    OpenRouter outage clears between retries.
-4. **Errors are typed, not strings.** `LlmConfigError` carries the exact
+5. **Errors are typed, not strings.** `LlmConfigError` carries the exact
    `bytebell keys set` hint; `LlmError` carries `cause`.
-5. **Timeout is enforced.** AbortController fires at `timeoutMs`; the
+6. **Timeout is enforced.** AbortController fires at `timeoutMs`; the
    resulting `AbortError` is wrapped in `LlmError` with the timeout in
    the message.
-6. **Tokenizer is module-cached.** `tiktoken`'s `cl100k_base` encoder
+7. **Tokenizer is module-cached.** `tiktoken`'s `cl100k_base` encoder
    is lazy-initialized on first `tokenLen` call and reused for the
    process lifetime. Chosen because every modern OpenRouter chat model
    tokenizes within ~10% of `cl100k_base` for code-shaped input. Char/4

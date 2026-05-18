@@ -1,4 +1,5 @@
 import { logger } from "@bb/logger";
+import type { AskLlmOptions } from "@bb/llm";
 import type { MetaPaths } from "src/types/meta-paths.ts";
 import type { SourceReader } from "src/types/pipeline.ts";
 import { throwIfCancelled, CancellationError } from "src/pipeline/cancellation.ts";
@@ -10,6 +11,7 @@ export interface ProcessBigFilesInput {
   knowledgeId: string;
   source: SourceReader;
   metaPaths: MetaPaths;
+  llmCallContext?: AskLlmOptions;
 }
 
 export interface ProcessBigFilesResult {
@@ -57,6 +59,7 @@ export async function processBigFilesQueue(input: ProcessBigFilesInput): Promise
         relativePath: entry.relativePath,
         content,
         sizeBytes: entry.sizeBytes,
+        ...(input.llmCallContext !== undefined ? { llmCallContext: input.llmCallContext } : {}),
       });
       processed += 1;
     } catch (cause: unknown) {

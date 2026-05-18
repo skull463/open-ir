@@ -19,7 +19,7 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
     name: "flat-folder",
     async execute(input: StrategyInput): Promise<StrategyResult> {
       const { context, source, archiveSink, metaPaths, payload, branch } = input;
-      const { knowledgeId, orgId, repoId } = context;
+      const { knowledgeId, orgId, repoId, llmCallContext } = context;
 
       logger.info(`flat-folder: phase1 (classify + analyse small) starting for ${knowledgeId}`);
       throwIfCancelled(knowledgeId);
@@ -32,27 +32,38 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
       if (archiveSink !== undefined) {
         phase1Input.archiveSink = archiveSink;
       }
+      if (llmCallContext !== undefined) {
+        phase1Input.llmCallContext = llmCallContext;
+      }
       const phase1 = await classifyAndAnalyseSmall(phase1Input);
 
       logger.info(`flat-folder: phase2 (process big files) starting`);
       throwIfCancelled(knowledgeId);
-      const phase2 = await processBigFilesQueue({ knowledgeId, source, metaPaths });
+      const phase2Input: Parameters<typeof processBigFilesQueue>[0] = { knowledgeId, source, metaPaths };
+      if (llmCallContext !== undefined) {
+        phase2Input.llmCallContext = llmCallContext;
+      }
+      const phase2 = await processBigFilesQueue(phase2Input);
 
       logger.info(`flat-folder: phase3 (backfill missing fields) starting`);
       throwIfCancelled(knowledgeId);
-      await backfillMissingFields(metaPaths);
+      await backfillMissingFields(metaPaths, llmCallContext);
 
       logger.info(`flat-folder: phase4 (backfill big files) starting`);
       throwIfCancelled(knowledgeId);
-      await backfillBigFiles({ knowledgeId, source, metaPaths });
+      const phase4Input: Parameters<typeof backfillBigFiles>[0] = { knowledgeId, source, metaPaths };
+      if (llmCallContext !== undefined) {
+        phase4Input.llmCallContext = llmCallContext;
+      }
+      await backfillBigFiles(phase4Input);
 
       logger.info(`flat-folder: phase5 (folder summaries) starting`);
       throwIfCancelled(knowledgeId);
-      const phase5 = await runFolderSummaryPhase(knowledgeId, metaPaths);
+      const phase5 = await runFolderSummaryPhase(knowledgeId, metaPaths, llmCallContext);
 
       logger.info(`flat-folder: phase6 (repo summary) starting`);
       throwIfCancelled(knowledgeId);
-      const repoSummary = await summariseRepo(knowledgeId, metaPaths);
+      const repoSummary = await summariseRepo(knowledgeId, metaPaths, llmCallContext);
       let repoSummarised = false;
       if (repoSummary !== null) {
         await persistRepoSummary(metaPaths, makeRepoSummaryEnvelope(knowledgeId, orgId, repoSummary));

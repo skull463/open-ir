@@ -1,8 +1,8 @@
 import { Config, KnowledgeState, type GithubIndexPayload, type LocalIngestPayload } from "@bb/types";
 import { getConfigValue } from "@bb/config";
-import { recordProcessingStats, setKnowledgeCommit, setKnowledgeState, setKnowledgeBranch } from "@bb/mongo";
-import { setKnowledgeStateInGraph, setKnowledgeBranchInGraph } from "@bb/neo4j";
-import { estimateCostFromBreakdown } from "@bb/llm";
+import { recordProcessingStats, setKnowledgeBranch, setKnowledgeCommit, setKnowledgeState } from "@bb/mongo";
+import { setKnowledgeBranchInGraph, setKnowledgeStateInGraph } from "@bb/neo4j";
+import { estimateCostFromBreakdown, type AskLlmOptions } from "@bb/llm";
 import { IngestError } from "@bb/errors";
 import { logger } from "@bb/logger";
 import type { IngestRunnerDeps, IngestRunnerInput } from "src/types/ingest-runner.ts";
@@ -19,6 +19,24 @@ function resolveOrgId(payload: { orgId?: string }): string {
     return payload.orgId;
   }
   return getConfigValue(Config.OrgId);
+}
+
+function llmCallContextFromPayload(payload: {
+  llmApiKey?: string;
+  llmProvider?: string;
+  llmModel?: string;
+}): AskLlmOptions | undefined {
+  const ctx: AskLlmOptions = {};
+  if (payload.llmApiKey !== undefined && payload.llmApiKey.length > 0) {
+    ctx.apiKey = payload.llmApiKey;
+  }
+  if (payload.llmProvider === "openrouter" || payload.llmProvider === "ollama") {
+    ctx.provider = payload.llmProvider;
+  }
+  if (payload.llmModel !== undefined && payload.llmModel.length > 0) {
+    ctx.model = payload.llmModel;
+  }
+  return Object.keys(ctx).length > 0 ? ctx : undefined;
 }
 
 export interface CreatePipelineRunnerDeps {
@@ -94,12 +112,21 @@ async function runGithub(
     const metaPaths = metaPathsFor(knowledgeId);
     await ensureMetaDirs(metaPaths);
 
+    const baseContext: Parameters<typeof strategy.execute>[0]["context"] = {
+      knowledgeId,
+      orgId: resolveOrgId(payload),
+      repoId: knowledgeId,
+    };
+    const llmCallContext = llmCallContextFromPayload(payload);
+    if (llmCallContext !== undefined) {
+      baseContext.llmCallContext = llmCallContext;
+    }
     const strategyInput: Parameters<typeof strategy.execute>[0] = {
       payload,
       branch,
       source,
       metaPaths,
-      context: { knowledgeId, orgId: resolveOrgId(payload), repoId: knowledgeId },
+      context: baseContext,
     };
     if (archiveSink !== undefined) {
       strategyInput.archiveSink = archiveSink;
@@ -116,6 +143,11 @@ async function runGithub(
     });
     await setKnowledgeCommit(knowledgeId, commitHash);
     await transitionState(knowledgeId, KnowledgeState.Processed);
+
+    const totalMs = Date.now() - startedAt;
+    logger.info(
+      `pipeline/run: ✓ github_index complete (knowledgeId=${knowledgeId}, commit=${commitHash.slice(0, 12)}, files=${result.filesAnalyzed}, folders=${result.foldersSummarised}, nodes=${result.graphNodesWritten}, ${totalMs}ms)`,
+    );
 
     return {
       filesAnalyzed: result.filesAnalyzed,

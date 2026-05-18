@@ -1,5 +1,5 @@
 import path from "node:path";
-import { tokenLen } from "@bb/llm";
+import { tokenLen, type AskLlmOptions } from "@bb/llm";
 import { logger } from "@bb/logger";
 import { Config } from "@bb/types";
 import { getConfigValue } from "@bb/config";
@@ -20,6 +20,7 @@ export interface ClassifyPhaseInput {
   analyzer: FileAnalyzer;
   skipDecider?: SkipDecider;
   archiveSink?: ArchiveSink;
+  llmCallContext?: AskLlmOptions;
 }
 
 export interface ClassifyPhaseResult {
@@ -44,7 +45,11 @@ export async function classifyAndAnalyseSmall(input: ClassifyPhaseInput): Promis
 
   const pending: Promise<void>[] = [];
 
-  for await (const entry of input.source.scan({ skipDecider })) {
+  const scanDeps: Parameters<typeof input.source.scan>[0] = { skipDecider };
+  if (input.llmCallContext !== undefined) {
+    scanDeps.llmCallContext = input.llmCallContext;
+  }
+  for await (const entry of input.source.scan(scanDeps)) {
     throwIfCancelled(input.knowledgeId);
 
     if (entry.kind === "oversized") {
@@ -81,7 +86,7 @@ export async function classifyAndAnalyseSmall(input: ClassifyPhaseInput): Promis
       limit(async () => {
         try {
           throwIfCancelled(input.knowledgeId);
-          const condensed = await analyseScannedFile(input.analyzer, entry);
+          const condensed = await analyseScannedFile(input.analyzer, entry, input.llmCallContext);
           await saveCondensed(input.metaPaths, condensed);
           if (input.archiveSink !== undefined) {
             await input.archiveSink.push({

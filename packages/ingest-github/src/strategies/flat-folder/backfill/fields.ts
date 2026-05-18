@@ -1,4 +1,4 @@
-import { askJsonLLM } from "@bb/llm";
+import { askJsonLLM, type AskLlmOptions } from "@bb/llm";
 import { logger } from "@bb/logger";
 import type { FileAnalysis, FileAnalysisSection } from "@bb/mongo";
 import type { MetaPaths } from "src/types/meta-paths.ts";
@@ -40,7 +40,10 @@ interface NeededFlags {
   sectionMap: boolean;
 }
 
-export async function backfillMissingFields(metaPaths: MetaPaths): Promise<{ updated: number; failed: number }> {
+export async function backfillMissingFields(
+  metaPaths: MetaPaths,
+  llmCallContext?: AskLlmOptions,
+): Promise<{ updated: number; failed: number }> {
   let updated = 0;
   let failed = 0;
   for await (const entry of iterateCondensed(metaPaths)) {
@@ -51,7 +54,7 @@ export async function backfillMissingFields(metaPaths: MetaPaths): Promise<{ upd
     }
     const userPrompt = buildBackfillUserPrompt(entry.relativePath, entry.analysis);
     try {
-      const response = await askJsonLLM<BackfillJson>(BACKFILL_SYSTEM_PROMPT, userPrompt);
+      const response = await askJsonLLM<BackfillJson>(BACKFILL_SYSTEM_PROMPT, userPrompt, llmCallContext ?? {});
       const result = response.result;
       if (result === null) {
         continue;

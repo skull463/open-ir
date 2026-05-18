@@ -25,8 +25,9 @@ metaPaths})` re-reads `bigFiles.json`, skips `reason === "too-large"`,
 
 ## Public interfaces
 
-- `backfillMissingFields(metaPaths): Promise<{ updated, failed }>`
+- `backfillMissingFields(metaPaths, llmCallContext?): Promise<{ updated, failed }>`
 - `backfillBigFiles(input: BackfillBigFilesInput): Promise<BackfillBigFilesResult>`
+  — `BackfillBigFilesInput` carries an optional `llmCallContext?: AskLlmOptions` that the inner `processBigFile` call uses to forward per-job LLM credentials.
 
 Both return phase-summary counters consumed by `createFlatFolderStrategy`
 to roll up into the strategy result.

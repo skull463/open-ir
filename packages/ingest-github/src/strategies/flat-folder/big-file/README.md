@@ -25,11 +25,15 @@ depending on chunk count and prompt budget.
   `stale-condensed`, or `missing`. Used by Phase 2 to short-circuit and by
   Phase 4 to find candidates for cheap re-condense.
 - `index.ts` — `processBigFile({knowledgeId, metaPaths, relativePath, content,
-sizeBytes, llmCallContext?})`. Sequential per file (chunk-level
-  concurrency inside). Persists every intermediate artifact, so a
-  restart resumes from the next unfinished chunk. `llmCallContext` is
-  forwarded to every chunk analyzer call so per-job LLM credentials
-  reach `@bb/llm`.
+sizeBytes, llmCallContext?, progressContext?})`. Sequential per file
+  (chunk-level concurrency inside). Persists every intermediate artifact,
+  so a restart resumes from the next unfinished chunk. `llmCallContext`
+  is forwarded to every chunk analyzer call so per-job LLM credentials
+  reach `@bb/llm`. When `progressContext` is present, the chunk pool runs
+  under a fixed-total reporter
+  (`subPhase: "big_file:<relativePath>"`, `total = chunks.length`) so
+  long single-file analyses surface as live `PHASE_TICK` envelopes
+  carrying per-chunk progress instead of looking frozen.
 
 ## Invariants
 

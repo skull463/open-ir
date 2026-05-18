@@ -6,6 +6,7 @@ import { getConfigValue } from "@bb/config";
 import type { ArchiveSink, FileAnalyzer, SkipDecider, SourceReader } from "src/types/pipeline.ts";
 import type { MetaPaths } from "src/types/meta-paths.ts";
 import type { BigFileEntry } from "src/types/big-file.ts";
+import type { ProgressContext } from "src/progress/types.ts";
 import { withConcurrency } from "src/pipeline/concurrency.ts";
 import { throwIfCancelled, CancellationError } from "src/pipeline/cancellation.ts";
 import { makeSkipDecider } from "src/pipeline/skip-decisions/index.ts";
@@ -21,6 +22,7 @@ export interface ClassifyPhaseInput {
   skipDecider?: SkipDecider;
   archiveSink?: ArchiveSink;
   llmCallContext?: AskLlmOptions;
+  progressContext?: ProgressContext;
 }
 
 export interface ClassifyPhaseResult {
@@ -45,71 +47,87 @@ export async function classifyAndAnalyseSmall(input: ClassifyPhaseInput): Promis
 
   const pending: Promise<void>[] = [];
 
-  const scanDeps: Parameters<typeof input.source.scan>[0] = { skipDecider };
-  if (input.llmCallContext !== undefined) {
-    scanDeps.llmCallContext = input.llmCallContext;
-  }
-  for await (const entry of input.source.scan(scanDeps)) {
-    throwIfCancelled(input.knowledgeId);
+  const reporter = input.progressContext?.reporter({
+    phase: "file_analysis",
+    total: { kind: "growing" },
+  });
+  await reporter?.start();
 
-    if (entry.kind === "oversized") {
-      bigFileBuffer.push({
-        relativePath: entry.relativePath,
-        sizeBytes: entry.sizeBytes,
-        tokenCount: 0,
-        reason: "too-large",
-      });
-      try {
-        await saveCondensed(input.metaPaths, buildOversizedStub(entry.relativePath, entry.sizeBytes));
-        oversizedStubs += 1;
-      } catch (cause: unknown) {
-        failed += 1;
-        logger.warn(`phase1: oversized stub write failed for ${entry.relativePath}: ${describe(cause)}`);
-      }
-      continue;
+  try {
+    const scanDeps: Parameters<typeof input.source.scan>[0] = { skipDecider };
+    if (input.llmCallContext !== undefined) {
+      scanDeps.llmCallContext = input.llmCallContext;
     }
+    for await (const entry of input.source.scan(scanDeps)) {
+      throwIfCancelled(input.knowledgeId);
+      reporter?.incrementSeen();
 
-    const tokenCount = tokenLen(entry.content);
-    if (tokenCount > contextWindowLimit) {
-      bigFileBuffer.push({
-        relativePath: entry.relativePath,
-        sizeBytes: entry.sizeBytes,
-        tokenCount,
-        reason: "context-window-exceeded",
-      });
-      continue;
-    }
-
-    const fileContent = entry.content;
-    const filePath = entry.relativePath;
-    pending.push(
-      limit(async () => {
+      if (entry.kind === "oversized") {
+        bigFileBuffer.push({
+          relativePath: entry.relativePath,
+          sizeBytes: entry.sizeBytes,
+          tokenCount: 0,
+          reason: "too-large",
+        });
         try {
-          throwIfCancelled(input.knowledgeId);
-          const condensed = await analyseScannedFile(input.analyzer, entry, input.llmCallContext);
-          await saveCondensed(input.metaPaths, condensed);
-          if (input.archiveSink !== undefined) {
-            await input.archiveSink.push({
-              knowledgeId: input.knowledgeId,
-              relativePath: filePath,
-              content: fileContent,
-            });
-          }
-          smallFilesAnalysed += 1;
+          await saveCondensed(input.metaPaths, buildOversizedStub(entry.relativePath, entry.sizeBytes));
+          oversizedStubs += 1;
+          reporter?.increment(1, { fileName: entry.relativePath });
         } catch (cause: unknown) {
-          if (cause instanceof CancellationError) {
-            throw cause;
-          }
           failed += 1;
-          logger.warn(`phase1: analyse failed for ${entry.relativePath}: ${describe(cause)}`);
+          logger.warn(`phase1: oversized stub write failed for ${entry.relativePath}: ${describe(cause)}`);
         }
-      }),
-    );
+        continue;
+      }
+
+      const tokenCount = tokenLen(entry.content);
+      if (tokenCount > contextWindowLimit) {
+        bigFileBuffer.push({
+          relativePath: entry.relativePath,
+          sizeBytes: entry.sizeBytes,
+          tokenCount,
+          reason: "context-window-exceeded",
+        });
+        // Big files are accounted for here; phase 2 has its own reporter.
+        reporter?.increment(1, { fileName: entry.relativePath });
+        continue;
+      }
+
+      const fileContent = entry.content;
+      const filePath = entry.relativePath;
+      pending.push(
+        limit(async () => {
+          try {
+            throwIfCancelled(input.knowledgeId);
+            const condensed = await analyseScannedFile(input.analyzer, entry, input.llmCallContext);
+            await saveCondensed(input.metaPaths, condensed);
+            if (input.archiveSink !== undefined) {
+              await input.archiveSink.push({
+                knowledgeId: input.knowledgeId,
+                relativePath: filePath,
+                content: fileContent,
+              });
+            }
+            smallFilesAnalysed += 1;
+            reporter?.increment(1, { fileName: filePath });
+          } catch (cause: unknown) {
+            if (cause instanceof CancellationError) {
+              throw cause;
+            }
+            failed += 1;
+            logger.warn(`phase1: analyse failed for ${entry.relativePath}: ${describe(cause)}`);
+            reporter?.increment(1, { fileName: filePath });
+          }
+        }),
+      );
+    }
+
+    await Promise.all(pending);
+
+    await writeBigFiles(input.metaPaths, bigFileBuffer);
+  } finally {
+    reporter?.stop();
   }
-
-  await Promise.all(pending);
-
-  await writeBigFiles(input.metaPaths, bigFileBuffer);
 
   logger.info(
     `phase1 done: smallFilesAnalysed=${smallFilesAnalysed} bigFilesQueued=${bigFileBuffer.filter((e) => e.reason === "context-window-exceeded").length} oversizedStubs=${oversizedStubs} failed=${failed}`,

@@ -6,6 +6,7 @@ import { getConfigValue } from "@bb/config";
 import type { ArchiveSink, FileAnalyzer, ScannedFile, SourceReader } from "src/types/pipeline.ts";
 import type { MetaPaths } from "src/types/meta-paths.ts";
 import type { BigFileEntry } from "src/types/big-file.ts";
+import type { ProgressContext } from "src/progress/types.ts";
 import { looksBinary, passesPathFilters } from "src/pipeline/filters.ts";
 import { withConcurrency } from "src/pipeline/concurrency.ts";
 import { throwIfCancelled, CancellationError } from "src/pipeline/cancellation.ts";
@@ -23,13 +24,7 @@ export interface AnalyseChangedInput {
   llmCallContext?: AskLlmOptions;
   /** Optional non-fatal archive sink. When set, analysed content is pushed after `saveCondensed`. */
   archiveSink?: ArchiveSink;
-  /**
-   * Invoked once per consumed path (analysed, stubbed, queued-as-big-file,
-   * filtered, or failed). Lets the caller drive a `processedFiles` counter
-   * for the progress bar without coupling this strategy to mongo. Best
-   * effort — errors from the callback are swallowed.
-   */
-  onFileProcessed?: () => Promise<void> | void;
+  progressContext?: ProgressContext;
 }
 
 export interface AnalyseChangedResult {
@@ -85,113 +80,133 @@ export async function analyseChangedFiles(input: AnalyseChangedInput): Promise<A
 
   const pending: Promise<void>[] = [];
 
-  for (const relativePath of dedupedPaths) {
-    throwIfCancelled(input.knowledgeId);
-    const filename = path.basename(relativePath);
-    const ext = path.extname(filename).toLowerCase();
-    if (!passesPathFilters(filename, ext)) {
-      skipped += 1;
-      continue;
-    }
+  const reporter = input.progressContext?.reporter({
+    phase: "file_analysis",
+    subPhase: "pull",
+    total: { kind: "fixed", total: dedupedPaths.length },
+  });
+  await reporter?.start();
 
-    let content: string;
-    try {
-      content = await input.source.readFile(relativePath);
-    } catch (cause: unknown) {
-      failed += 1;
-      logger.warn(`pull-analyse: read failed for ${relativePath}: ${describe(cause)}`);
-      continue;
-    }
-    if (content.length === 0) {
-      skipped += 1;
-      continue;
-    }
-    const sizeBytes = Buffer.byteLength(content, "utf8");
+  try {
+    for (const relativePath of dedupedPaths) {
+      throwIfCancelled(input.knowledgeId);
+      const filename = path.basename(relativePath);
+      const ext = path.extname(filename).toLowerCase();
+      if (!passesPathFilters(filename, ext)) {
+        skipped += 1;
+        reporter?.increment(1, { fileName: relativePath });
+        continue;
+      }
 
-    if (sizeBytes > absoluteCap) {
-      bigFileBuffer.push({
-        relativePath,
-        sizeBytes,
-        tokenCount: 0,
-        reason: "too-large",
-      });
+      let content: string;
       try {
-        await saveCondensed(input.metaPaths, buildOversizedStub(relativePath, sizeBytes));
-        oversizedStubs += 1;
+        content = await input.source.readFile(relativePath);
       } catch (cause: unknown) {
         failed += 1;
-        logger.warn(`pull-analyse: oversized stub write failed for ${relativePath}: ${describe(cause)}`);
+        logger.warn(`pull-analyse: read failed for ${relativePath}: ${describe(cause)}`);
+        reporter?.increment(1, { fileName: relativePath });
+        continue;
       }
-      continue;
-    }
-
-    if (looksBinary(Buffer.from(content, "utf8"))) {
-      skipped += 1;
-      continue;
-    }
-    if (countLines(content) > bigFileLineThreshold) {
-      bigFileBuffer.push({
-        relativePath,
-        sizeBytes,
-        tokenCount: 0,
-        reason: "too-large",
-      });
-      try {
-        await saveCondensed(input.metaPaths, buildOversizedStub(relativePath, sizeBytes));
-        oversizedStubs += 1;
-      } catch (cause: unknown) {
-        failed += 1;
-        logger.warn(`pull-analyse: oversized stub write failed for ${relativePath}: ${describe(cause)}`);
+      if (content.length === 0) {
+        skipped += 1;
+        reporter?.increment(1, { fileName: relativePath });
+        continue;
       }
-      continue;
-    }
+      const sizeBytes = Buffer.byteLength(content, "utf8");
 
-    const tokenCount = tokenLen(content);
-    if (tokenCount > contextWindowLimit) {
-      bigFileBuffer.push({
-        relativePath,
-        sizeBytes,
-        tokenCount,
-        reason: "context-window-exceeded",
-      });
-      continue;
-    }
-
-    const scanned: ScannedFile = {
-      kind: "file",
-      relativePath,
-      absolutePath: relativePath,
-      sizeBytes,
-      content,
-    };
-    const fileContent = content;
-    const filePath = relativePath;
-    pending.push(
-      limit(async () => {
+      if (sizeBytes > absoluteCap) {
+        bigFileBuffer.push({
+          relativePath,
+          sizeBytes,
+          tokenCount: 0,
+          reason: "too-large",
+        });
         try {
-          throwIfCancelled(input.knowledgeId);
-          const condensed = await analyseScannedFile(input.analyzer, scanned, input.llmCallContext);
-          await saveCondensed(input.metaPaths, condensed);
-          if (input.archiveSink !== undefined) {
-            await input.archiveSink.push({
-              knowledgeId: input.knowledgeId,
-              relativePath: filePath,
-              content: fileContent,
-            });
-          }
-          smallFilesAnalysed += 1;
+          await saveCondensed(input.metaPaths, buildOversizedStub(relativePath, sizeBytes));
+          oversizedStubs += 1;
         } catch (cause: unknown) {
-          if (cause instanceof CancellationError) {
-            throw cause;
-          }
           failed += 1;
-          logger.warn(`pull-analyse: analyse failed for ${relativePath}: ${describe(cause)}`);
+          logger.warn(`pull-analyse: oversized stub write failed for ${relativePath}: ${describe(cause)}`);
         }
-      }),
-    );
-  }
+        reporter?.increment(1, { fileName: relativePath });
+        continue;
+      }
 
-  await Promise.all(pending);
+      if (looksBinary(Buffer.from(content, "utf8"))) {
+        skipped += 1;
+        reporter?.increment(1, { fileName: relativePath });
+        continue;
+      }
+      if (countLines(content) > bigFileLineThreshold) {
+        bigFileBuffer.push({
+          relativePath,
+          sizeBytes,
+          tokenCount: 0,
+          reason: "too-large",
+        });
+        try {
+          await saveCondensed(input.metaPaths, buildOversizedStub(relativePath, sizeBytes));
+          oversizedStubs += 1;
+        } catch (cause: unknown) {
+          failed += 1;
+          logger.warn(`pull-analyse: oversized stub write failed for ${relativePath}: ${describe(cause)}`);
+        }
+        reporter?.increment(1, { fileName: relativePath });
+        continue;
+      }
+
+      const tokenCount = tokenLen(content);
+      if (tokenCount > contextWindowLimit) {
+        bigFileBuffer.push({
+          relativePath,
+          sizeBytes,
+          tokenCount,
+          reason: "context-window-exceeded",
+        });
+        // Big-file path runs in its own phase; this entry leaves the small-loop accounting.
+        reporter?.increment(1, { fileName: relativePath });
+        continue;
+      }
+
+      const scanned: ScannedFile = {
+        kind: "file",
+        relativePath,
+        absolutePath: relativePath,
+        sizeBytes,
+        content,
+      };
+      const fileContent = content;
+      const filePath = relativePath;
+      pending.push(
+        limit(async () => {
+          try {
+            throwIfCancelled(input.knowledgeId);
+            const condensed = await analyseScannedFile(input.analyzer, scanned, input.llmCallContext);
+            await saveCondensed(input.metaPaths, condensed);
+            if (input.archiveSink !== undefined) {
+              await input.archiveSink.push({
+                knowledgeId: input.knowledgeId,
+                relativePath: filePath,
+                content: fileContent,
+              });
+            }
+            smallFilesAnalysed += 1;
+          } catch (cause: unknown) {
+            if (cause instanceof CancellationError) {
+              throw cause;
+            }
+            failed += 1;
+            logger.warn(`pull-analyse: analyse failed for ${relativePath}: ${describe(cause)}`);
+          }
+          reporter?.increment(1, { fileName: filePath });
+        }),
+      );
+    }
+
+    await Promise.all(pending);
+  } finally {
+    reporter?.stop();
+  }
 
   if (bigFileBuffer.length > 0) {
     const existing = await readBigFiles(input.metaPaths);

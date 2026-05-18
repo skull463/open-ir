@@ -2,6 +2,7 @@ import { logger } from "@bb/logger";
 import type { AskLlmOptions } from "@bb/llm";
 import type { MetaPaths } from "src/types/meta-paths.ts";
 import type { SourceReader } from "src/types/pipeline.ts";
+import type { ProgressContext } from "src/progress/types.ts";
 import { throwIfCancelled, CancellationError } from "src/pipeline/cancellation.ts";
 import { readBigFiles } from "src/strategies/flat-folder/big-file/detector.ts";
 import { inspect } from "src/strategies/flat-folder/big-file/cache.ts";
@@ -12,6 +13,7 @@ export interface ProcessBigFilesInput {
   source: SourceReader;
   metaPaths: MetaPaths;
   llmCallContext?: AskLlmOptions;
+  progressContext?: ProgressContext;
 }
 
 export interface ProcessBigFilesResult {
@@ -28,52 +30,69 @@ export async function processBigFilesQueue(input: ProcessBigFilesInput): Promise
   let failed = 0;
   let skippedOversized = 0;
 
-  for (const entry of entries) {
-    throwIfCancelled(input.knowledgeId);
-    if (entry.reason === "too-large") {
-      skippedOversized += 1;
-      continue;
-    }
-    const status = await inspect(input.metaPaths, entry.relativePath);
-    if (status === "complete") {
-      cached += 1;
-      continue;
-    }
-    let content: string;
-    try {
-      content = await input.source.readFile(entry.relativePath);
-    } catch (cause: unknown) {
-      failed += 1;
-      logger.warn(`phase2: read failed for ${entry.relativePath}: ${describe(cause)}`);
-      continue;
-    }
-    if (content.length === 0) {
-      failed += 1;
-      logger.warn(`phase2: empty content for ${entry.relativePath}; skipping`);
-      continue;
-    }
-    try {
-      await processBigFile({
-        knowledgeId: input.knowledgeId,
-        metaPaths: input.metaPaths,
-        relativePath: entry.relativePath,
-        content,
-        sizeBytes: entry.sizeBytes,
-        ...(input.llmCallContext !== undefined ? { llmCallContext: input.llmCallContext } : {}),
-      });
-      processed += 1;
-    } catch (cause: unknown) {
-      if (cause instanceof CancellationError) {
-        throw cause;
+  const reporter = input.progressContext?.reporter({
+    phase: "file_analysis",
+    subPhase: "big_files_queue",
+    total: { kind: "fixed", total: entries.length },
+  });
+  await reporter?.start();
+
+  try {
+    for (const entry of entries) {
+      throwIfCancelled(input.knowledgeId);
+      if (entry.reason === "too-large") {
+        skippedOversized += 1;
+        reporter?.increment(1, { fileName: entry.relativePath });
+        continue;
       }
-      failed += 1;
-      logger.warn(`phase2: processBigFile failed for ${entry.relativePath}: ${describe(cause)}`);
+      const status = await inspect(input.metaPaths, entry.relativePath);
+      if (status === "complete") {
+        cached += 1;
+        reporter?.increment(1, { fileName: entry.relativePath });
+        continue;
+      }
+      let content: string;
+      try {
+        content = await input.source.readFile(entry.relativePath);
+      } catch (cause: unknown) {
+        failed += 1;
+        logger.warn(`phase2: read failed for ${entry.relativePath}: ${describe(cause)}`);
+        reporter?.increment(1, { fileName: entry.relativePath });
+        continue;
+      }
+      if (content.length === 0) {
+        failed += 1;
+        logger.warn(`phase2: empty content for ${entry.relativePath}; skipping`);
+        reporter?.increment(1, { fileName: entry.relativePath });
+        continue;
+      }
+      try {
+        await processBigFile({
+          knowledgeId: input.knowledgeId,
+          metaPaths: input.metaPaths,
+          relativePath: entry.relativePath,
+          content,
+          sizeBytes: entry.sizeBytes,
+          ...(input.llmCallContext !== undefined ? { llmCallContext: input.llmCallContext } : {}),
+          ...(input.progressContext !== undefined ? { progressContext: input.progressContext } : {}),
+        });
+        processed += 1;
+      } catch (cause: unknown) {
+        if (cause instanceof CancellationError) {
+          throw cause;
+        }
+        failed += 1;
+        logger.warn(`phase2: processBigFile failed for ${entry.relativePath}: ${describe(cause)}`);
+      }
+      reporter?.increment(1, { fileName: entry.relativePath });
     }
+    logger.info(
+      `phase2 done: processed=${processed} cached=${cached} failed=${failed} skippedOversized=${skippedOversized}`,
+    );
+    return { processed, cached, failed, skippedOversized };
+  } finally {
+    reporter?.stop();
   }
-  logger.info(
-    `phase2 done: processed=${processed} cached=${cached} failed=${failed} skippedOversized=${skippedOversized}`,
-  );
-  return { processed, cached, failed, skippedOversized };
 }
 
 function describe(cause: unknown): string {

@@ -14,6 +14,8 @@ import { computePullDiff, materialiseEndpoints } from "./pull-diff-resolver.ts";
 import { affectedFoldersFromDiff } from "./affected-folders.ts";
 import { createDiskSourceReader } from "./disk-source-reader.ts";
 import type { PullFactory, SourceReader, ArchiveSink } from "src/types/pipeline.ts";
+import type { ProgressContextFactory } from "src/progress/types.ts";
+import { nullProgressContextFactory } from "src/progress/NullProgressReporter.ts";
 import { analyseChangedFiles } from "src/strategies/flat-folder/analyse-changed.ts";
 import { processBigFilesQueue } from "src/strategies/flat-folder/phases/process-big-files.ts";
 import { backfillMissingFields } from "src/strategies/flat-folder/backfill/fields.ts";
@@ -54,7 +56,11 @@ function llmCallContextFromPayload(payload: {
   return Object.keys(ctx).length > 0 ? ctx : undefined;
 }
 
-export async function runPull(msg: JobMessage<GithubPullPayload>, pullFactory?: PullFactory): Promise<void> {
+export async function runPull(
+  msg: JobMessage<GithubPullPayload>,
+  pullFactory?: PullFactory,
+  progressContextFactory: ProgressContextFactory = nullProgressContextFactory,
+): Promise<void> {
   const { knowledgeId } = msg.payload;
   if (msg.payload.targetCommitHash !== undefined && !COMMIT_HASH_RE.test(msg.payload.targetCommitHash)) {
     throw new IngestError(
@@ -88,6 +94,7 @@ export async function runPull(msg: JobMessage<GithubPullPayload>, pullFactory?: 
   clearCancellation(knowledgeId);
   const startedAt = Date.now();
   await transitionState(knowledgeId, KnowledgeState.Processing);
+  const progressContext = progressContextFactory(knowledgeId);
 
   try {
     throwIfCancelled(knowledgeId);
@@ -169,6 +176,7 @@ export async function runPull(msg: JobMessage<GithubPullPayload>, pullFactory?: 
 
     const llmCallContext = llmCallContextFromPayload(msg.payload);
 
+    progressContext.phaseChanged("file_analysis");
     logger.info(`pull: phase per-file dispatcher for ${knowledgeId} starting`);
     throwIfCancelled(knowledgeId);
     const analyseChangedInput: Parameters<typeof analyseChangedFiles>[0] = {
@@ -177,6 +185,7 @@ export async function runPull(msg: JobMessage<GithubPullPayload>, pullFactory?: 
       metaPaths,
       analyzer: fileAnalyzer,
       diff,
+      progressContext,
     };
     if (llmCallContext !== undefined) {
       analyseChangedInput.llmCallContext = llmCallContext;
@@ -188,7 +197,12 @@ export async function runPull(msg: JobMessage<GithubPullPayload>, pullFactory?: 
 
     logger.info(`pull: phase process big files starting`);
     throwIfCancelled(knowledgeId);
-    const processBigFilesInput: Parameters<typeof processBigFilesQueue>[0] = { knowledgeId, source, metaPaths };
+    const processBigFilesInput: Parameters<typeof processBigFilesQueue>[0] = {
+      knowledgeId,
+      source,
+      metaPaths,
+      progressContext,
+    };
     if (llmCallContext !== undefined) {
       processBigFilesInput.llmCallContext = llmCallContext;
     }
@@ -196,16 +210,22 @@ export async function runPull(msg: JobMessage<GithubPullPayload>, pullFactory?: 
 
     logger.info(`pull: phase backfill fields starting`);
     throwIfCancelled(knowledgeId);
-    await backfillMissingFields(metaPaths, llmCallContext);
+    await backfillMissingFields(metaPaths, llmCallContext, progressContext);
 
     logger.info(`pull: phase backfill big-files starting`);
     throwIfCancelled(knowledgeId);
-    const backfillBigFilesInput: Parameters<typeof backfillBigFiles>[0] = { knowledgeId, source, metaPaths };
+    const backfillBigFilesInput: Parameters<typeof backfillBigFiles>[0] = {
+      knowledgeId,
+      source,
+      metaPaths,
+      progressContext,
+    };
     if (llmCallContext !== undefined) {
       backfillBigFilesInput.llmCallContext = llmCallContext;
     }
     await backfillBigFiles(backfillBigFilesInput);
 
+    progressContext.phaseChanged("folder_analysis");
     logger.info(`pull: phase selective folder summary (${affectedFolders.size} folders) starting`);
     throwIfCancelled(knowledgeId);
     const selectiveInput: Parameters<typeof runSelectiveFolderSummary>[0] = {
@@ -218,6 +238,7 @@ export async function runPull(msg: JobMessage<GithubPullPayload>, pullFactory?: 
     }
     await runSelectiveFolderSummary(selectiveInput);
 
+    progressContext.phaseChanged("indexing");
     logger.info(`pull: phase repo summary starting`);
     throwIfCancelled(knowledgeId);
     const orgId = resolveOrgId({ ...(knowledge.source.kind === "github" ? {} : {}) });
@@ -248,6 +269,7 @@ export async function runPull(msg: JobMessage<GithubPullPayload>, pullFactory?: 
     });
     await setKnowledgeCommit(knowledgeId, targetCommit);
     await transitionState(knowledgeId, KnowledgeState.Processed);
+    progressContext.completed("github_pull complete");
     logger.info(
       `pull: ${knowledgeId} ${currentCommit.slice(0, 12)} -> ${targetCommit.slice(0, 12)} done (filesUpserted=${stored.filesUpserted} filesDeleted=${stored.filesDeleted} foldersUpserted=${stored.foldersUpserted})`,
     );
@@ -258,6 +280,7 @@ export async function runPull(msg: JobMessage<GithubPullPayload>, pullFactory?: 
       throw cause;
     }
     await transitionState(knowledgeId, KnowledgeState.Failed).catch(() => undefined);
+    progressContext.failed(describe(cause));
     throw new IngestError(knowledgeId, `github_pull failed: ${describe(cause)}`, cause);
   }
 }

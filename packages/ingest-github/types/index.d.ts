@@ -1,7 +1,38 @@
 export interface RegisterGithubWorkersDeps {
   sourceFactory?: SourceFactory;
   pullFactory?: PullFactory;
+  progressContextFactory?: ProgressContextFactory;
 }
+
+export type ProgressPhase = "file_analysis" | "folder_analysis" | "indexing";
+
+export type ProgressTotalMode = { kind: "fixed"; total: number } | { kind: "growing"; initialTotal?: number };
+
+export interface ProgressReporterInput {
+  readonly phase: ProgressPhase;
+  readonly subPhase?: string;
+  readonly total: ProgressTotalMode;
+  readonly resolveInitialProcessed?: () => Promise<number> | number;
+}
+
+export interface ProgressReporter {
+  start(): Promise<void>;
+  increment(delta?: number, meta?: { fileName?: string }): void;
+  incrementSeen(delta?: number): void;
+  setTotal(total: number): void;
+  stop(): void;
+}
+
+export interface ProgressContext {
+  reporter(input: ProgressReporterInput): ProgressReporter;
+  phaseChanged(phase: ProgressPhase): void;
+  completed(message?: string): void;
+  failed(error: string, phase?: ProgressPhase): void;
+}
+
+export type ProgressContextFactory = (knowledgeId: string) => ProgressContext;
+
+export declare const nullProgressContextFactory: ProgressContextFactory;
 
 export declare function registerGithubWorkers(deps?: RegisterGithubWorkersDeps): void;
 export declare function registerLocalIngestWorker(): void;

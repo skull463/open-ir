@@ -11,25 +11,35 @@ import {
   buildFileAnalysisUserPrompt,
 } from "./strategies/flat-folder/prompts/file-analysis.ts";
 import type { PullFactory, SourceFactory } from "./types/pipeline.ts";
+import type { ProgressContextFactory } from "./progress/types.ts";
+import { nullProgressContextFactory } from "./progress/NullProgressReporter.ts";
 
 /**
- * Optional dependencies for the GitHub workers. Both factories are
- * documented in `docs/extension-points.md`. The open-source binary
- * leaves both undefined — index and pull use the default disk-backed
- * readers and a local `git clone` / `git diff`.
+ * Optional dependencies for the GitHub workers. Factories are documented in
+ * `docs/extension-points.md`. The open-source binary leaves them undefined —
+ * index and pull use the default disk-backed readers, and progress events
+ * are discarded by `nullProgressContextFactory`.
  */
 export interface RegisterGithubWorkersDeps {
   sourceFactory?: SourceFactory;
   pullFactory?: PullFactory;
+  progressContextFactory?: ProgressContextFactory;
 }
 
-function buildRunner(sourceFactory: SourceFactory | undefined): ReturnType<typeof createPipelineRunner> {
+function buildRunner(
+  sourceFactory: SourceFactory | undefined,
+  progressContextFactory: ProgressContextFactory,
+): ReturnType<typeof createPipelineRunner> {
   const fileAnalyzer = createLlmFileAnalyzer({
     buildSystemPrompt: () => COMBINED_CODE_ANALYSIS_SYSTEM_PROMPT,
     buildUserPrompt: buildFileAnalysisUserPrompt,
   });
-  const strategy = createFlatFolderStrategy({ fileAnalyzer });
-  const runnerDeps: Parameters<typeof createPipelineRunner>[0] = { reposRootDir: reposRoot(), strategy };
+  const strategy = createFlatFolderStrategy({ fileAnalyzer, progressContextFactory });
+  const runnerDeps: Parameters<typeof createPipelineRunner>[0] = {
+    reposRootDir: reposRoot(),
+    strategy,
+    progressContextFactory,
+  };
   if (sourceFactory !== undefined) {
     runnerDeps.sourceFactory = sourceFactory;
   }
@@ -37,14 +47,15 @@ function buildRunner(sourceFactory: SourceFactory | undefined): ReturnType<typeo
 }
 
 export function registerGithubWorkers(deps: RegisterGithubWorkersDeps = {}): void {
-  const runner = buildRunner(deps.sourceFactory);
+  const progressContextFactory = deps.progressContextFactory ?? nullProgressContextFactory;
+  const runner = buildRunner(deps.sourceFactory, progressContextFactory);
   registerWorker(JobType.GithubIndex, createGithubIngestHandler({ runner }));
   const pullFactory = deps.pullFactory;
-  registerWorker(JobType.GithubPull, (msg) => runPull(msg, pullFactory));
+  registerWorker(JobType.GithubPull, (msg) => runPull(msg, pullFactory, progressContextFactory));
 }
 
 export function registerLocalIngestWorker(): void {
-  const runner = buildRunner(undefined);
+  const runner = buildRunner(undefined, nullProgressContextFactory);
   registerWorker(JobType.LocalIngest, createLocalIngestHandler({ runner }));
 }
 
@@ -86,3 +97,12 @@ export {
   COMBINED_CODE_ANALYSIS_SYSTEM_PROMPT,
   buildFileAnalysisUserPrompt,
 } from "./strategies/flat-folder/prompts/file-analysis.ts";
+export type {
+  ProgressContext,
+  ProgressContextFactory,
+  ProgressPhase,
+  ProgressReporter,
+  ProgressReporterInput,
+  ProgressTotalMode,
+} from "./progress/types.ts";
+export { nullProgressContextFactory } from "./progress/NullProgressReporter.ts";

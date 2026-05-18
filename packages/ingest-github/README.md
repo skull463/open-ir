@@ -50,7 +50,12 @@ The package does **not** own:
   strategies can add this)
 - Semantic chunking, big-file processing, smart sampling (future
   strategies)
-- Recovery / progress reporting / failed-files tracking
+- Recovery / failed-files tracking
+- Progress **transport** — the package now ships a `ProgressContext`
+  extension port under `src/progress/` (see that folder's README), but
+  the actual SSE / Pub-Sub plumbing lives in the host binary's progress
+  package. The OSS default (`nullProgressContextFactory`) discards every
+  event, consistent with the no-outbound-calls posture.
 - Provider abstraction (no Bitbucket support; GitHub-only)
 - Concurrency control (sequential per-file processing intentional for
   v0; revisit when users complain)
@@ -65,6 +70,7 @@ function registerLocalIngestWorker(): void; // wires LocalIngest
 interface RegisterGithubWorkersDeps {
   sourceFactory?: SourceFactory; // index-side hook
   pullFactory?: PullFactory; // pull-side hook (provides reader + diff + targetCommit)
+  progressContextFactory?: ProgressContextFactory; // SSE progress hook (default: no-op)
 }
 
 // Lower-level building blocks (downstream consumers with their own queue

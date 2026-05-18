@@ -10,8 +10,8 @@ and repo summarisation (Phases 5 and 6) live as `folder-summary.ts` and
 
 - `classify-and-analyse-small.ts` — Phase 1.
   `classifyAndAnalyseSmall({knowledgeId, source, metaPaths, analyzer,
-skipDecider?, archiveSink?, llmCallContext?})` walks `source.scan({
-skipDecider, llmCallContext })` and per entry:
+skipDecider?, archiveSink?, llmCallContext?, progressContext?})` walks
+  `source.scan({ skipDecider, llmCallContext })` and per entry:
   - `kind === "oversized"` → write a stub via `buildOversizedStub` +
     `saveCondensed`, and append a `too-large` row to `bigFiles.json`.
   - token count > `Config.ContextWindowLimit` → buffer a
@@ -23,12 +23,17 @@ skipDecider, llmCallContext })` and per entry:
     buffered big-file list is flushed via `writeBigFiles` after all tasks
     drain.
 - `process-big-files.ts` — Phase 2.
-  `processBigFilesQueue({knowledgeId, source, metaPaths, llmCallContext?})`
+  `processBigFilesQueue({knowledgeId, source, metaPaths, llmCallContext?, progressContext?})`
   reads `bigFiles.json`, skips `too-large` entries (counted as
   `skippedOversized`), short-circuits when `inspect` returns `complete`
   (counted as `cached`), reads the file via `source.readFile`, and
   dispatches `processBigFile` sequentially per file with the per-job
-  `llmCallContext` threaded through. Cancellation re-throws past the
+  `llmCallContext` threaded through. When `progressContext` is present
+  this phase opens a fixed-total reporter (`subPhase: "big_files_queue"`,
+  `total = entries.length`) and increments per entry — including
+  skipped/cached/failed paths so the percentage never stalls. The same
+  `progressContext` is forwarded into `processBigFile` so each big file
+  gets its own per-chunk sub-phase. Cancellation re-throws past the
   phase; other errors are logged per file and counted as `failed`.
 - `store-flat-analysis.ts` — Phase 7.
   `storeFlatAnalysis({scope, payload, branch, metaPaths})` ensures
@@ -44,8 +49,13 @@ skipDecider, llmCallContext })` and per entry:
 
 - `classifyAndAnalyseSmall(input): Promise<ClassifyPhaseResult>` —
   `{ smallFilesAnalysed, bigFilesQueued, oversizedStubs, failed }`.
+  `input.progressContext?` opens a growing-total reporter
+  (`source.scan` size is not known up front); `incrementSeen()` fires per
+  scan yield and `increment()` fires per persisted entry.
 - `processBigFilesQueue(input): Promise<ProcessBigFilesResult>` —
-  `{ processed, cached, failed, skippedOversized }`.
+  `{ processed, cached, failed, skippedOversized }`. `input.progressContext?`
+  opens a fixed-total reporter sized by `bigFiles.json` and forwards
+  itself into the per-file `processBigFile` call.
 - `storeFlatAnalysis(input): Promise<StoreFlatAnalysisResult>` —
   `{ nodesWritten, foldersWritten, filesWritten }`.
 

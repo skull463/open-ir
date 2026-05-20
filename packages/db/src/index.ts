@@ -1,0 +1,75 @@
+import type {
+  IDocumentDatabaseProvider,
+  IKnowledgeRepository,
+  IRawRepository,
+  IAggregateStatsRepository,
+  IActivityRepository,
+  IUsageRepository,
+  DbPingResult,
+} from "@bb/db-core";
+
+let activeProvider: IDocumentDatabaseProvider | null = null;
+const providers = new Map<string, () => IDocumentDatabaseProvider>();
+
+export function registerDbProvider(name: string, factory: () => IDocumentDatabaseProvider) {
+  providers.set(name, factory);
+}
+
+export function getDb(): IDocumentDatabaseProvider {
+  if (!activeProvider) {
+    throw new Error("Database provider not initialized. Call connectDb() first.");
+  }
+  return activeProvider;
+}
+
+export async function connectDb(providerName: string): Promise<void> {
+  const factory = providers.get(providerName);
+  if (!factory) {
+    throw new Error(`Database provider '${providerName}' not registered.`);
+  }
+  activeProvider = factory();
+  await activeProvider.connect();
+}
+
+export async function closeDb(): Promise<void> {
+  if (activeProvider) {
+    await activeProvider.close();
+    activeProvider = null;
+  }
+}
+
+export const knowledge: IKnowledgeRepository = {
+  setKnowledgeState: (...args) => getDb().knowledge.setKnowledgeState(...args),
+  setKnowledgeCommit: (...args) => getDb().knowledge.setKnowledgeCommit(...args),
+  setKnowledgeBranch: (...args) => getDb().knowledge.setKnowledgeBranch(...args),
+  updateKnowledgeProgress: (...args) => getDb().knowledge.updateKnowledgeProgress(...args),
+  upsertKnowledge: (...args) => getDb().knowledge.upsertKnowledge(...args),
+  deleteKnowledge: (...args) => getDb().knowledge.deleteKnowledge(...args),
+  listKnowledge: (...args) => getDb().knowledge.listKnowledge(...args),
+  getKnowledge: (...args) => getDb().knowledge.getKnowledge(...args),
+  markKnowledgeFailed: (...args) => getDb().knowledge.markKnowledgeFailed(...args),
+};
+
+export const raw: IRawRepository = {
+  upsertRawFile: (...args) => getDb().raw.upsertRawFile(...args),
+  listRawFileShas: (...args) => getDb().raw.listRawFileShas(...args),
+  deleteRawFiles: (...args) => getDb().raw.deleteRawFiles(...args),
+};
+
+export const stats: IAggregateStatsRepository = {
+  aggregateStats: (...args) => getDb().stats.aggregateStats(...args),
+};
+
+export const activity: IActivityRepository = {
+  recordActivity: (...args) => getDb().activity.recordActivity(...args),
+};
+
+export const usage: IUsageRepository = {
+  incrementUsage: (...args) => getDb().usage.incrementUsage(...args),
+  getMonthlyUsage: (...args) => getDb().usage.getMonthlyUsage(...args),
+  getGlobalUsage: (...args) => getDb().usage.getGlobalUsage(...args),
+};
+
+export async function pingDb(): Promise<DbPingResult> {
+  return getDb().ping();
+}

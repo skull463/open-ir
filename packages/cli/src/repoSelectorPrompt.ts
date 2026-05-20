@@ -27,7 +27,13 @@ import {
 export interface RepoListEntry {
   knowledgeId: string;
   source:
-    | { kind: "github"; repoUrl: string; branch?: string; commitId?: string; commitHashes?: string[] }
+    | {
+        kind: "github";
+        repoUrl: string;
+        branch?: string;
+        commitId?: string;
+        commitHashes?: (string | { hash: string })[];
+      }
     | { kind: "local"; sourcePath: string };
   state: string;
   createdAt: string;

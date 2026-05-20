@@ -1,10 +1,4 @@
-import type {
-  KnowledgeDoc,
-  StatsCommitEntry,
-  StatsRepoEntry,
-  StatsResponse,
-  StatsTotals,
-} from "@bb/types";
+import type { KnowledgeDoc, StatsCommitEntry, StatsRepoEntry, StatsResponse, StatsTotals } from "@bb/types";
 import { _getDb } from "./client.ts";
 import { Collections } from "./collections.ts";
 

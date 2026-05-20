@@ -13,7 +13,9 @@
   },
   "dependencies": {
     "@bb/config": "workspace:*",
+    "@bb/db": "workspace:*",
     "@bb/errors": "workspace:*",
+    "@bb/db-core": "workspace:*",
     "@bb/types": "workspace:*",
     "mongodb": "^7.2.0"
   }

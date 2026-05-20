@@ -1,7 +1,7 @@
 import { askJsonLLM, type AskLlmOptions } from "@bb/llm";
 import { LlmConfigError, LlmError } from "@bb/errors";
 import { logger } from "@bb/logger";
-import type { FileAnalysis, FileAnalysisSection } from "@bb/mongo";
+import type { FileAnalysis, FileAnalysisSection } from "@bb/db-core";
 import type { MetaPaths } from "#src/types/meta-paths.ts";
 import type { ProgressContext } from "#src/progress/types.ts";
 import { iterateCondensed } from "#src/strategies/flat-folder/big-file/storage.ts";

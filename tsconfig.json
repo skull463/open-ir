@@ -4,6 +4,7 @@
     "composite": false,
     "declaration": false,
     "declarationMap": false,
+    "emitDeclarationOnly": false,
     "noEmit": true
   },
   "files": [],
@@ -13,6 +14,7 @@
     { "path": "packages/config" },
     { "path": "packages/logger" },
     { "path": "packages/mongo" },
+    { "path": "packages/sqlite" },
     { "path": "packages/redis" },
     { "path": "packages/queue" },
     { "path": "packages/llm" },
@@ -21,6 +23,10 @@
     { "path": "packages/cli" },
     { "path": "packages/server" },
     { "path": "packages/neo4j" },
-    { "path": "packages/mcp" }
+    { "path": "packages/mcp" },
+    { "path": "packages/db-core" },
+    { "path": "packages/graph-core" },
+    { "path": "packages/db" },
+    { "path": "packages/graph-db" }
   ]
 }

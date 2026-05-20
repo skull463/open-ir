@@ -31,4 +31,7 @@ export enum Config {
   SkipDecisionEnabled = "skip.decision.enabled",
   SkipDecisionMaxCharsForLlm = "skip.decision.max.chars.for.llm",
   SkipDecisionCachePath = "skip.decision.cache.path",
+  DbProvider = "db_provider",
+  GraphProvider = "graph_provider",
+  SqlitePath = "sqlite_path",
 }

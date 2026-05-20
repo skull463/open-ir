@@ -1,4 +1,4 @@
-import { runCypher } from "@bb/neo4j";
+import { runCypher } from "@bb/graph-db";
 import { serializeArrayForNeo4j } from "#src/neo4j/serialize.ts";
 import type { BusinessContextAnalysis } from "#src/types.ts";
 
@@ -35,7 +35,7 @@ export async function createBusinessContextNode(
   analysis: BusinessContextAnalysis,
   sanitizedTitle: string,
 ): Promise<number> {
-  const rows = await runCypher<{ count: number }>(MERGE_BUSINESS_CONTEXT, {
+  const rows = (await runCypher(MERGE_BUSINESS_CONTEXT, {
     nodeId: sanitizedTitle,
     knowledgeId: identity.knowledgeId,
     orgId: identity.orgId,
@@ -48,6 +48,6 @@ export async function createBusinessContextNode(
     keywordsText: serializeArrayForNeo4j(analysis.keywords),
     domainKeywordsText: serializeArrayForNeo4j(analysis.domain_keywords),
     updatedAt: new Date().toISOString(),
-  });
+  })) as Array<{ count: number }>;
   return rows.length > 0 ? Number(rows[0]?.count ?? 0) : 0;
 }

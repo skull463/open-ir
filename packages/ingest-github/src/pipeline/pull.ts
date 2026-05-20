@@ -1,10 +1,12 @@
 import { KnowledgeState, type GithubPullPayload, type JobMessage } from "@bb/types";
-import { getKnowledge, markKnowledgeFailed, setKnowledgeCommit, setKnowledgeState } from "@bb/mongo";
-import { setKnowledgeStateInGraph, snapshotFilesToVersion, type NodeScope } from "@bb/neo4j";
+import type { NodeScope } from "@bb/graph-core";
+import { knowledge } from "@bb/db";
+import { files, knowledge as graphKnowledge } from "@bb/graph-db";
 import type { PipelineSummary } from "#src/types/pipeline.ts";
 import { resolveOrgId, llmCallContextFromPayload } from "./context.ts";
 import { IngestError, KnowledgeNotFoundError } from "@bb/errors";
 import { classifyFailure } from "./failure-classifier.ts";
+import { transitionState, emptyPullSummary } from "./pull-helpers.ts";
 import { logger } from "@bb/logger";
 import { ensureMetaDirs, metaPathsFor, repoCloneDir, ensureReposRoot } from "./paths.ts";
 import { readHeadCommitHash, syncRepository } from "./source.ts";
@@ -48,14 +50,14 @@ export async function runPull(
     );
   }
 
-  const knowledge = await getKnowledge(knowledgeId);
-  if (knowledge === null) {
+  const kDoc = await knowledge.getKnowledge(knowledgeId);
+  if (kDoc === null) {
     throw new KnowledgeNotFoundError(knowledgeId);
   }
-  if (knowledge.source.kind !== "github") {
-    throw new IngestError(knowledgeId, `pull is only supported for github knowledge (kind=${knowledge.source.kind})`);
+  if (kDoc.source.kind !== "github") {
+    throw new IngestError(knowledgeId, `pull is only supported for github knowledge (kind=${kDoc.source.kind})`);
   }
-  const currentCommit = knowledge.source.commitId ?? "";
+  const currentCommit = kDoc.source.commitId ?? "";
   if (currentCommit.length === 0) {
     throw new IngestError(
       knowledgeId,
@@ -63,8 +65,8 @@ export async function runPull(
     );
   }
 
-  const branch = knowledge.info.branch ?? "main";
-  const repoUrl = knowledge.info.repoUrl;
+  const branch = kDoc.info.branch ?? "main";
+  const repoUrl = kDoc.info.repoUrl;
   if (repoUrl === undefined || repoUrl.length === 0) {
     throw new IngestError(knowledgeId, "pull requires knowledge.info.repoUrl");
   }
@@ -137,7 +139,7 @@ export async function runPull(
     }
 
     throwIfCancelled(knowledgeId);
-    await snapshotFilesToVersion({ knowledgeId, commitHash: currentCommit }).catch((cause: unknown) => {
+    await files.snapshotFilesToVersion({ knowledgeId, commitHash: currentCommit }).catch((cause: unknown) => {
       const msgText = cause instanceof Error ? cause.message : String(cause);
       logger.warn(`pull: snapshot of ${currentCommit.slice(0, 12)} failed (non-fatal): ${msgText}`);
     });
@@ -228,7 +230,7 @@ export async function runPull(
     progressContext.phaseChanged("indexing");
     logger.info(`pull: phase repo summary starting`);
     throwIfCancelled(knowledgeId);
-    const orgId = resolveOrgId({ ...(knowledge.source.kind === "github" ? {} : {}) });
+    const orgId = resolveOrgId({ ...(kDoc.source.kind === "github" ? {} : {}) });
     const scope: NodeScope = { orgId, knowledgeId, repoId: knowledgeId };
     const { summary: repoSummary, tokenUsage: repoUsage } = await summariseRepo(knowledgeId, metaPaths, llmCallContext);
     totalInputTokens += repoUsage.inputTokens;
@@ -249,7 +251,7 @@ export async function runPull(
       affectedFolders,
     });
 
-    await setKnowledgeCommit(
+    await knowledge.setKnowledgeCommit(
       knowledgeId,
       targetCommit,
       String(totalInputTokens),
@@ -276,25 +278,9 @@ export async function runPull(
       throw cause;
     }
     const { category, reason, detail } = classifyFailure(cause);
-    await markKnowledgeFailed(knowledgeId, reason, category, detail).catch(() => undefined);
-    await setKnowledgeStateInGraph(knowledgeId, KnowledgeState.Failed).catch(() => undefined);
+    await knowledge.markKnowledgeFailed(knowledgeId, reason, category, detail).catch(() => undefined);
+    await graphKnowledge.setKnowledgeStateInGraph(knowledgeId, KnowledgeState.Failed).catch(() => undefined);
     progressContext.failed(reason, undefined, category, detail);
     throw new IngestError(knowledgeId, `github_pull failed: ${reason}`, cause);
   }
-}
-
-async function transitionState(knowledgeId: string, state: KnowledgeState): Promise<void> {
-  await setKnowledgeState(knowledgeId, state);
-  await setKnowledgeStateInGraph(knowledgeId, state).catch(() => undefined);
-}
-
-function emptyPullSummary(commitHash: string): PipelineSummary {
-  return {
-    filesAnalyzed: 0,
-    foldersSummarised: 0,
-    repoSummarised: false,
-    graphNodesWritten: 0,
-    commitHash,
-    tokenUsage: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
-  };
 }

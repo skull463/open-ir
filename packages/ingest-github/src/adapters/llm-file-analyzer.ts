@@ -1,7 +1,7 @@
 import { askJsonLLM, type AskLlmOptions } from "@bb/llm";
 import { LlmConfigError, LlmError } from "@bb/errors";
 import { logger } from "@bb/logger";
-import type { FileAnalysis, FileAnalysisSection } from "@bb/mongo";
+import type { FileAnalysis, FileAnalysisSection } from "@bb/db-core";
 import { FALLBACK_LANGUAGE, emptyFileAnalysis } from "#src/types/file-analysis.ts";
 import type { AnalyzedFileResult, FileAnalyzer } from "#src/types/pipeline.ts";
 

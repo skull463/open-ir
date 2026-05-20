@@ -1,6 +1,6 @@
 import type { GithubIndexPayload, GithubPullPayload } from "@bb/types";
 import type { AskLlmOptions } from "@bb/llm";
-import type { FileAnalysis } from "@bb/mongo";
+import type { FileAnalysis } from "@bb/db-core";
 import type { DiffResult } from "#src/pipeline/git-diff.ts";
 
 export interface ScannedFile {

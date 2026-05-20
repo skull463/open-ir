@@ -1,5 +1,5 @@
 import { JobPriority, JobType, KnowledgeState, type GithubIndexPayload } from "@bb/types";
-import { setKnowledgeState } from "@bb/mongo";
+import { knowledge as dbKnowledge } from "@bb/db";
 import { _getQueue } from "./manager.ts";
 import { buildJobMessage, dedupeKey, mapPriority } from "./envelope.ts";
 
@@ -12,7 +12,7 @@ export async function enqueueGithubIndex(payload: GithubIndexPayload, opts: Enqu
   const message = buildJobMessage(JobType.GithubIndex, priority, payload);
   const jobId = dedupeKey(JobType.GithubIndex, payload.knowledgeId);
 
-  await setKnowledgeState(payload.knowledgeId, KnowledgeState.Queued);
+  await dbKnowledge.setKnowledgeState(payload.knowledgeId, KnowledgeState.Queued);
 
   const queue = _getQueue(JobType.GithubIndex);
   await queue.add(JobType.GithubIndex, message, {

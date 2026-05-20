@@ -2,6 +2,8 @@ import { spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { envFileBody, type InfraPorts } from "./infraPorts.ts";
+import { parsePortFromComposeError } from "./dockerPortDiagnostics.ts";
 
 const COMPOSE_HEALTH_POLL_MS = 2_000;
 const COMPOSE_HEALTH_TIMEOUT_MS = 90_000;
@@ -18,8 +20,21 @@ export class DockerNotFoundError extends Error {
 
 export class DockerComposeError extends Error {
   override readonly name = "DockerComposeError";
+  readonly stderr: string;
   constructor(stage: string, exitCode: number, stderr: string) {
     super(`docker compose ${stage} failed (exit ${exitCode}): ${stderr.trim() || "no stderr"}`);
+    this.stderr = stderr;
+  }
+}
+
+export class DockerPortConflictError extends Error {
+  override readonly name = "DockerPortConflictError";
+  readonly port: number;
+  readonly stderr: string;
+  constructor(port: number, stderr: string) {
+    super(`Host port ${port} is already in use.`);
+    this.port = port;
+    this.stderr = stderr;
   }
 }
 
@@ -40,6 +55,8 @@ interface ComposePsRow {
 
 interface UpOptions {
   neo4jPassword: string;
+  ports: InfraPorts;
+  servicesToStart?: readonly ServiceName[];
   onProgress?: (line: string) => void;
 }
 
@@ -58,36 +75,43 @@ function envFilePath(): string {
 }
 
 export async function up(opts: UpOptions): Promise<UpResult> {
-  await writeEnvFile(opts.neo4jPassword);
-  await runDocker(["compose", "-f", composeFilePath(), "up", "-d"], "up", true);
+  await writeEnvFile(opts.ports, opts.neo4jPassword);
+  const upArgs = ["compose", "-f", composeFilePath(), "up", "-d", ...(opts.servicesToStart ?? [])];
+  await runDocker(upArgs, "up");
 
-  const unhealthy = await waitUntilHealthy(opts.onProgress);
+  const watched = opts.servicesToStart ?? SERVICES;
+  const unhealthy = await waitUntilHealthy(watched, opts.onProgress);
   if (unhealthy.length > 0) {
     throw new DockerHealthTimeoutError(unhealthy);
   }
   return {
     composeFile: composeFilePath(),
     services: {
-      mongo: "127.0.0.1:27017",
-      neo4j: "127.0.0.1:7687 (HTTP 7474)",
-      redis: "127.0.0.1:6379",
+      mongo: `127.0.0.1:${opts.ports.mongo}`,
+      neo4j: `127.0.0.1:${opts.ports.neo4jBolt} (HTTP ${opts.ports.neo4jHttp})`,
+      redis: `127.0.0.1:${opts.ports.redis}`,
     },
   };
 }
 
-async function writeEnvFile(neo4jPassword: string): Promise<void> {
-  const target = envFilePath();
-  const body = `NEO4J_PASSWORD=${neo4jPassword}\n`;
-  await writeFile(target, body, { mode: 0o600 });
+export async function down(): Promise<void> {
+  await runDocker(["compose", "-f", composeFilePath(), "down", "--remove-orphans"], "down");
 }
 
-async function waitUntilHealthy(onProgress?: (line: string) => void): Promise<ServiceName[]> {
+async function writeEnvFile(ports: InfraPorts, neo4jPassword: string): Promise<void> {
+  await writeFile(envFilePath(), envFileBody(ports, neo4jPassword), { mode: 0o600 });
+}
+
+async function waitUntilHealthy(
+  watched: readonly ServiceName[],
+  onProgress?: (line: string) => void,
+): Promise<ServiceName[]> {
   const start = Date.now();
   while (Date.now() - start < COMPOSE_HEALTH_TIMEOUT_MS) {
     const rows = await psSnapshot();
-    const status = summarize(rows);
+    const status = summarize(rows, watched);
     if (onProgress !== undefined) {
-      onProgress(formatProgress(status));
+      onProgress(formatProgress(status, watched));
     }
     if (status.unhealthy.length === 0) {
       return [];
@@ -95,7 +119,7 @@ async function waitUntilHealthy(onProgress?: (line: string) => void): Promise<Se
     await sleep(COMPOSE_HEALTH_POLL_MS);
   }
   const final = await psSnapshot();
-  return summarize(final).unhealthy;
+  return summarize(final, watched).unhealthy;
 }
 
 interface StatusSummary {
@@ -103,10 +127,10 @@ interface StatusSummary {
   unhealthy: ServiceName[];
 }
 
-function summarize(rows: ComposePsRow[]): StatusSummary {
+function summarize(rows: ComposePsRow[], watched: readonly ServiceName[]): StatusSummary {
   const healthy: ServiceName[] = [];
   const unhealthy: ServiceName[] = [];
-  for (const service of SERVICES) {
+  for (const service of watched) {
     const row = rows.find((r) => r.Service === service);
     if (row !== undefined && row.Health === "healthy") {
       healthy.push(service);
@@ -117,13 +141,13 @@ function summarize(rows: ComposePsRow[]): StatusSummary {
   return { healthy, unhealthy };
 }
 
-function formatProgress(status: StatusSummary): string {
+function formatProgress(status: StatusSummary, watched: readonly ServiceName[]): string {
   const tag = (name: ServiceName): string => (status.healthy.includes(name) ? `${name} ✓` : `${name} …`);
-  return SERVICES.map(tag).join("  ");
+  return watched.map(tag).join("  ");
 }
 
 async function psSnapshot(): Promise<ComposePsRow[]> {
-  const { stdout } = await runDocker(["compose", "-f", composeFilePath(), "ps", "--format", "json"], "ps", false);
+  const { stdout } = await runDocker(["compose", "-f", composeFilePath(), "ps", "--format", "json"], "ps");
   return parsePsOutput(stdout);
 }
 
@@ -171,17 +195,15 @@ interface DockerRunResult {
   stderr: string;
 }
 
-async function runDocker(args: string[], stage: string, inheritStdout: boolean): Promise<DockerRunResult> {
+async function runDocker(args: string[], stage: string): Promise<DockerRunResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn("docker", args, {
-      stdio: ["ignore", inheritStdout ? "inherit" : "pipe", "pipe"],
-    });
+    const child = spawn("docker", args, { stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
-    child.stdout?.on("data", (chunk: Buffer) => {
+    child.stdout.on("data", (chunk: Buffer) => {
       stdout += chunk.toString("utf8");
     });
-    child.stderr?.on("data", (chunk: Buffer) => {
+    child.stderr.on("data", (chunk: Buffer) => {
       stderr += chunk.toString("utf8");
     });
     child.on("error", (cause: Error & { code?: string }) => {
@@ -195,6 +217,11 @@ async function runDocker(args: string[], stage: string, inheritStdout: boolean):
       const exit = typeof code === "number" ? code : 0;
       if (exit === 0) {
         resolve({ stdout, stderr });
+        return;
+      }
+      const port = parsePortFromComposeError(stderr);
+      if (port !== null) {
+        reject(new DockerPortConflictError(port, stderr));
         return;
       }
       reject(new DockerComposeError(stage, exit, stderr));

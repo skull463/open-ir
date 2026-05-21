@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import type { ReactElement } from "react";
 import { Box, Text, useApp, useInput } from "ink";
+import type { CommitHashRecord } from "@bb/types";
 
 export interface RepoEntry {
   knowledgeId: string;
@@ -10,7 +11,7 @@ export interface RepoEntry {
         repoUrl: string;
         branch?: string;
         commitId?: string;
-        commitHashes?: (string | { hash: string })[];
+        commitHashes?: (string | CommitHashRecord)[];
       }
     | { kind: "local"; sourcePath: string };
   state: string;

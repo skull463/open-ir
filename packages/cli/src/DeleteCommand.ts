@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { Config } from "@bb/types";
+import { Config, DbProviderType } from "@bb/types";
 import { getConfigValue } from "@bb/config";
 import { ensureServerRunning, ServerStartTimeoutError } from "./serverSpawn.ts";
 import { deleteJson, HttpClientError } from "./httpClient.ts";
@@ -16,7 +16,7 @@ interface DeleteResponse {
 
 export function buildDeleteCommand(): Command {
   const cmd = new Command("delete");
-  const dbProvider = getConfigValue(Config.DbProvider) === "sqlite" ? "SQLite" : "Mongo";
+  const dbProvider = getConfigValue(Config.DbProvider) === DbProviderType.Sqlite ? "SQLite" : "Mongo";
   cmd
     .description(`Pick one or more indexed knowledge entries and delete them from ${dbProvider} + Neo4j.`)
     .action(runDelete);
@@ -56,7 +56,7 @@ async function runDelete(): Promise<void> {
 }
 
 function formatDeletePrompt(labels: string[]): string {
-  const dbProvider = getConfigValue(Config.DbProvider) === "sqlite" ? "SQLite" : "Mongo";
+  const dbProvider = getConfigValue(Config.DbProvider) === DbProviderType.Sqlite ? "SQLite" : "Mongo";
   if (labels.length === 1) {
     return `Delete ${labels[0]} from ${dbProvider} + Neo4j? [y/N]`;
   }

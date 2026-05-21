@@ -1,6 +1,6 @@
 import type { Request, Response, Router } from "express";
 import express from "express";
-import { knowledge as dbKnowledge } from "@bb/db";
+import { knowledgeDb } from "@bb/db";
 import { fetchRecentCommits } from "@bb/ingest-github";
 
 const DEFAULT_LIMIT = 200;
@@ -40,7 +40,7 @@ export function buildGithubCommitsRoute(): Router {
     const limitRaw = req.query["limit"];
     const limit = parseLimit(typeof limitRaw === "string" ? limitRaw : undefined);
 
-    const knowledge = await dbKnowledge.getKnowledge(knowledgeId);
+    const knowledge = await knowledgeDb.getKnowledge(knowledgeId);
     if (knowledge === null) {
       res.status(404).json({ error: "knowledge not found" });
       return;

@@ -1,11 +1,11 @@
 import type { Request, Response, Router } from "express";
 import express from "express";
-import { knowledge as dbKnowledge } from "@bb/db";
+import { knowledgeDb } from "@bb/db";
 
 export function buildReposRoute(): Router {
   const router = express.Router();
   router.get("/api/v1/repos", async (_req: Request, res: Response) => {
-    const entries = await dbKnowledge.listKnowledge();
+    const entries = await knowledgeDb.listKnowledge();
     const repos = entries.map((e) => ({
       knowledgeId: e.knowledgeId,
       source:
@@ -30,7 +30,7 @@ export function buildReposRoute(): Router {
       res.status(400).json({ error: "invalid id" });
       return;
     }
-    const entry = await dbKnowledge.getKnowledge(id);
+    const entry = await knowledgeDb.getKnowledge(id);
     if (entry === null) {
       res.status(404).json({ error: "knowledge not found" });
       return;

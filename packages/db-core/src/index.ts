@@ -1,54 +1,18 @@
 import { KnowledgeState } from "@bb/types";
-import type { KnowledgeDoc, KnowledgeFailureCategory } from "@bb/types";
-import type { StatsResponse } from "@bb/types";
-import type { ActivityInput } from "@bb/types";
+import type {
+  KnowledgeDoc,
+  KnowledgeFailureCategory,
+  StatsResponse,
+  ActivityInput,
+  FileAnalysisSection,
+  FileAnalysis,
+  RawFileDoc,
+  KnowledgeListEntry,
+  DeleteKnowledgeResult,
+  DbPingResult,
+} from "@bb/types";
 
-export interface FileAnalysisSection {
-  name: string;
-  description: string;
-}
-
-export interface FileAnalysis {
-  purpose: string;
-  summary: string;
-  businessContext: string;
-  classes: string[];
-  functions: string[];
-  importsInternal: string[];
-  importsExternal: string[];
-  keywords: string[];
-  ontologyConcepts?: string[];
-  businessEntities?: string[];
-  systemCapabilities?: string[];
-  sideEffects?: string[];
-  configDependencies?: string[];
-  dataFlowDirection?: string;
-  integrationSurface?: string[];
-  contractsProvided?: string[];
-  contractsConsumed?: string[];
-  sectionMap?: FileAnalysisSection[];
-}
-
-export interface RawFileDoc {
-  knowledgeId: string;
-  relativePath: string;
-  content: string;
-  sha: string;
-  sizeBytes: number;
-  language: string;
-  analysis: FileAnalysis;
-  updatedAt: Date;
-}
-
-export interface KnowledgeListEntry extends KnowledgeDoc {
-  fileCount: number;
-}
-
-export interface DeleteKnowledgeResult {
-  knowledgeDeleted: number;
-  rawDeleted: number;
-  statsDeleted?: number;
-}
+export type { FileAnalysisSection, FileAnalysis, RawFileDoc, KnowledgeListEntry, DeleteKnowledgeResult, DbPingResult };
 
 export interface IKnowledgeRepository {
   setKnowledgeState(knowledgeId: string, state: KnowledgeState): Promise<void>;
@@ -91,11 +55,6 @@ export interface IUsageRepository {
   incrementUsage(identityId: string, inputTokenCount?: number, outputTokenCount?: number): Promise<void>;
   getMonthlyUsage(year: number, month: number): Promise<unknown[]>;
   getGlobalUsage(): Promise<unknown[]>;
-}
-
-export interface DbPingResult {
-  ok: boolean;
-  latencyMs: number;
 }
 
 export interface IDocumentDatabaseProvider {

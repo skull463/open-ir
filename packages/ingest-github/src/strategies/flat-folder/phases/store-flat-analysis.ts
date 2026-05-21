@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { logger } from "@bb/logger";
-import { files, folders, repo, indexes } from "@bb/graph-db";
+import { filesGraph, foldersGraph, repoGraph, indexesGraph } from "@bb/graph-db";
 import type { GithubIndexPayload } from "@bb/types";
 import type { NodeScope } from "@bb/graph-core";
 import type { MetaPaths } from "#src/types/meta-paths.ts";
@@ -28,7 +28,7 @@ export interface StoreFlatAnalysisResult {
 
 export async function storeFlatAnalysis(input: StoreFlatAnalysisInput): Promise<StoreFlatAnalysisResult> {
   throwIfCancelled(input.scope.knowledgeId);
-  await indexes.ensureFlatFolderIndexes();
+  await indexesGraph.ensureFlatFolderIndexes();
 
   let nodesWritten = 0;
   let foldersWritten = 0;
@@ -36,7 +36,7 @@ export async function storeFlatAnalysis(input: StoreFlatAnalysisInput): Promise<
 
   const repoSummary = await readRepoSummary(input.metaPaths);
   if (repoSummary !== null) {
-    await repo.upsertRepoNode({
+    await repoGraph.upsertRepoNode({
       scope: input.scope,
       repoUrl: input.payload.repoUrl,
       branch: input.branch,
@@ -53,7 +53,7 @@ export async function storeFlatAnalysis(input: StoreFlatAnalysisInput): Promise<
     nodesWritten += 1;
   } else {
     logger.warn(`phase7: no repo summary on disk; writing :Repo with empty summary`);
-    await repo.upsertRepoNode({
+    await repoGraph.upsertRepoNode({
       scope: input.scope,
       repoUrl: input.payload.repoUrl,
       branch: input.branch,
@@ -73,7 +73,7 @@ export async function storeFlatAnalysis(input: StoreFlatAnalysisInput): Promise<
     for await (const folder of iterateFolderSummaries(input.metaPaths)) {
       throwIfCancelled(input.scope.knowledgeId);
       folderReporter?.incrementSeen();
-      await folders.upsertFolderNode({
+      await foldersGraph.upsertFolderNode({
         scope: input.scope,
         folderPath: folder.folderPath,
         summary: shapeFolderPayload(folder),
@@ -99,7 +99,7 @@ export async function storeFlatAnalysis(input: StoreFlatAnalysisInput): Promise<
       fileReporter?.incrementSeen();
       const folderPath = directFolderOf(file.relativePath);
       if (!folderPaths.has(folderPath)) {
-        await folders.upsertFolderNode({
+        await foldersGraph.upsertFolderNode({
           scope: input.scope,
           folderPath,
           summary: emptyFolderPayload(),
@@ -108,7 +108,7 @@ export async function storeFlatAnalysis(input: StoreFlatAnalysisInput): Promise<
         foldersWritten += 1;
         nodesWritten += 1;
       }
-      await files.upsertFileNode({
+      await filesGraph.upsertFileNode({
         orgId: input.scope.orgId,
         knowledgeId: input.scope.knowledgeId,
         repoId: input.scope.repoId,

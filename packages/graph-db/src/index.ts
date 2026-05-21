@@ -38,28 +38,28 @@ export async function closeGraph(): Promise<void> {
   }
 }
 
-export const knowledge: IGraphKnowledgeRepository = {
+export const knowledgeGraph: IGraphKnowledgeRepository = {
   upsertKnowledgeNode: (...args) => getGraph().knowledge.upsertKnowledgeNode(...args),
   setKnowledgeStateInGraph: (...args) => getGraph().knowledge.setKnowledgeStateInGraph(...args),
   setKnowledgeBranchInGraph: (...args) => getGraph().knowledge.setKnowledgeBranchInGraph(...args),
   deleteKnowledgeGraph: (...args) => getGraph().knowledge.deleteKnowledgeGraph(...args),
 };
 
-export const files: IGraphFileRepository = {
+export const filesGraph: IGraphFileRepository = {
   upsertFileNode: (...args) => getGraph().files.upsertFileNode(...args),
   deleteFileNodes: (...args) => getGraph().files.deleteFileNodes(...args),
   snapshotFilesToVersion: (...args) => getGraph().files.snapshotFilesToVersion(...args),
 };
 
-export const folders: IGraphFolderRepository = {
+export const foldersGraph: IGraphFolderRepository = {
   upsertFolderNode: (...args) => getGraph().folders.upsertFolderNode(...args),
 };
 
-export const repo: IGraphRepoRepository = {
+export const repoGraph: IGraphRepoRepository = {
   upsertRepoNode: (...args) => getGraph().repo.upsertRepoNode(...args),
 };
 
-export const indexes: IGraphIndexRepository = {
+export const indexesGraph: IGraphIndexRepository = {
   ensureKnowledgeIndexes: (...args) => getGraph().indexes.ensureKnowledgeIndexes(...args),
   ensureFlatFolderIndexes: (...args) => getGraph().indexes.ensureFlatFolderIndexes(...args),
 };

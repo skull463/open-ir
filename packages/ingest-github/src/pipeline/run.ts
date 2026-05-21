@@ -4,8 +4,8 @@ import {
   type KnowledgeFailureCategory,
   type LocalIngestPayload,
 } from "@bb/types";
-import { knowledge } from "@bb/db";
-import { knowledge as graphKnowledge } from "@bb/graph-db";
+import { knowledgeDb } from "@bb/db";
+import { knowledgeGraph } from "@bb/graph-db";
 import { IngestError } from "@bb/errors";
 import { logger } from "@bb/logger";
 import { classifyFailure } from "./failure-classifier.ts";
@@ -70,8 +70,8 @@ async function runGithub(
   try {
     throwIfCancelled(knowledgeId);
     const branch = await resolveBranch(knowledgeId, payload, payload.gitToken);
-    await knowledge.setKnowledgeBranch(knowledgeId, branch);
-    await graphKnowledge.setKnowledgeBranchInGraph(knowledgeId, branch).catch(() => undefined);
+    await knowledgeDb.setKnowledgeBranch(knowledgeId, branch);
+    await knowledgeGraph.setKnowledgeBranchInGraph(knowledgeId, branch).catch(() => undefined);
 
     let source: SourceReader;
     let archiveSink: ArchiveSink | undefined;
@@ -129,7 +129,7 @@ async function runGithub(
     strategyStarted = true;
     const result = await strategy.execute(strategyInput);
 
-    await knowledge.setKnowledgeCommit(
+    await knowledgeDb.setKnowledgeCommit(
       knowledgeId,
       commitHash,
       String(result.tokenUsage.inputTokens),
@@ -211,8 +211,8 @@ async function runLocal(strategy: IngestStrategy, payload: LocalIngestPayload): 
 }
 
 async function transitionState(knowledgeId: string, state: KnowledgeState): Promise<void> {
-  await knowledge.setKnowledgeState(knowledgeId, state);
-  await graphKnowledge.setKnowledgeStateInGraph(knowledgeId, state).catch(() => undefined);
+  await knowledgeDb.setKnowledgeState(knowledgeId, state);
+  await knowledgeGraph.setKnowledgeStateInGraph(knowledgeId, state).catch(() => undefined);
 }
 
 /**
@@ -226,8 +226,8 @@ async function persistFailure(
   reason: string,
   detail?: string,
 ): Promise<void> {
-  await knowledge.markKnowledgeFailed(knowledgeId, reason, category, detail).catch(() => undefined);
-  await graphKnowledge.setKnowledgeStateInGraph(knowledgeId, KnowledgeState.Failed).catch(() => undefined);
+  await knowledgeDb.markKnowledgeFailed(knowledgeId, reason, category, detail).catch(() => undefined);
+  await knowledgeGraph.setKnowledgeStateInGraph(knowledgeId, KnowledgeState.Failed).catch(() => undefined);
 }
 
 function isGithubPayload(payload: GithubIndexPayload | LocalIngestPayload): payload is GithubIndexPayload {

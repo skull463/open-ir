@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { logger } from "@bb/logger";
-import { files, folders, repo, indexes } from "@bb/graph-db";
-import { raw } from "@bb/db";
+import { filesGraph, foldersGraph, repoGraph, indexesGraph } from "@bb/graph-db";
+import { rawDb } from "@bb/db";
 import type { GithubIndexPayload } from "@bb/types";
 import type { NodeScope } from "@bb/graph-core";
 import type { MetaPaths } from "#src/types/meta-paths.ts";
@@ -44,7 +44,7 @@ export interface StorePullResult {
  */
 export async function storePullAnalysis(input: StorePullInput): Promise<StorePullResult> {
   throwIfCancelled(input.scope.knowledgeId);
-  await indexes.ensureFlatFolderIndexes();
+  await indexesGraph.ensureFlatFolderIndexes();
 
   let filesUpserted = 0;
   let filesDeleted = 0;
@@ -52,15 +52,15 @@ export async function storePullAnalysis(input: StorePullInput): Promise<StorePul
 
   const deletedPaths: string[] = [...input.diff.deleted, ...input.diff.renamed.map((r) => r.oldPath)];
   if (deletedPaths.length > 0) {
-    await files.deleteFileNodes(input.scope.knowledgeId, deletedPaths);
-    await raw.deleteRawFiles(input.scope.knowledgeId, deletedPaths);
+    await filesGraph.deleteFileNodes(input.scope.knowledgeId, deletedPaths);
+    await rawDb.deleteRawFiles(input.scope.knowledgeId, deletedPaths);
     filesDeleted = deletedPaths.length;
   }
 
   const repoSummary = await readRepoSummary(input.metaPaths);
   let repoUpserted = false;
   if (repoSummary !== null) {
-    await repo.upsertRepoNode({
+    await repoGraph.upsertRepoNode({
       scope: input.scope,
       repoUrl: input.payload.repoUrl,
       branch: input.branch,
@@ -85,7 +85,7 @@ export async function storePullAnalysis(input: StorePullInput): Promise<StorePul
     if (!input.affectedFolders.has(folder.folderPath)) {
       continue;
     }
-    await folders.upsertFolderNode({
+    await foldersGraph.upsertFolderNode({
       scope: input.scope,
       folderPath: folder.folderPath,
       summary: shapeFolderPayload(folder),
@@ -115,7 +115,7 @@ export async function storePullAnalysis(input: StorePullInput): Promise<StorePul
 
     const folderPath = directFolderOf(relativePath);
     if (!folderPaths.has(folderPath)) {
-      await folders.upsertFolderNode({
+      await foldersGraph.upsertFolderNode({
         scope: input.scope,
         folderPath,
         summary: emptyFolderPayload(),
@@ -139,7 +139,7 @@ async function upsertFileNodeFromCondensed(
   folderPath: string,
   file: CondensedFileAnalysis,
 ): Promise<void> {
-  await files.upsertFileNode({
+  await filesGraph.upsertFileNode({
     orgId: scope.orgId,
     knowledgeId: scope.knowledgeId,
     repoId: scope.repoId,

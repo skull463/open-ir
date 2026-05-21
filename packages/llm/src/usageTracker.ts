@@ -1,5 +1,5 @@
 import type { ActivityInput } from "@bb/types";
-import { usage as dbUsage, activity as dbActivity } from "@bb/db";
+import { usageDb, activityDb } from "@bb/db";
 import { tokenLen } from "./tokenizer.ts";
 
 /**
@@ -30,7 +30,7 @@ export class UsageTracker {
       const outputTokens = tokenLen(response);
 
       // 1. Increment monthly usage (Atomic update)
-      await dbUsage.incrementUsage(identityId, inputTokens, outputTokens);
+      await usageDb.incrementUsage(identityId, inputTokens, outputTokens);
 
       // 2. Record detailed activity log
       const activity: ActivityInput = {
@@ -44,7 +44,7 @@ export class UsageTracker {
           output: outputTokens,
         },
       };
-      await dbActivity.recordActivity(activity);
+      await activityDb.recordActivity(activity);
     } catch (error) {
       // Failure in tracking should not break the main application flow
       console.error("[UsageTracker] Failed to track usage:", error);

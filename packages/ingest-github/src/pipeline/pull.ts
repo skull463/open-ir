@@ -1,7 +1,7 @@
 import { KnowledgeState, type GithubPullPayload, type JobMessage } from "@bb/types";
 import type { NodeScope } from "@bb/graph-core";
-import { knowledge } from "@bb/db";
-import { files, knowledge as graphKnowledge } from "@bb/graph-db";
+import { knowledgeDb } from "@bb/db";
+import { filesGraph, knowledgeGraph } from "@bb/graph-db";
 import type { PipelineSummary } from "#src/types/pipeline.ts";
 import { resolveOrgId, llmCallContextFromPayload } from "./context.ts";
 import { IngestError, KnowledgeNotFoundError } from "@bb/errors";
@@ -50,7 +50,7 @@ export async function runPull(
     );
   }
 
-  const kDoc = await knowledge.getKnowledge(knowledgeId);
+  const kDoc = await knowledgeDb.getKnowledge(knowledgeId);
   if (kDoc === null) {
     throw new KnowledgeNotFoundError(knowledgeId);
   }
@@ -139,7 +139,7 @@ export async function runPull(
     }
 
     throwIfCancelled(knowledgeId);
-    await files.snapshotFilesToVersion({ knowledgeId, commitHash: currentCommit }).catch((cause: unknown) => {
+    await filesGraph.snapshotFilesToVersion({ knowledgeId, commitHash: currentCommit }).catch((cause: unknown) => {
       const msgText = cause instanceof Error ? cause.message : String(cause);
       logger.warn(`pull: snapshot of ${currentCommit.slice(0, 12)} failed (non-fatal): ${msgText}`);
     });
@@ -251,7 +251,7 @@ export async function runPull(
       affectedFolders,
     });
 
-    await knowledge.setKnowledgeCommit(
+    await knowledgeDb.setKnowledgeCommit(
       knowledgeId,
       targetCommit,
       String(totalInputTokens),
@@ -278,8 +278,8 @@ export async function runPull(
       throw cause;
     }
     const { category, reason, detail } = classifyFailure(cause);
-    await knowledge.markKnowledgeFailed(knowledgeId, reason, category, detail).catch(() => undefined);
-    await graphKnowledge.setKnowledgeStateInGraph(knowledgeId, KnowledgeState.Failed).catch(() => undefined);
+    await knowledgeDb.markKnowledgeFailed(knowledgeId, reason, category, detail).catch(() => undefined);
+    await knowledgeGraph.setKnowledgeStateInGraph(knowledgeId, KnowledgeState.Failed).catch(() => undefined);
     progressContext.failed(reason, undefined, category, detail);
     throw new IngestError(knowledgeId, `github_pull failed: ${reason}`, cause);
   }

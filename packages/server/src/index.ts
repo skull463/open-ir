@@ -2,11 +2,11 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import express from "express";
-import { Config, type Config as ConfigEnum } from "@bb/types";
+import { Config, DbProviderType, type Config as ConfigEnum } from "@bb/types";
 import { getBytebellHome, getConfigValue, HINTS } from "@bb/config";
 import { connectDb } from "@bb/db";
 import { connectRedis } from "@bb/redis";
-import { connectGraph, indexes as graphIndexes } from "@bb/graph-db";
+import { connectGraph, indexesGraph } from "@bb/graph-db";
 import { connectQueue } from "@bb/queue";
 import "@bb/mongo";
 import "@bb/sqlite";
@@ -31,7 +31,7 @@ function checkRequiredConfig(): void {
   const dbProvider = getConfigValue(Config.DbProvider);
 
   const required = [...REQUIRED];
-  if (dbProvider !== "mongo") {
+  if (dbProvider !== DbProviderType.Mongo) {
     const idx = required.indexOf(Config.MongoUri);
     if (idx !== -1) {
       required.splice(idx, 1);
@@ -59,7 +59,7 @@ async function main(): Promise<void> {
 
   const graphProvider = getConfigValue(Config.GraphProvider);
   await connectGraph(graphProvider);
-  await graphIndexes.ensureKnowledgeIndexes();
+  await indexesGraph.ensureKnowledgeIndexes();
   await connectQueue();
   registerGithubWorkers();
   registerLocalIngestWorker();

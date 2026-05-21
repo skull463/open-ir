@@ -38,7 +38,7 @@ export async function closeDb(): Promise<void> {
   }
 }
 
-export const knowledge: IKnowledgeRepository = {
+export const knowledgeDb: IKnowledgeRepository = {
   setKnowledgeState: (...args) => getDb().knowledge.setKnowledgeState(...args),
   setKnowledgeCommit: (...args) => getDb().knowledge.setKnowledgeCommit(...args),
   setKnowledgeBranch: (...args) => getDb().knowledge.setKnowledgeBranch(...args),
@@ -50,21 +50,21 @@ export const knowledge: IKnowledgeRepository = {
   markKnowledgeFailed: (...args) => getDb().knowledge.markKnowledgeFailed(...args),
 };
 
-export const raw: IRawRepository = {
+export const rawDb: IRawRepository = {
   upsertRawFile: (...args) => getDb().raw.upsertRawFile(...args),
   listRawFileShas: (...args) => getDb().raw.listRawFileShas(...args),
   deleteRawFiles: (...args) => getDb().raw.deleteRawFiles(...args),
 };
 
-export const stats: IAggregateStatsRepository = {
+export const statsDb: IAggregateStatsRepository = {
   aggregateStats: (...args) => getDb().stats.aggregateStats(...args),
 };
 
-export const activity: IActivityRepository = {
+export const activityDb: IActivityRepository = {
   recordActivity: (...args) => getDb().activity.recordActivity(...args),
 };
 
-export const usage: IUsageRepository = {
+export const usageDb: IUsageRepository = {
   incrementUsage: (...args) => getDb().usage.incrementUsage(...args),
   getMonthlyUsage: (...args) => getDb().usage.getMonthlyUsage(...args),
   getGlobalUsage: (...args) => getDb().usage.getGlobalUsage(...args),

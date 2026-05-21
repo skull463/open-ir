@@ -81,3 +81,7 @@ export interface KnowledgeDoc {
    */
   failure?: KnowledgeFailure;
 }
+
+export interface KnowledgeListEntry extends KnowledgeDoc {
+  fileCount: number;
+}

@@ -35,3 +35,13 @@ export enum Config {
   GraphProvider = "graph_provider",
   SqlitePath = "sqlite_path",
 }
+
+export enum DbProviderType {
+  Sqlite = "sqlite",
+  Mongo = "mongo",
+}
+
+export enum GraphProviderType {
+  Neo4j = "neo4j",
+  Ladybug = "ladybug",
+}

@@ -1,8 +1,8 @@
 import type { Request, Response, Router } from "express";
 import express from "express";
 import { KnowledgeState, type KnowledgeDoc } from "@bb/types";
-import { knowledge as dbKnowledge } from "@bb/db";
-import { knowledge as graphKnowledge } from "@bb/graph-db";
+import { knowledgeDb } from "@bb/db";
+import { knowledgeGraph } from "@bb/graph-db";
 import { enqueueGithubIndex } from "@bb/queue";
 
 interface IndexBody {
@@ -37,8 +37,8 @@ export function buildGithubIndexRoute(): Router {
       createdAt: now,
       updatedAt: now,
     };
-    await dbKnowledge.upsertKnowledge(doc);
-    await graphKnowledge.upsertKnowledgeNode(doc);
+    await knowledgeDb.upsertKnowledge(doc);
+    await knowledgeGraph.upsertKnowledgeNode(doc);
     const jobId = await enqueueGithubIndex({
       knowledgeId,
       repoUrl,

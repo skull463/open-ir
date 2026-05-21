@@ -4,8 +4,8 @@ import { stat, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { KnowledgeState, type KnowledgeDoc } from "@bb/types";
 import { getBytebellHome } from "@bb/config";
-import { knowledge as dbKnowledge } from "@bb/db";
-import { knowledge as graphKnowledge } from "@bb/graph-db";
+import { knowledgeDb } from "@bb/db";
+import { knowledgeGraph } from "@bb/graph-db";
 import { enqueueLocalIngest } from "@bb/queue";
 import { copyRepo } from "./copyRepo.ts";
 
@@ -53,8 +53,8 @@ export function buildLocalIndexRoute(): Router {
       createdAt: now,
       updatedAt: now,
     };
-    await dbKnowledge.upsertKnowledge(doc);
-    await graphKnowledge.upsertKnowledgeNode(doc);
+    await knowledgeDb.upsertKnowledge(doc);
+    await knowledgeGraph.upsertKnowledgeNode(doc);
     const jobId = await enqueueLocalIngest({ knowledgeId, rootDir: destDir });
     res.status(200).json({ knowledgeId, jobId });
   });

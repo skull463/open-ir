@@ -132,14 +132,23 @@ worker hardcodes a single `IngestionStrategy` instance (currently
 - `:File` graph nodes + `:HAS_FILE` / `:HAS_KEYWORD` / `:HAS_CLASS` /
   `:HAS_FUNCTION` / `:HAS_IMPORT_INTERNAL` / `:HAS_IMPORT_EXTERNAL` relationships — written via
   `upsertFileNode` from `@bb/neo4j`.
+- `meta-output/scan-manifest.json` — the canonical small/big/oversized
+  classification produced by Phase 1 (`scanAndClassify`). Per-file entries
+  carry `tokenCount`, `kind`, and (for big files) `estimatedChunks`.
+  Phases 2a (small) and 2b (big) consume the manifest in parallel.
+- `meta-output/bigFiles.json` — legacy view written alongside the manifest
+  for the pull-path and backfill phases. The main strategy no longer
+  consumes it directly.
 
 ## Invariants
 
-1. **Sequential per-file processing.** Intentionally degraded; one
-   `upsertRawFile` per file. The small-file path issues one `askLLM`;
-   the big-file path issues N (one per chunk) plus condensation calls,
-   all sequential — no `Promise.all`, no concurrency cap. Revisit when
-   the latency profile demands it.
+1. **Shared LLM concurrency limiter.** The flat-folder strategy
+   constructs one `withConcurrency(Config.LlmConcurrency)` instance at
+   entry (default 29). The small-file phase, the big-file chunk phase,
+   and per-file condense calls all check out from this single pool, so
+   total in-flight LLM calls is bounded by one knob. The legacy
+   `processBigFile` driver used by the pull-path still uses its own
+   per-file pool sized by `Config.BigFileConcurrency`.
 2. **Clone idempotent.** Re-runs (BullMQ retries) call `git fetch` +
    `git reset --hard` in the existing dir rather than re-cloning.
    Tokens are re-injected into the remote URL each time.
@@ -179,7 +188,6 @@ worker hardcodes a single `IngestionStrategy` instance (currently
 - GitHub API streaming mode (always shell-clone)
 - Default-branch auto-detection (caller supplies `branch`; defaults to
   `"main"`)
-- Concurrency control / parallel file processing
 - Folder-level summaries / `repoSummary.json` / `flat-folder` strategy
 - Semantic chunking (`SemanticChunker`)
 - Per-chunk persistence (we persist only the merged file-level

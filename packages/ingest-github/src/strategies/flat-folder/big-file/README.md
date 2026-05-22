@@ -42,11 +42,32 @@ sizeBytes, llmCallContext?, progressContext?})`. Sequential per file
   so long single-file analyses surface as live `PHASE_TICK` envelopes
   carrying per-chunk progress instead of looking frozen.
 
+## Two callers
+
+These leaf helpers (`splitFileIntoChunks`, `analyzeChunk`, `condenseChunks`,
+the storage / cache primitives) are consumed by **two** drivers:
+
+- `processBigFile` (`index.ts`) — legacy serial driver. One big file at a
+  time, chunks-within-file parallel under `Config.BigFileConcurrency`,
+  followed by a blocking condense. Used today by the pull-path
+  (`pipeline/pull.ts`) via `processBigFilesQueue` and by the Phase 4
+  backfill.
+- `analyseBigFiles` (`phases/process-big-files.ts`) — manifest-driven
+  chunk-task queue used by the main strategy entry. Every chunk of every
+  big file is an independent task scheduled through a strategy-wide
+  shared `ConcurrencyLimiter`. As soon as a file's last chunk lands,
+  that file's `condenseChunks` is scheduled through the same limiter —
+  multiple condenses run in parallel with chunks of slower files.
+  Reuses `splitFileIntoChunks`, `analyzeChunk`, `condenseChunks`, and
+  the storage helpers without modification.
+
 ## Invariants
 
-- One big file at a time. Concurrency lives at the chunk level inside
-  `processBigFile`, never across files, to bound peak memory.
 - Every artifact is durable on disk before the next step. The chunk cache
-  short-circuits on re-runs; the manifest plus condensed JSON are the
-  Phase 7 graph-store inputs.
-- Cancellation is checked between chunks (`throwIfCancelled(knowledgeId)`).
+  short-circuits on re-runs (per-chunk granularity, not per-file); the
+  manifest plus condensed JSON are the Phase 7 graph-store inputs.
+- Cancellation is checked between chunks and before each condense
+  dispatch (`throwIfCancelled(knowledgeId)`).
+- `bigFiles.json` is now a derived view written by `scanAndClassify`.
+  The main strategy reads it indirectly via the manifest; the legacy
+  drivers (pull-path + backfill) continue to read it directly.

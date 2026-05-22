@@ -30,6 +30,7 @@ export function metaPathsFor(knowledgeId: string): MetaPaths {
     bigFileAnalysisDir: path.join(metaRoot, "big-file-analysis"),
     bigFileChunksDir: path.join(metaRoot, "big-file-analysis", "chunks"),
     bigFilesJson: path.join(metaRoot, "bigFiles.json"),
+    scanManifestJson: path.join(metaRoot, "scan-manifest.json"),
     repoSummaryJson: path.join(metaRoot, "repo-summary.json"),
   };
 }

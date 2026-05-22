@@ -41,6 +41,7 @@ export const configSchema = z
     "big.file.concurrency": z.number().int().positive().default(25),
     "absolute.file.size.cap": z.number().int().positive().default(52428800),
     "concurrent.workers": z.number().int().positive().default(4),
+    "llm.concurrency": z.number().int().positive().default(29),
     "condense.context.limit": z.number().int().positive().default(12000),
     "condense.prompt.overhead": z.number().int().nonnegative().default(1500),
     "small.file.dedup.threshold": z.number().int().positive().default(3),
@@ -81,6 +82,7 @@ export type ConfigValueMap = {
   [Config.BigFileConcurrency]: number;
   [Config.AbsoluteFileSizeCap]: number;
   [Config.ConcurrentWorkers]: number;
+  [Config.LlmConcurrency]: number;
   [Config.CondenseContextLimit]: number;
   [Config.CondensePromptOverhead]: number;
   [Config.SmallFileDedupThreshold]: number;
@@ -135,6 +137,7 @@ export const HINTS: Readonly<Record<Config, string>> = {
   [Config.BigFileConcurrency]: "bytebell set big.file.concurrency <n>",
   [Config.AbsoluteFileSizeCap]: "bytebell set absolute.file.size.cap <bytes>",
   [Config.ConcurrentWorkers]: "bytebell set concurrent.workers <n>",
+  [Config.LlmConcurrency]: "bytebell set llm.concurrency <n>",
   [Config.CondenseContextLimit]: "bytebell set condense.context.limit <n>",
   [Config.CondensePromptOverhead]: "bytebell set condense.prompt.overhead <n>",
   [Config.SmallFileDedupThreshold]: "bytebell set small.file.dedup.threshold <n>",
@@ -195,6 +198,8 @@ export function readField<K extends Config>(cfg: BytebellConfig, key: K): Config
       return cfg["absolute.file.size.cap"] as ConfigValue<K>;
     case Config.ConcurrentWorkers:
       return cfg["concurrent.workers"] as ConfigValue<K>;
+    case Config.LlmConcurrency:
+      return cfg["llm.concurrency"] as ConfigValue<K>;
     case Config.CondenseContextLimit:
       return cfg["condense.context.limit"] as ConfigValue<K>;
     case Config.CondensePromptOverhead:
@@ -264,6 +269,8 @@ export function writeField<K extends Config>(cfg: BytebellConfig, key: K, value:
       return { ...cfg, "absolute.file.size.cap": value as number };
     case Config.ConcurrentWorkers:
       return { ...cfg, "concurrent.workers": value as number };
+    case Config.LlmConcurrency:
+      return { ...cfg, "llm.concurrency": value as number };
     case Config.CondenseContextLimit:
       return { ...cfg, "condense.context.limit": value as number };
     case Config.CondensePromptOverhead:

@@ -6,35 +6,50 @@ Backfill (Phases 3 and 4) lives in the sibling `backfill/` folder; folder
 and repo summarisation (Phases 5 and 6) live as `folder-summary.ts` and
 `repo-summary.ts` at the strategy root.
 
+The strategy constructs a **shared LLM limiter** (`withConcurrency(Config.LlmConcurrency)`,
+default 29) once at entry. Every LLM call across the small-file phase,
+the big-file chunk phase, and per-file condense calls checks out from
+the same pool — the single tunable for total in-flight LLM calls.
+
 ## Files
 
-- `classify-and-analyse-small.ts` — Phase 1.
-  `classifyAndAnalyseSmall({knowledgeId, source, metaPaths, analyzer,
-skipDecider?, archiveSink?, llmCallContext?, progressContext?})` walks
-  `source.scan({ skipDecider, llmCallContext })` and per entry:
-  - `kind === "oversized"` → write a stub via `buildOversizedStub` +
-    `saveCondensed`, and append a `too-large` row to `bigFiles.json`.
-  - token count > `Config.ContextWindowLimit` → buffer a
-    `context-window-exceeded` row for Phase 2.
-  - otherwise → run `analyseScannedFile(analyzer, entry)` and persist via
-    `saveCondensed`, under a `withConcurrency(Config.ConcurrentWorkers)`
-    limiter so analyses run in parallel.
-    Cancellation is checked at scan boundaries and inside each task; the
-    buffered big-file list is flushed via `writeBigFiles` after all tasks
-    drain.
-- `process-big-files.ts` — Phase 2.
-  `processBigFilesQueue({knowledgeId, source, metaPaths, llmCallContext?, progressContext?})`
-  reads `bigFiles.json`, skips `too-large` entries (counted as
-  `skippedOversized`), short-circuits when `inspect` returns `complete`
-  (counted as `cached`), reads the file via `source.readFile`, and
-  dispatches `processBigFile` sequentially per file with the per-job
-  `llmCallContext` threaded through. When `progressContext` is present
-  this phase opens a fixed-total reporter (`subPhase: "big_files_queue"`,
-  `total = entries.length`) and increments per entry — including
-  skipped/cached/failed paths so the percentage never stalls. The same
-  `progressContext` is forwarded into `processBigFile` so each big file
-  gets its own per-chunk sub-phase. Cancellation re-throws past the
-  phase; other errors are logged per file and counted as `failed`.
+- `scan-and-classify.ts` — Phase 1. `scanAndClassify({knowledgeId, source,
+metaPaths, skipDecider?, llmCallContext?, progressContext?})` walks
+  `source.scan({ skipDecider, llmCallContext })` exactly once, counts
+  tokens for every eligible entry, classifies each as `"small"`,
+  `"big"` (token count > `Config.ContextWindowLimit`), or `"oversized"`
+  (yielded as `kind === "oversized"` by `scanRepository`), and writes
+  `meta-output/scan-manifest.json` plus the legacy `bigFiles.json` (for
+  pull-path and backfill consumers that have not migrated). Big entries
+  get a cheap `estimatedChunks = ceil(tokenCount / Config.MaxTokensPerChunk)`
+  used by Phase 2's progress reporter. No LLM calls. No file analysis.
+- `analyse-small.ts` — Phase 2a. `analyseSmallFiles({knowledgeId, manifest,
+source, metaPaths, analyzer, limiter, archiveSink?, llmCallContext?,
+progressContext?})` filters the manifest to `kind === "small"` entries,
+  re-reads each file via `source.readFile`, runs the LLM file analyser,
+  and persists via `saveCondensed`. Oversized entries also flow through
+  here as stub writes (no LLM). Every LLM dispatch goes through the
+  shared `limiter`. Progress is a fixed total — `smallCount + oversizedCount`.
+- `process-big-files.ts` — Phase 2b plus the legacy queue. Exports two
+  functions:
+  - `analyseBigFiles({knowledgeId, manifest, source, metaPaths, limiter,
+llmCallContext?, progressContext?})` — manifest-driven chunk-task
+    queue. Skips files already complete (manifest + condensed on disk).
+    For each remaining big file: read content, split into chunks
+    via `splitFileIntoChunks`, register a per-file `pendingChunks`
+    counter. Every chunk becomes an independent task scheduled through
+    the shared limiter: cache-check via `loadChunkIfPresent`, otherwise
+    `analyzeChunk` + `saveChunk`. When a file's last chunk lands, that
+    file's condense is **immediately** scheduled through the same
+    limiter — condenses across multiple files run in parallel with
+    chunks of slower files. Two fixed-total progress sub-phases:
+    `"big_files_chunks"` (sum of `estimatedChunks`) and
+    `"big_files_condense"` (`bigCount`).
+  - `processBigFilesQueue({knowledgeId, source, metaPaths, llmCallContext?,
+progressContext?})` — legacy serial driver kept for the pull-path
+    (`pipeline/pull.ts`) and any caller that has not migrated to
+    `analyseBigFiles(manifest, …)`. Reads `bigFiles.json`, dispatches
+    `processBigFile` once per file in a `for` loop.
 - `store-flat-analysis.ts` — Phase 7.
   `storeFlatAnalysis({scope, payload, branch, metaPaths})` ensures
   `flat-folder` Neo4j indexes, upserts `:Repo` (from `repo-summary.json`
@@ -45,45 +60,69 @@ skipDecider?, archiveSink?, llmCallContext?, progressContext?})` walks
   `:Folder` so the `CONTAINS` edge always lands. `languageFromPath`
   fills `language` when the analysis left it blank.
 
+## Execution order
+
+```
+scanAndClassify
+        ↓ (manifest in-memory + on disk)
+┌── analyseSmallFiles ──┐
+│                       │  (Promise.all, share one limiter)
+└── analyseBigFiles ────┘
+        ↓
+backfillMissingFields → backfillBigFiles → folderSummary → repoSummary → storeFlatAnalysis
+```
+
 ## Public interfaces
 
-- `classifyAndAnalyseSmall(input): Promise<ClassifyPhaseResult>` —
-  `{ smallFilesAnalysed, bigFilesQueued, oversizedStubs, failed }`.
-  `input.progressContext?` opens a growing-total reporter
-  (`source.scan` size is not known up front); `incrementSeen()` fires per
-  scan yield and `increment()` fires per persisted entry.
-- `processBigFilesQueue(input): Promise<ProcessBigFilesResult>` —
-  `{ processed, cached, failed, skippedOversized }`. `input.progressContext?`
-  opens a fixed-total reporter sized by `bigFiles.json` and forwards
-  itself into the per-file `processBigFile` call.
+- `scanAndClassify(input): Promise<ScanAndClassifyResult>` —
+  `{ manifest }`. The manifest contains every eligible file plus a
+  `summary` with `totalFiles`, `smallCount`, `bigCount`, `oversizedCount`,
+  `totalTokens`, `estimatedBigChunks`.
+- `analyseSmallFiles(input): Promise<AnalyseSmallResult>` —
+  `{ smallFilesAnalysed, oversizedStubs, failed, tokenUsage }`.
+  Progress: fixed-total reporter sized by `smallCount + oversizedCount`.
+- `analyseBigFiles(input): Promise<ProcessBigFilesResult>` —
+  `{ processed, cached, failed, skippedOversized, tokenUsage }`.
+  Progress: two fixed-total reporters — one for chunks across all
+  big files, one for per-file condenses.
+- `processBigFilesQueue(input): Promise<ProcessBigFilesResult>` — same
+  result shape; legacy driver used by the pull path.
 - `storeFlatAnalysis(input): Promise<StoreFlatAnalysisResult>` —
   `{ nodesWritten, foldersWritten, filesWritten }`.
 
-Each phase returns its own counter shape; the strategy aggregates them
-into `FlatFolderResult`.
-
 ## Data ownership
 
-- Phase 1 writes condensed JSON (small files + oversized stubs) and
-  `bigFiles.json`.
-- Phase 2 writes chunk artifacts, the chunk manifest, and condensed JSON
-  for big files via `processBigFile`.
-- Phase 7 owns no disk artifacts. It reads the on-disk state produced by
+- Phase 1 writes `scan-manifest.json` (canonical) and `bigFiles.json`
+  (legacy view for backfill + pull). It does not write per-file
+  analyses.
+- Phase 2a writes condensed JSON for small files + oversized stubs.
+- Phase 2b writes per-chunk JSON (`chunks/<file>/chunk-N.json`),
+  per-file chunk manifests (`<file>.manifest.json`), and condensed JSON
+  for big files.
+- Phase 7 owns no disk artifacts. It reads on-disk state produced by
   Phases 1–6 and writes Neo4j nodes (`:Repo`, `:Folder`, `:File`) plus
   the `CONTAINS` edge.
 
 ## Invariants
 
 - Disk is the inter-phase contract; nothing crosses a phase boundary in
-  memory.
+  memory (except the in-memory manifest object that scan returns directly
+  to the orchestrator, which is a convenience — the canonical copy on
+  disk is what later resume/backfill runs read).
 - `throwIfCancelled(knowledgeId)` runs at every scan boundary, every
-  big-file boundary, and before each Neo4j upsert in Phase 7.
-- Per-file LLM or I/O failures are logged and counted; phases do not
-  abort on a single bad file. Only `CancellationError` propagates.
+  per-chunk and per-file dispatch boundary, and before each Neo4j
+  upsert in Phase 7.
+- Per-file or per-chunk LLM/I/O failures are logged and counted; phases
+  do not abort on a single bad file. Only `CancellationError`,
+  `LlmConfigError`, and `LlmError` propagate.
+- The shared LLM limiter is the only place LLM concurrency is bounded
+  during the small/big phases. `Config.BigFileConcurrency` is no longer
+  consulted from the chunk-queue path (it is still consulted by the
+  legacy `processBigFile` used by the pull-path driver).
+- Phase 1 respects `Config.ContextWindowLimit` and
+  `Config.MaxTokensPerChunk`; do not hardcode either.
 - Phase 7 always emits a `:Repo` node, even when `repo-summary.json` is
   absent (logged as a `phase7` warning).
-- Phase 1 respects `Config.ContextWindowLimit` and
-  `Config.ConcurrentWorkers`; do not hardcode either.
 
 ## External dependencies
 
@@ -92,8 +131,8 @@ into `FlatFolderResult`.
 `upsertRepoNode`, `upsertFolderNode`, `upsertFileNode`, `NodeScope`),
 `pipeline/scan.ts`, `pipeline/concurrency.ts`, `pipeline/cancellation.ts`,
 and the sibling `flat-folder/{analyse-file, big-file, folder-summary,
-folder-path}` modules plus `adapters/llm-file-analyzer.ts`
-(`languageFromPath`).
+folder-path, scan-manifest}` modules plus
+`adapters/llm-file-analyzer.ts` (`languageFromPath`).
 
 ## Tier
 

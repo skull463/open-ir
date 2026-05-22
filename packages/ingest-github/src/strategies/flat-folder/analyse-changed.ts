@@ -39,7 +39,7 @@ export interface AnalyseChangedResult {
 
 /**
  * Pull-time per-file dispatcher. Iterates the changed file set from the
- * diff and runs the same per-file work as `classifyAndAnalyseSmall`, but
+ * diff and runs the same per-file work as `analyseSmallFiles`, but
  * targeted at known paths rather than a tree walk.
  *
  * Reads file content through `input.source` (a `SourceReader`) so the

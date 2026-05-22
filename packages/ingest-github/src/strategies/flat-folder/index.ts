@@ -1,10 +1,14 @@
+import { Config } from "@bb/types";
+import { getConfigValue } from "@bb/config";
 import { logger } from "@bb/logger";
 import type { FileAnalyzer } from "#src/types/pipeline.ts";
 import type { IngestStrategy, StrategyInput, StrategyResult } from "#src/types/strategy.ts";
 import { throwIfCancelled } from "#src/pipeline/cancellation.ts";
 import { classifyFailure } from "#src/pipeline/failure-classifier.ts";
-import { classifyAndAnalyseSmall } from "./phases/classify-and-analyse-small.ts";
-import { processBigFilesQueue } from "./phases/process-big-files.ts";
+import { withConcurrency } from "#src/pipeline/concurrency.ts";
+import { scanAndClassify } from "./phases/scan-and-classify.ts";
+import { analyseSmallFiles } from "./phases/analyse-small.ts";
+import { analyseBigFiles } from "./phases/process-big-files.ts";
 import { backfillMissingFields } from "./backfill/fields.ts";
 import { backfillBigFiles } from "./backfill/big-files.ts";
 import { runFolderSummaryPhase } from "./folder-summary.ts";
@@ -28,43 +32,60 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
       const progressContext: ProgressContext = progressContextFactory(knowledgeId);
 
       try {
-        progressContext.phaseChanged("file_analysis");
+        // Shared LLM limiter — small-file analyses, big-file chunk analyses,
+        // and per-file condense calls all check out from this single pool.
+        const llmConcurrency = getConfigValue(Config.LlmConcurrency);
+        const limiter = withConcurrency(llmConcurrency);
 
-        logger.info(`flat-folder: phase1 (classify + analyse small) starting for ${knowledgeId}`);
+        progressContext.phaseChanged("scan");
+        logger.info(`flat-folder: phase1 (scan + classify) starting for ${knowledgeId} limit=${llmConcurrency}`);
         throwIfCancelled(knowledgeId);
-        const phase1Input: Parameters<typeof classifyAndAnalyseSmall>[0] = {
+        const scanInput: Parameters<typeof scanAndClassify>[0] = {
           knowledgeId,
+          source,
+          metaPaths,
+          progressContext,
+        };
+        if (llmCallContext !== undefined) {
+          scanInput.llmCallContext = llmCallContext;
+        }
+        const { manifest } = await scanAndClassify(scanInput);
+
+        progressContext.phaseChanged("file_analysis");
+        logger.info(
+          `flat-folder: phase2 (analyse small ${manifest.summary.smallCount} + big ${manifest.summary.bigCount}) starting in parallel`,
+        );
+        throwIfCancelled(knowledgeId);
+        const smallInput: Parameters<typeof analyseSmallFiles>[0] = {
+          knowledgeId,
+          manifest,
           source,
           metaPaths,
           analyzer: deps.fileAnalyzer,
+          limiter,
           progressContext,
         };
         if (archiveSink !== undefined) {
-          phase1Input.archiveSink = archiveSink;
+          smallInput.archiveSink = archiveSink;
         }
         if (llmCallContext !== undefined) {
-          phase1Input.llmCallContext = llmCallContext;
+          smallInput.llmCallContext = llmCallContext;
         }
-        const phase1 = await classifyAndAnalyseSmall(phase1Input);
-        let totalInputTokens = phase1.tokenUsage.inputTokens;
-        let totalOutputTokens = phase1.tokenUsage.outputTokens;
-        let totalCostUsd = phase1.tokenUsage.costUsd;
-
-        logger.info(`flat-folder: phase2 (process big files) starting`);
-        throwIfCancelled(knowledgeId);
-        const phase2Input: Parameters<typeof processBigFilesQueue>[0] = {
+        const bigInput: Parameters<typeof analyseBigFiles>[0] = {
           knowledgeId,
+          manifest,
           source,
           metaPaths,
+          limiter,
           progressContext,
         };
         if (llmCallContext !== undefined) {
-          phase2Input.llmCallContext = llmCallContext;
+          bigInput.llmCallContext = llmCallContext;
         }
-        const phase2 = await processBigFilesQueue(phase2Input);
-        totalInputTokens += phase2.tokenUsage.inputTokens;
-        totalOutputTokens += phase2.tokenUsage.outputTokens;
-        totalCostUsd += phase2.tokenUsage.costUsd;
+        const [smallResult, bigResult] = await Promise.all([analyseSmallFiles(smallInput), analyseBigFiles(bigInput)]);
+        let totalInputTokens = smallResult.tokenUsage.inputTokens + bigResult.tokenUsage.inputTokens;
+        let totalOutputTokens = smallResult.tokenUsage.outputTokens + bigResult.tokenUsage.outputTokens;
+        let totalCostUsd = smallResult.tokenUsage.costUsd + bigResult.tokenUsage.costUsd;
 
         logger.info(`flat-folder: phase3 (backfill missing fields) starting`);
         throwIfCancelled(knowledgeId);
@@ -121,7 +142,8 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
         progressContext.completed();
 
         return {
-          filesAnalyzed: phase1.smallFilesAnalysed + phase2.processed + phase2.cached + phase1.oversizedStubs,
+          filesAnalyzed:
+            smallResult.smallFilesAnalysed + smallResult.oversizedStubs + bigResult.processed + bigResult.cached,
           foldersSummarised: phase5.succeeded,
           repoSummarised,
           graphNodesWritten: phase7.nodesWritten,

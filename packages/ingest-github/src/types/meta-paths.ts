@@ -5,5 +5,6 @@ export interface MetaPaths {
   bigFileAnalysisDir: string;
   bigFileChunksDir: string;
   bigFilesJson: string;
+  scanManifestJson: string;
   repoSummaryJson: string;
 }

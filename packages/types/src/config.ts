@@ -23,6 +23,7 @@ export enum Config {
   BigFileConcurrency = "big.file.concurrency",
   AbsoluteFileSizeCap = "absolute.file.size.cap",
   ConcurrentWorkers = "concurrent.workers",
+  LlmConcurrency = "llm.concurrency",
   CondenseContextLimit = "condense.context.limit",
   CondensePromptOverhead = "condense.prompt.overhead",
   SmallFileDedupThreshold = "small.file.dedup.threshold",

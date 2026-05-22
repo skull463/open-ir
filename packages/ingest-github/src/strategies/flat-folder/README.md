@@ -21,30 +21,30 @@ this single pool. One knob bounds total in-flight LLM concurrency.
    **two-pass** strategy: walk + cache-only `decideStatic` first, then
    parallel-deduplicated LLM resolution for unknown extensions/filenames
    through the shared limiter, then drain.
-2a. **analyse-small** (`phases/analyse-small.ts`) — reads the manifest's
+   2a. **analyse-small** (`phases/analyse-small.ts`) — reads the manifest's
    `kind: "small"` entries, re-opens content, runs the LLM file-analyser
    per file under the shared limiter, writes `CondensedFileAnalysis` JSON.
    Also writes oversized stubs.
-2b. **analyse-big-files** (`phases/process-big-files.ts` —
+   2b. **analyse-big-files** (`phases/process-big-files.ts` —
    `analyseBigFiles`) — chunk-task queue across all big files. Every chunk
    is an independent task on the shared limiter; per-file condense is
    scheduled as soon as that file's last chunk lands (one in-place retry
    on transient condense failures). Runs **concurrently with 2a**.
-3. **backfill-fields** (`backfill/fields.ts`) — for each cached condensed
+2. **backfill-fields** (`backfill/fields.ts`) — for each cached condensed
    entry with missing extended fields (`keywords`, `sideEffects`,
    `dataFlowDirection`, `sectionMap`, …) dispatches one LLM call through
    the shared limiter to fill the gaps. Idempotent — no-op on a complete
    entry.
-4. **summarise-folders** (`folder-summary.ts`) — groups condensed entries
+3. **summarise-folders** (`folder-summary.ts`) — groups condensed entries
    by direct parent folder. Small folders
    (`≤ Config.FolderSummaryBatchMaxFiles`, default 15) are batched up to
    `Config.FolderSummaryBatchSize` (default 10) per LLM call. Bigger
    folders take the individual single-folder path. Both flows run through
    the shared limiter.
-5. **summarise-repo** (`repo-summary.ts`) — load folder summaries
+4. **summarise-repo** (`repo-summary.ts`) — load folder summaries
    shallowest-first; one call if it fits `ContextWindowLimit`, batch +
    merge otherwise; persist `repo-summary.json` with the v2-flat envelope.
-6. **store-flat-analysis** (`phases/store-flat-analysis.ts`) — ensure
+5. **store-flat-analysis** (`phases/store-flat-analysis.ts`) — ensure
    flat-folder indexes, upsert `:Repo`, then every `:Folder`, then every
    `:File` with the extended analysis + Folder→File `CONTAINS` edge.
 
@@ -106,8 +106,8 @@ The strategy emits progress through the `ProgressContext` port defined in
   `writeScanManifest`. The canonical handoff between phase 1 and phases 2a/2b.
 - `folder-path.ts` — `directFolderOf`, `affectedFolderPaths`.
 - `folder-summary.ts` — group + summarise (individual or batched) + persist
-  + iterate folder summaries; shared `dispatchFolderSummaries` used by both
-  the main strategy and the pull-path's selective folder phase.
+  - iterate folder summaries; shared `dispatchFolderSummaries` used by both
+    the main strategy and the pull-path's selective folder phase.
 - `folder-summary-selective.ts` — pull-time selective folder summary phase.
 - `repo-summary.ts` — single-shot or batched repo summary with envelope writer.
 - `phases/scan-and-classify.ts` — Phase 1.

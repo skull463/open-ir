@@ -27,10 +27,10 @@ its batch.
 
 ```ts
 interface SkipDecider {
-  decide(input): Promise<SkipDecision>;                    // legacy single-shot path
-  decideStatic(input): SkipDecision | null;                // sync; null = needs LLM
-  decideAndDeferSave(input): Promise<SkipDecision>;        // LLM call, no disk save
-  persist(): void;                                          // flush cache to disk once
+  decide(input): Promise<SkipDecision>; // legacy single-shot path
+  decideStatic(input): SkipDecision | null; // sync; null = needs LLM
+  decideAndDeferSave(input): Promise<SkipDecision>; // LLM call, no disk save
+  persist(): void; // flush cache to disk once
 }
 ```
 

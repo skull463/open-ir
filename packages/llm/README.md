@@ -156,9 +156,9 @@ it. The cost ledger described in [docs/arch.md](../../docs/arch.md) is
    sees a single `AskLlmResult`. BullMQ's `attempts: 3` wraps the whole
    call — retries walk the chain again, useful when a transient
    OpenRouter outage clears between retries.
-4a. **No upstream-provider fallback.** Every request carries
+   4a. **No upstream-provider fallback.** Every request carries
    `provider: { allow_fallbacks: false }`. This is orthogonal to the
-   `models` chain in invariant 4 — `models` controls *which model* the
+   `models` chain in invariant 4 — `models` controls _which model_ the
    gateway tries; `allow_fallbacks` controls whether OpenRouter routes
    to a different upstream backend serving the same model when the first
    one stalls. We disable the latter so a slow provider cannot eat the

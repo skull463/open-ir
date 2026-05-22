@@ -42,7 +42,7 @@ The package owns:
   route.
 - File-node CRUD (`upsertFileNode`, `upsertFileNodesBatch`) — composes
   the per-file relationships (`:HAS_KEYWORD / :HAS_CLASS / :HAS_FUNCTION
-  / :HAS_IMPORT_INTERNAL / :HAS_IMPORT_EXTERNAL`), clearing stale
+/ :HAS_IMPORT_INTERNAL / :HAS_IMPORT_EXTERNAL`), clearing stale
   relationships before re-attaching for re-runs. The two-`:HAS_IMPORT_*`
   split mirrors kube-package's distinction between relative imports and
   external packages — downstream MCP queries can ask "which files

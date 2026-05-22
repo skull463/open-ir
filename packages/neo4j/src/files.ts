@@ -258,7 +258,10 @@ export async function upsertFileNodesBatch(inputs: readonly UpsertFileNodeInput[
   }
   const updatedAt = new Date().toISOString();
   const files = inputs.map((input) => fileRowFor(input));
-  const fileKeys: FileRow[] = inputs.map((input) => ({ knowledgeId: input.knowledgeId, relativePath: input.relativePath }));
+  const fileKeys: FileRow[] = inputs.map((input) => ({
+    knowledgeId: input.knowledgeId,
+    relativePath: input.relativePath,
+  }));
   const folderPairs = inputs
     .filter((input): input is UpsertFileNodeInput & { folderPath: string } => input.folderPath !== undefined)
     .map((input) => ({
@@ -273,14 +276,18 @@ export async function upsertFileNodesBatch(inputs: readonly UpsertFileNodeInput[
   const importsInternalPairs = flattenPairs(inputs, "importsInternal", "name");
   const importsExternalPairs = flattenPairs(inputs, "importsExternal", "name");
 
-  const steps: CypherStep[] = [
-    { query: BATCH_UPSERT_FILES, params: { files, updatedAt } },
-  ];
+  const steps: CypherStep[] = [{ query: BATCH_UPSERT_FILES, params: { files, updatedAt } }];
   if (folderPairs.length > 0) {
     steps.push({ query: BATCH_ATTACH_FILES_TO_FOLDERS, params: { pairs: folderPairs } });
   }
   // Clear existing rels of every type for every file in the batch.
-  for (const relType of ["HAS_KEYWORD", "HAS_CLASS", "HAS_FUNCTION", "HAS_IMPORT_INTERNAL", "HAS_IMPORT_EXTERNAL"] as const) {
+  for (const relType of [
+    "HAS_KEYWORD",
+    "HAS_CLASS",
+    "HAS_FUNCTION",
+    "HAS_IMPORT_INTERNAL",
+    "HAS_IMPORT_EXTERNAL",
+  ] as const) {
     steps.push({ query: BATCH_CLEAR_RELS_BY_TYPE[relType], params: { files: fileKeys } });
   }
   if (keywordPairs.length > 0) {

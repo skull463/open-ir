@@ -342,10 +342,14 @@ export async function dispatchFolderSummaries(
   const { individual, batches } = groupFoldersForBatching(groups);
   const tasks: Promise<void>[] = [];
   for (const bucket of individual) {
-    tasks.push(limiter(() => dispatchIndividual(bucket, metaPaths, totals, llmCallContext, reporter, knowledgeId, phaseLabel)));
+    tasks.push(
+      limiter(() => dispatchIndividual(bucket, metaPaths, totals, llmCallContext, reporter, knowledgeId, phaseLabel)),
+    );
   }
   for (const batch of batches) {
-    tasks.push(limiter(() => dispatchBatch(batch, metaPaths, totals, llmCallContext, reporter, knowledgeId, phaseLabel)));
+    tasks.push(
+      limiter(() => dispatchBatch(batch, metaPaths, totals, llmCallContext, reporter, knowledgeId, phaseLabel)),
+    );
   }
   await Promise.all(tasks);
   return totals;

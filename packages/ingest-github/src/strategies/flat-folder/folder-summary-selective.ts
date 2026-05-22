@@ -4,10 +4,7 @@ import type { CondensedFileAnalysis } from "#src/types/condensed-file-analysis.t
 import type { MetaPaths } from "#src/types/meta-paths.ts";
 import type { ConcurrencyLimiter } from "#src/pipeline/concurrency.ts";
 import type { FileAnalysisCache } from "#src/strategies/flat-folder/file-analysis-cache.ts";
-import {
-  dispatchFolderSummaries,
-  groupByDirectFolder,
-} from "#src/strategies/flat-folder/folder-summary.ts";
+import { dispatchFolderSummaries, groupByDirectFolder } from "#src/strategies/flat-folder/folder-summary.ts";
 
 export interface SelectiveFolderSummaryInput {
   knowledgeId: string;
@@ -53,9 +50,7 @@ export async function runSelectiveFolderSummary(
     input.knowledgeId,
     "pull-folder-summary",
   );
-  logger.info(
-    `pull-folder-summary done: succeeded=${totals.succeeded} failed=${totals.failed} skipped=${skipped}`,
-  );
+  logger.info(`pull-folder-summary done: succeeded=${totals.succeeded} failed=${totals.failed} skipped=${skipped}`);
   return {
     succeeded: totals.succeeded,
     failed: totals.failed,

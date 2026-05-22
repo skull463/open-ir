@@ -60,6 +60,7 @@ deps.skipDecider.decide(input)` per file. Same semantics as before this
 
   `readScannedFile` re-reads a file by absolute path for the big-file phase
   which streams content lazily.
+
 - `run.ts` — `createPipelineRunner({ reposRootDir, strategy, sourceFactory?, progressContextFactory? })`
   builds an `IngestRunnerDeps`. GitHub payloads run: branch resolve,
   source-reader construction, strategy execute, commit persistence. Local

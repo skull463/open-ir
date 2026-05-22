@@ -166,17 +166,17 @@ worker hardcodes a single `IngestionStrategy` instance (currently
    per folder. Bigger folders take the individual single-folder path.
    Roll back to one LLM call per folder via
    `bytebell set folder.summary.batch.size 1`.
-2. **Clone idempotent.** Re-runs (BullMQ retries) call `git fetch` +
+3. **Clone idempotent.** Re-runs (BullMQ retries) call `git fetch` +
    `git reset --hard` in the existing dir rather than re-cloning.
    Tokens are re-injected into the remote URL each time.
-3. **Token redaction.** `GitCloneError` carries the **redacted** repo
+4. **Token redaction.** `GitCloneError` carries the **redacted** repo
    URL (`https://user:***@host`) — the raw `gitToken` never appears in
    error messages or logs.
-4. **State transition order.** `Processing` is set _before_ any clone
+5. **State transition order.** `Processing` is set _before_ any clone
    work. `Processed` is set _only_ after the entire scan + analyze loop
    completes. On any thrown error, the handler best-effort sets `Failed`
    then re-throws so BullMQ records the retry.
-5. **Fail-soft analysis, fail-hard infra.** A single file's LLM call
+6. **Fail-soft analysis, fail-hard infra.** A single file's LLM call
    failing falls back to an empty-analysis Raw doc and processing
    continues. In the big-file path, a single chunk failure contributes
    an empty analysis to the merge but does not stop the file; a
@@ -184,7 +184,7 @@ worker hardcodes a single `IngestionStrategy` instance (currently
    `dedupAnalyses` so the merged result is always well-formed. A clone
    failure or Mongo write failure throws and propagates to BullMQ for
    retry under the queue's `attempts: 3`.
-6. **Hardcoded filters only.** No LLM-based ignore decisions in v0. The
+7. **Hardcoded filters only.** No LLM-based ignore decisions in v0. The
    directory / file / extension blocklists in `scan.ts` are the only
    way files get skipped.
 

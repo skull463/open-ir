@@ -167,9 +167,7 @@ async function* twoPassScan(
       }
     }
     logger.info(`scan: resolving ${unique.size} unique skip-decision keys for ${pending.length} pending files`);
-    await Promise.all(
-      Array.from(unique.values()).map((input) => limiter(() => decider.decideAndDeferSave(input))),
-    );
+    await Promise.all(Array.from(unique.values()).map((input) => limiter(() => decider.decideAndDeferSave(input))));
     decider.persist();
   }
 

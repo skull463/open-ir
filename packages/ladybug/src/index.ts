@@ -12,10 +12,11 @@ export {
   setKnowledgeStateInGraph,
   setKnowledgeBranchInGraph,
   deleteKnowledgeGraph,
+  vacuumOrphanEntities,
 } from "./knowledge.ts";
 
-export { upsertFileNode, deleteFileNodes } from "./files.ts";
-export type { UpsertFileNodeInput } from "./files.ts";
+export { upsertFileNode, deleteFileNodes, bulkUpsertFiles } from "./files.ts";
+export type { UpsertFileNodeInput } from "./fileSchemas.ts";
 
 export { upsertRepoNode } from "./repo.ts";
 export type { NodeScope, RepoSummaryPayload, UpsertRepoNodeInput } from "./repo.ts";

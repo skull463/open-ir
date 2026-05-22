@@ -23,6 +23,7 @@ class LadybugGraphProvider implements IGraphDatabaseProvider {
     upsertFileNode: filesRepo.upsertFileNode,
     deleteFileNodes: filesRepo.deleteFileNodes,
     snapshotFilesToVersion: fileVersionsRepo.snapshotFilesToVersion,
+    bulkUpsertFiles: filesRepo.bulkUpsertFiles,
   };
 
   folders = {
@@ -56,3 +57,5 @@ class LadybugGraphProvider implements IGraphDatabaseProvider {
 }
 
 registerGraphProvider("ladybug", () => new LadybugGraphProvider());
+
+export { vacuumOrphanEntities } from "./knowledge.ts";

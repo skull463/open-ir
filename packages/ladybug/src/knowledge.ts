@@ -113,6 +113,9 @@ export async function deleteKnowledgeGraph(knowledgeId: string): Promise<void> {
   await _runCypher(DELETE_FOLDERS_BY_KNOWLEDGE, { knowledgeId });
   await _runCypher(DELETE_ORPHAN_FILES);
   await _runCypher(DELETE_KNOWLEDGE_NODE, { knowledgeId });
+}
+
+export async function vacuumOrphanEntities(): Promise<void> {
   await _runCypher(DELETE_ORPHAN_KEYWORDS);
   await _runCypher(DELETE_ORPHAN_CLASSES);
   await _runCypher(DELETE_ORPHAN_FUNCTIONS);

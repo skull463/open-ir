@@ -14,9 +14,13 @@
   "dependencies": {
     "@bb/config": "workspace:*",
     "@bb/errors": "workspace:*",
-    "@bb/graph-db": "workspace:*",
     "@bb/graph-core": "workspace:*",
+    "@bb/graph-db": "workspace:*",
     "@bb/types": "workspace:*",
-    "@ladybugdb/core": "^0.16.1"
+    "@ladybugdb/core": "^0.16.1",
+    "parquetjs": "^0.11.2"
+  },
+  "devDependencies": {
+    "@types/parquetjs": "^0.10.6"
   }
 }

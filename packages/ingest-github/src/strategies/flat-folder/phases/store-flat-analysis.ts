@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { logger } from "@bb/logger";
 import { filesGraph, foldersGraph, repoGraph, indexesGraph } from "@bb/graph-db";
 import type { GithubIndexPayload } from "@bb/types";
-import type { NodeScope } from "@bb/graph-core";
+import type { NodeScope, UpsertFileNodeInput } from "@bb/graph-core";
 import type { MetaPaths } from "#src/types/meta-paths.ts";
 import { throwIfCancelled } from "#src/pipeline/cancellation.ts";
 import { iterateCondensed } from "#src/strategies/flat-folder/big-file/storage.ts";
@@ -93,7 +93,7 @@ export async function storeFlatAnalysis(input: StoreFlatAnalysisInput): Promise<
     total: { kind: "growing" },
   });
   await fileReporter?.start();
-  try {
+  async function* yieldFiles() {
     for await (const file of iterateCondensed(input.metaPaths)) {
       throwIfCancelled(input.scope.knowledgeId);
       fileReporter?.incrementSeen();
@@ -108,7 +108,7 @@ export async function storeFlatAnalysis(input: StoreFlatAnalysisInput): Promise<
         foldersWritten += 1;
         nodesWritten += 1;
       }
-      await filesGraph.upsertFileNode({
+      const upsertInput: UpsertFileNodeInput = {
         orgId: input.scope.orgId,
         knowledgeId: input.scope.knowledgeId,
         repoId: input.scope.repoId,
@@ -121,10 +121,21 @@ export async function storeFlatAnalysis(input: StoreFlatAnalysisInput): Promise<
         isBigFile: file.isBigFile,
         totalChunks: file.totalChunks,
         totalTokenCount: file.totalTokenCount,
-      });
+      };
       filesWritten += 1;
       nodesWritten += 1;
+      yield upsertInput;
       fileReporter?.increment(1, { fileName: file.relativePath });
+    }
+  }
+
+  try {
+    if (typeof filesGraph.bulkUpsertFiles === "function") {
+      await filesGraph.bulkUpsertFiles(input.scope.knowledgeId, yieldFiles());
+    } else {
+      for await (const f of yieldFiles()) {
+        await filesGraph.upsertFileNode(f);
+      }
     }
   } finally {
     fileReporter?.stop();

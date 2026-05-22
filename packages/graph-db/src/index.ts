@@ -49,6 +49,15 @@ export const filesGraph: IGraphFileRepository = {
   upsertFileNode: (...args) => getGraph().files.upsertFileNode(...args),
   deleteFileNodes: (...args) => getGraph().files.deleteFileNodes(...args),
   snapshotFilesToVersion: (...args) => getGraph().files.snapshotFilesToVersion(...args),
+  bulkUpsertFiles: async (knowledgeId, fileStream) => {
+    const f = getGraph().files;
+    if (f.bulkUpsertFiles) {
+      return f.bulkUpsertFiles(knowledgeId, fileStream);
+    }
+    for await (const input of fileStream) {
+      await f.upsertFileNode(input);
+    }
+  },
 };
 
 export const foldersGraph: IGraphFolderRepository = {

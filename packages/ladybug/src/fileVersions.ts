@@ -8,31 +8,31 @@ import { _runCypher } from "./client.ts";
  */
 const SNAPSHOT_FILES_TO_VERSION = `
 MATCH (f:File {knowledgeId: $knowledgeId})
-MERGE (fv:FileVersion {
-  id: $knowledgeId + "::" + f.relativePath + "::" + $commitHash
+CREATE (fv:FileVersion {
+  id: $knowledgeId + "::" + f.relativePath + "::" + $commitHash,
+  knowledgeId: $knowledgeId,
+  relativePath: f.relativePath,
+  commitHash: $commitHash,
+  language: f.language,
+  sha: f.sha,
+  sizeBytes: f.sizeBytes,
+  purpose: f.purpose,
+  summary: f.summary,
+  businessContext: f.businessContext,
+  dataFlowDirection: f.dataFlowDirection,
+  ontologyConcepts: f.ontologyConcepts,
+  businessEntities: f.businessEntities,
+  systemCapabilities: f.systemCapabilities,
+  sideEffects: f.sideEffects,
+  configDependencies: f.configDependencies,
+  integrationSurface: f.integrationSurface,
+  contractsProvided: f.contractsProvided,
+  contractsConsumed: f.contractsConsumed,
+  sectionNames: f.sectionNames,
+  sectionDescriptions: f.sectionDescriptions,
+  snapshotAt: $snapshotAt
 })
-SET fv.knowledgeId = $knowledgeId,
-    fv.relativePath = f.relativePath,
-    fv.commitHash = $commitHash,
-    fv.language = f.language,
-    fv.sha = f.sha,
-    fv.sizeBytes = f.sizeBytes,
-    fv.purpose = f.purpose,
-    fv.summary = f.summary,
-    fv.businessContext = f.businessContext,
-    fv.dataFlowDirection = f.dataFlowDirection,
-    fv.ontologyConcepts = f.ontologyConcepts,
-    fv.businessEntities = f.businessEntities,
-    fv.systemCapabilities = f.systemCapabilities,
-    fv.sideEffects = f.sideEffects,
-    fv.configDependencies = f.configDependencies,
-    fv.integrationSurface = f.integrationSurface,
-    fv.contractsProvided = f.contractsProvided,
-    fv.contractsConsumed = f.contractsConsumed,
-    fv.sectionNames = f.sectionNames,
-    fv.sectionDescriptions = f.sectionDescriptions,
-    fv.snapshotAt = $snapshotAt
-MERGE (f)-[:HAS_VERSION]->(fv)
+CREATE (f)-[:HAS_VERSION]->(fv)
 `;
 
 export interface SnapshotFilesInput {

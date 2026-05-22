@@ -8,7 +8,7 @@ import { classifyFailure } from "#src/pipeline/failure-classifier.ts";
 import { withConcurrency } from "#src/pipeline/concurrency.ts";
 import { scanAndClassify } from "./phases/scan-and-classify.ts";
 import { analyseSmallFiles } from "./phases/analyse-small.ts";
-import { analyseBigFiles } from "./phases/process-big-files.ts";
+import { analyseBigFiles } from "./phases/analyse-big-files.ts";
 import { backfillMissingFields } from "./backfill/fields.ts";
 import { FileAnalysisCache } from "./file-analysis-cache.ts";
 import { runFolderSummaryPhase } from "./folder-summary.ts";

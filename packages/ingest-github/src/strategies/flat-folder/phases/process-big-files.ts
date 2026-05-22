@@ -5,7 +5,7 @@ import { getConfigValue } from "@bb/config";
 import type { AskLlmOptions } from "@bb/llm";
 import { LlmConfigError, LlmError } from "@bb/errors";
 import type { MetaPaths } from "#src/types/meta-paths.ts";
-import type { SourceReader } from "#src/types/pipeline.ts";
+import type { AnalyzedFileResult, SourceReader } from "#src/types/pipeline.ts";
 import type { ProgressContext } from "#src/progress/types.ts";
 import type { ConcurrencyLimiter } from "#src/pipeline/concurrency.ts";
 import type { ChunkAnalysisResult, FileChunk, HugeFileManifest } from "#src/types/big-file.ts";
@@ -19,6 +19,9 @@ import { condenseChunks } from "#src/strategies/flat-folder/big-file/condenser.t
 import { loadChunkIfPresent, saveChunk, saveCondensed, saveManifest } from "#src/strategies/flat-folder/big-file/storage.ts";
 import { processBigFile } from "#src/strategies/flat-folder/big-file/index.ts";
 import type { ScanManifest, ScanManifestEntry } from "#src/strategies/flat-folder/scan-manifest.ts";
+
+const CONDENSE_MAX_ATTEMPTS = 2;
+const CONDENSE_RETRY_BACKOFF_MS = 2000;
 
 export interface ProcessBigFilesInput {
   knowledgeId: string;
@@ -239,9 +242,37 @@ export async function analyseBigFiles(input: AnalyseBigFilesInput): Promise<Proc
     condensePromises.push(
       input.limiter(async () => {
         throwIfCancelled(input.knowledgeId);
-        try {
-          const merged = await condenseChunks(state.entry.relativePath, definedResults, input.llmCallContext);
+        let merged: AnalyzedFileResult | null = null;
+        for (let attempt = 1; attempt <= CONDENSE_MAX_ATTEMPTS; attempt += 1) {
+          try {
+            merged = await condenseChunks(state.entry.relativePath, definedResults, input.llmCallContext);
+            break;
+          } catch (cause: unknown) {
+            if (cause instanceof CancellationError) {
+              throw cause;
+            }
+            if (cause instanceof LlmConfigError || cause instanceof LlmError) {
+              throw cause;
+            }
+            if (attempt < CONDENSE_MAX_ATTEMPTS) {
+              logger.warn(
+                `analyse-big: condense attempt ${attempt}/${CONDENSE_MAX_ATTEMPTS} failed for ${state.entry.relativePath}; retrying: ${describe(cause)}`,
+              );
+              await sleep(CONDENSE_RETRY_BACKOFF_MS);
+              continue;
+            }
+            failed += 1;
+            logger.warn(
+              `analyse-big: condense failed after ${CONDENSE_MAX_ATTEMPTS} attempts for ${state.entry.relativePath}: ${describe(cause)}`,
+            );
+          }
+        }
+        if (merged === null) {
+          condenseReporter?.increment(1, { fileName: state.entry.relativePath });
+          return;
+        }
 
+        try {
           const chunkInputTokens = definedResults.reduce((acc, r) => acc + (r.tokenUsage?.inputTokens ?? 0), 0);
           const chunkOutputTokens = definedResults.reduce((acc, r) => acc + (r.tokenUsage?.outputTokens ?? 0), 0);
           const chunkCostUsd = definedResults.reduce((acc, r) => acc + (r.tokenUsage?.costUsd ?? 0), 0);
@@ -282,11 +313,8 @@ export async function analyseBigFiles(input: AnalyseBigFilesInput): Promise<Proc
           if (cause instanceof CancellationError) {
             throw cause;
           }
-          if (cause instanceof LlmConfigError || cause instanceof LlmError) {
-            throw cause;
-          }
           failed += 1;
-          logger.warn(`analyse-big: condense failed for ${state.entry.relativePath}: ${describe(cause)}`);
+          logger.warn(`analyse-big: persist failed for ${state.entry.relativePath}: ${describe(cause)}`);
         } finally {
           condenseReporter?.increment(1, { fileName: state.entry.relativePath });
         }
@@ -365,4 +393,10 @@ function encodeFolder(relativePath: string): string {
 
 function describe(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }

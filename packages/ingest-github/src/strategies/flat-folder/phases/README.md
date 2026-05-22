@@ -71,8 +71,8 @@ scanAndClassify
         ↓
 FileAnalysisCache.loadAll  (one parallel readdir+readFile pass)
         ↓
-backfillMissingFields → backfillBigFiles → folderSummary → repoSummary → storeFlatAnalysis
-   (cache read+write)         (no cache)     (cache read)                 (cache read)
+backfillMissingFields → folderSummary → repoSummary → storeFlatAnalysis
+   (cache read+write)     (cache read)                 (cache read)
 ```
 
 `FileAnalysisCache` is a `Map<relativePath, CondensedFileAnalysis>` loaded

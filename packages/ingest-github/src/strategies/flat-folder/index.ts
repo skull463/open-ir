@@ -10,7 +10,6 @@ import { scanAndClassify } from "./phases/scan-and-classify.ts";
 import { analyseSmallFiles } from "./phases/analyse-small.ts";
 import { analyseBigFiles } from "./phases/process-big-files.ts";
 import { backfillMissingFields } from "./backfill/fields.ts";
-import { backfillBigFiles } from "./backfill/big-files.ts";
 import { FileAnalysisCache } from "./file-analysis-cache.ts";
 import { runFolderSummaryPhase } from "./folder-summary.ts";
 import { makeRepoSummaryEnvelope, persistRepoSummary, summariseRepo } from "./repo-summary.ts";
@@ -95,19 +94,6 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
         logger.info(`flat-folder: phase3 (backfill missing fields) starting`);
         throwIfCancelled(knowledgeId);
         await backfillMissingFields(metaPaths, fileAnalysisCache, llmCallContext, progressContext);
-
-        logger.info(`flat-folder: phase4 (backfill big files) starting`);
-        throwIfCancelled(knowledgeId);
-        const phase4Input: Parameters<typeof backfillBigFiles>[0] = {
-          knowledgeId,
-          source,
-          metaPaths,
-          progressContext,
-        };
-        if (llmCallContext !== undefined) {
-          phase4Input.llmCallContext = llmCallContext;
-        }
-        await backfillBigFiles(phase4Input);
 
         progressContext.phaseChanged("folder_analysis");
         logger.info(`flat-folder: phase5 (folder summaries) starting`);

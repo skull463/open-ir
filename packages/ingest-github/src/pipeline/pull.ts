@@ -21,7 +21,6 @@ import { nullProgressContextFactory } from "#src/progress/NullProgressReporter.t
 import { analyseChangedFiles } from "#src/strategies/flat-folder/analyse-changed.ts";
 import { processBigFilesQueue } from "#src/strategies/flat-folder/phases/process-big-files.ts";
 import { backfillMissingFields } from "#src/strategies/flat-folder/backfill/fields.ts";
-import { backfillBigFiles } from "#src/strategies/flat-folder/backfill/big-files.ts";
 import { FileAnalysisCache } from "#src/strategies/flat-folder/file-analysis-cache.ts";
 import { runSelectiveFolderSummary } from "#src/strategies/flat-folder/folder-summary-selective.ts";
 import {
@@ -203,19 +202,6 @@ export async function runPull(
     logger.info(`pull: phase backfill fields starting`);
     throwIfCancelled(knowledgeId);
     await backfillMissingFields(metaPaths, fileAnalysisCache, llmCallContext, progressContext);
-
-    logger.info(`pull: phase backfill big-files starting`);
-    throwIfCancelled(knowledgeId);
-    const backfillBigFilesInput: Parameters<typeof backfillBigFiles>[0] = {
-      knowledgeId,
-      source,
-      metaPaths,
-      progressContext,
-    };
-    if (llmCallContext !== undefined) {
-      backfillBigFilesInput.llmCallContext = llmCallContext;
-    }
-    await backfillBigFiles(backfillBigFilesInput);
 
     progressContext.phaseChanged("folder_analysis");
     logger.info(`pull: phase selective folder summary (${affectedFolders.size} folders) starting`);

@@ -1,21 +1,19 @@
 import { logger } from "@bb/logger";
-import { Config } from "@bb/types";
-import { getConfigValue } from "@bb/config";
 import type { AskLlmOptions } from "@bb/llm";
+import type { CondensedFileAnalysis } from "#src/types/condensed-file-analysis.ts";
 import type { MetaPaths } from "#src/types/meta-paths.ts";
-import { withConcurrency } from "#src/pipeline/concurrency.ts";
-import { throwIfCancelled, CancellationError } from "#src/pipeline/cancellation.ts";
+import type { ConcurrencyLimiter } from "#src/pipeline/concurrency.ts";
 import type { FileAnalysisCache } from "#src/strategies/flat-folder/file-analysis-cache.ts";
 import {
+  dispatchFolderSummaries,
   groupByDirectFolder,
-  persistFolderSummary,
-  summariseFolder,
 } from "#src/strategies/flat-folder/folder-summary.ts";
 
 export interface SelectiveFolderSummaryInput {
   knowledgeId: string;
   metaPaths: MetaPaths;
   cache: FileAnalysisCache;
+  limiter: ConcurrencyLimiter;
   affectedFolders: Set<string>;
   llmCallContext?: AskLlmOptions;
 }
@@ -29,57 +27,39 @@ export interface SelectiveFolderSummaryResult {
 
 /**
  * Pull-time folder summary. Same machinery as `runFolderSummaryPhase` but
- * only regenerates folders the caller flagged as affected. Reads condensed
- * file analyses from disk; the dispatcher must have populated them already.
+ * only regenerates folders the caller flagged as affected. Filters by
+ * `affectedFolders` BEFORE batching so skipped folders never enter a batch.
  */
 export async function runSelectiveFolderSummary(
   input: SelectiveFolderSummaryInput,
 ): Promise<SelectiveFolderSummaryResult> {
-  const concurrentWorkers = getConfigValue(Config.ConcurrentWorkers);
-  const limit = withConcurrency(concurrentWorkers);
-  const groups = groupByDirectFolder(input.cache);
-  let succeeded = 0;
-  let failed = 0;
+  const allGroups = groupByDirectFolder(input.cache);
+  const affectedGroups = new Map<string, CondensedFileAnalysis[]>();
   let skipped = 0;
-  let totalInputTokens = 0;
-  let totalOutputTokens = 0;
-  let totalCostUsd = 0;
-  const tasks: Promise<void>[] = [];
-  for (const [folderPath, files] of groups.entries()) {
-    if (!input.affectedFolders.has(folderPath)) {
+  for (const [folderPath, files] of allGroups.entries()) {
+    if (input.affectedFolders.has(folderPath)) {
+      affectedGroups.set(folderPath, files);
+    } else {
       skipped += 1;
-      continue;
     }
-    tasks.push(
-      limit(async () => {
-        try {
-          throwIfCancelled(input.knowledgeId);
-          const { summary, tokenUsage } = await summariseFolder(folderPath, files, input.llmCallContext);
-          totalInputTokens += tokenUsage.inputTokens;
-          totalOutputTokens += tokenUsage.outputTokens;
-          totalCostUsd += tokenUsage.costUsd;
-          if (summary !== null) {
-            await persistFolderSummary(input.metaPaths, summary);
-            succeeded += 1;
-          } else {
-            failed += 1;
-          }
-        } catch (cause: unknown) {
-          if (cause instanceof CancellationError) {
-            throw cause;
-          }
-          failed += 1;
-          logger.warn(`pull-folder-summary: failed for ${folderPath || "<root>"}`);
-        }
-      }),
-    );
   }
-  await Promise.all(tasks);
-  logger.info(`pull-folder-summary done: succeeded=${succeeded} failed=${failed} skipped=${skipped}`);
+
+  const totals = await dispatchFolderSummaries(
+    affectedGroups,
+    input.metaPaths,
+    input.limiter,
+    input.llmCallContext,
+    undefined,
+    input.knowledgeId,
+    "pull-folder-summary",
+  );
+  logger.info(
+    `pull-folder-summary done: succeeded=${totals.succeeded} failed=${totals.failed} skipped=${skipped}`,
+  );
   return {
-    succeeded,
-    failed,
+    succeeded: totals.succeeded,
+    failed: totals.failed,
     skipped,
-    tokenUsage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens, costUsd: totalCostUsd },
+    tokenUsage: { inputTokens: totals.inputTokens, outputTokens: totals.outputTokens, costUsd: totals.costUsd },
   };
 }

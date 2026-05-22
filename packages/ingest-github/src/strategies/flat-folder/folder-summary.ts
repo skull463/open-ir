@@ -8,12 +8,18 @@ import { getConfigValue } from "@bb/config";
 import type { CondensedFileAnalysis } from "#src/types/condensed-file-analysis.ts";
 import type { MetaPaths } from "#src/types/meta-paths.ts";
 import { encodeMetaPath } from "#src/pipeline/paths.ts";
-import { withConcurrency } from "#src/pipeline/concurrency.ts";
+import type { ConcurrencyLimiter } from "#src/pipeline/concurrency.ts";
 import { throwIfCancelled, CancellationError } from "#src/pipeline/cancellation.ts";
 import type { ProgressContext } from "#src/progress/types.ts";
 import type { FileAnalysisCache } from "./file-analysis-cache.ts";
 import { directFolderOf } from "./folder-path.ts";
-import { FOLDER_ANALYSIS_SYSTEM_PROMPT, folderAnalysisUserPrompt } from "./prompts/folder-summary.ts";
+import {
+  FOLDER_ANALYSIS_SYSTEM_PROMPT,
+  FOLDER_BATCH_SYSTEM_PROMPT,
+  folderAnalysisUserPrompt,
+  folderBatchUserPrompt,
+  type BatchedFolderInput,
+} from "./prompts/folder-summary.ts";
 import type { FolderSummary } from "./types.ts";
 
 export function groupByDirectFolder(cache: FileAnalysisCache): Map<string, CondensedFileAnalysis[]> {
@@ -36,6 +42,52 @@ interface FolderSummaryJson {
   importsInternal?: unknown;
   importsExternal?: unknown;
   dependencyGraph?: unknown;
+}
+
+export interface FolderBucket {
+  folderPath: string;
+  files: CondensedFileAnalysis[];
+}
+
+/**
+ * Splits the folder groups into "individual" (one LLM call per folder, used
+ * for big folders or when batching is disabled) and "batches" (N small
+ * folders summarised in one LLM call). Driven by `Config.FolderSummaryBatchSize`
+ * (set to 1 to disable batching entirely) and `Config.FolderSummaryBatchMaxFiles`
+ * (folders exceeding this file count always take the individual path).
+ *
+ * Folders are sorted by path so that two runs of the same repo produce the
+ * same batch composition — helpful when A/B-comparing outputs.
+ */
+export function groupFoldersForBatching(groups: Map<string, CondensedFileAnalysis[]>): {
+  individual: FolderBucket[];
+  batches: FolderBucket[][];
+} {
+  const batchSize = getConfigValue(Config.FolderSummaryBatchSize);
+  const maxFiles = getConfigValue(Config.FolderSummaryBatchMaxFiles);
+  const sorted: FolderBucket[] = [...groups.entries()]
+    .map(([folderPath, files]) => ({ folderPath, files }))
+    .sort((a, b) => a.folderPath.localeCompare(b.folderPath));
+
+  if (batchSize <= 1) {
+    return { individual: sorted, batches: [] };
+  }
+
+  const individual: FolderBucket[] = [];
+  const batchable: FolderBucket[] = [];
+  for (const bucket of sorted) {
+    if (bucket.files.length > maxFiles) {
+      individual.push(bucket);
+    } else {
+      batchable.push(bucket);
+    }
+  }
+
+  const batches: FolderBucket[][] = [];
+  for (let i = 0; i < batchable.length; i += batchSize) {
+    batches.push(batchable.slice(i, i + batchSize));
+  }
+  return { individual, batches };
 }
 
 export async function summariseFolder(
@@ -82,6 +134,72 @@ export async function summariseFolder(
   }
 }
 
+/**
+ * Multi-folder summary. Builds a label-indexed prompt, parses the keyed JSON
+ * response, returns one `FolderSummary | null` per folder. Folders missing
+ * from the response (or whose entry fails shape validation) are surfaced as
+ * `null` with a warn log; the caller counts those as failed.
+ */
+export async function summariseFolderBatch(
+  batch: FolderBucket[],
+  llmCallContext?: AskLlmOptions,
+): Promise<{
+  summaries: Map<string, FolderSummary | null>;
+  tokenUsage: { inputTokens: number; outputTokens: number; costUsd: number };
+}> {
+  const labeled: BatchedFolderInput[] = batch.map((b, i) => ({ label: i, folderPath: b.folderPath, files: b.files }));
+  const userPrompt = folderBatchUserPrompt(labeled);
+  const summaries = new Map<string, FolderSummary | null>();
+  try {
+    const response = await askJsonLLM<Record<string, FolderSummaryJson>>(
+      FOLDER_BATCH_SYSTEM_PROMPT,
+      userPrompt,
+      llmCallContext ?? {},
+    );
+    if (response.result === null) {
+      logger.warn(`summariseFolderBatch: batch of ${batch.length} returned unparseable JSON`);
+      for (const b of batch) {
+        summaries.set(b.folderPath, null);
+      }
+      return {
+        summaries,
+        tokenUsage: {
+          inputTokens: response.usage.inputTokens,
+          outputTokens: response.usage.outputTokens,
+          costUsd: response.usage.costUsd,
+        },
+      };
+    }
+    for (const b of labeled) {
+      const raw = response.result[String(b.label)];
+      if (raw === undefined || typeof raw !== "object" || raw === null) {
+        logger.warn(`summariseFolderBatch: missing/invalid entry for label ${b.label} (${b.folderPath || "<root>"})`);
+        summaries.set(b.folderPath, null);
+        continue;
+      }
+      summaries.set(b.folderPath, shapeFolderSummary(b.folderPath, raw));
+    }
+    return {
+      summaries,
+      tokenUsage: {
+        inputTokens: response.usage.inputTokens,
+        outputTokens: response.usage.outputTokens,
+        costUsd: response.usage.costUsd,
+      },
+    };
+  } catch (cause: unknown) {
+    if (cause instanceof LlmConfigError || cause instanceof LlmError) {
+      throw cause;
+    }
+    const msg = cause instanceof Error ? cause.message : String(cause);
+    logger.warn(`summariseFolderBatch: batch of ${batch.length} askJsonLLM failed: ${msg}`);
+    for (const b of batch) {
+      summaries.set(b.folderPath, null);
+    }
+    return { summaries, tokenUsage: { inputTokens: 0, outputTokens: 0, costUsd: 0 } };
+  }
+}
+
 export async function persistFolderSummary(metaPaths: MetaPaths, summary: FolderSummary): Promise<void> {
   const file = path.join(metaPaths.folderSummariesDir, `${encodeMetaPath(summary.folderPath || "__ROOT__")}.json`);
   await writeFile(file, JSON.stringify(summary, null, 2), "utf8");
@@ -110,10 +228,134 @@ export async function* iterateFolderSummaries(metaPaths: MetaPaths): AsyncGenera
   }
 }
 
+interface FolderSummaryTotals {
+  succeeded: number;
+  failed: number;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+}
+
+/**
+ * Dispatches a single folder through `summariseFolder` and persists the
+ * result. Shared between `runFolderSummaryPhase` and `runSelectiveFolderSummary`.
+ */
+async function dispatchIndividual(
+  bucket: FolderBucket,
+  metaPaths: MetaPaths,
+  totals: FolderSummaryTotals,
+  llmCallContext: AskLlmOptions | undefined,
+  reporter: ReturnType<NonNullable<ProgressContext["reporter"]>> | undefined,
+  knowledgeId: string,
+  phaseLabel: string,
+): Promise<void> {
+  try {
+    throwIfCancelled(knowledgeId);
+    const { summary, tokenUsage } = await summariseFolder(bucket.folderPath, bucket.files, llmCallContext);
+    totals.inputTokens += tokenUsage.inputTokens;
+    totals.outputTokens += tokenUsage.outputTokens;
+    totals.costUsd += tokenUsage.costUsd;
+    if (summary !== null) {
+      await persistFolderSummary(metaPaths, summary);
+      totals.succeeded += 1;
+    } else {
+      totals.failed += 1;
+    }
+  } catch (cause: unknown) {
+    if (cause instanceof CancellationError) {
+      throw cause;
+    }
+    totals.failed += 1;
+    logger.warn(`${phaseLabel}: folder summary failed for ${bucket.folderPath || "<root>"}`);
+  } finally {
+    reporter?.increment(1, { fileName: bucket.folderPath || "<root>" });
+  }
+}
+
+/**
+ * Dispatches a multi-folder batch through `summariseFolderBatch`. Each
+ * non-null per-folder summary is persisted; missing/null entries count
+ * toward `failed`. Progress increments once per folder.
+ */
+async function dispatchBatch(
+  batch: FolderBucket[],
+  metaPaths: MetaPaths,
+  totals: FolderSummaryTotals,
+  llmCallContext: AskLlmOptions | undefined,
+  reporter: ReturnType<NonNullable<ProgressContext["reporter"]>> | undefined,
+  knowledgeId: string,
+  phaseLabel: string,
+): Promise<void> {
+  try {
+    throwIfCancelled(knowledgeId);
+    const { summaries, tokenUsage } = await summariseFolderBatch(batch, llmCallContext);
+    totals.inputTokens += tokenUsage.inputTokens;
+    totals.outputTokens += tokenUsage.outputTokens;
+    totals.costUsd += tokenUsage.costUsd;
+    for (const bucket of batch) {
+      const summary = summaries.get(bucket.folderPath) ?? null;
+      if (summary !== null) {
+        try {
+          await persistFolderSummary(metaPaths, summary);
+          totals.succeeded += 1;
+        } catch (cause: unknown) {
+          totals.failed += 1;
+          logger.warn(
+            `${phaseLabel}: persist failed for ${bucket.folderPath || "<root>"}: ${cause instanceof Error ? cause.message : String(cause)}`,
+          );
+        }
+      } else {
+        totals.failed += 1;
+      }
+      reporter?.increment(1, { fileName: bucket.folderPath || "<root>" });
+    }
+  } catch (cause: unknown) {
+    if (cause instanceof CancellationError) {
+      throw cause;
+    }
+    totals.failed += batch.length;
+    for (const bucket of batch) {
+      reporter?.increment(1, { fileName: bucket.folderPath || "<root>" });
+    }
+    logger.warn(
+      `${phaseLabel}: batch summary failed for ${batch.length} folders: ${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+  }
+}
+
+/**
+ * Dispatch helper used by both `runFolderSummaryPhase` and
+ * `runSelectiveFolderSummary`. Splits `groups` into individual + batched
+ * buckets, schedules every task through the shared `limiter`, awaits all,
+ * and returns the aggregated totals.
+ */
+export async function dispatchFolderSummaries(
+  groups: Map<string, CondensedFileAnalysis[]>,
+  metaPaths: MetaPaths,
+  limiter: ConcurrencyLimiter,
+  llmCallContext: AskLlmOptions | undefined,
+  reporter: ReturnType<NonNullable<ProgressContext["reporter"]>> | undefined,
+  knowledgeId: string,
+  phaseLabel: string,
+): Promise<FolderSummaryTotals> {
+  const totals: FolderSummaryTotals = { succeeded: 0, failed: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 };
+  const { individual, batches } = groupFoldersForBatching(groups);
+  const tasks: Promise<void>[] = [];
+  for (const bucket of individual) {
+    tasks.push(limiter(() => dispatchIndividual(bucket, metaPaths, totals, llmCallContext, reporter, knowledgeId, phaseLabel)));
+  }
+  for (const batch of batches) {
+    tasks.push(limiter(() => dispatchBatch(batch, metaPaths, totals, llmCallContext, reporter, knowledgeId, phaseLabel)));
+  }
+  await Promise.all(tasks);
+  return totals;
+}
+
 export async function runFolderSummaryPhase(
   knowledgeId: string,
   metaPaths: MetaPaths,
   cache: FileAnalysisCache,
+  limiter: ConcurrencyLimiter,
   llmCallContext?: AskLlmOptions,
   progressContext?: ProgressContext,
 ): Promise<{
@@ -121,57 +363,23 @@ export async function runFolderSummaryPhase(
   failed: number;
   tokenUsage: { inputTokens: number; outputTokens: number; costUsd: number };
 }> {
-  const concurrentWorkers = getConfigValue(Config.ConcurrentWorkers);
-  const limit = withConcurrency(concurrentWorkers);
   const groups = groupByDirectFolder(cache);
-  let succeeded = 0;
-  let failed = 0;
-  let totalInputTokens = 0;
-  let totalOutputTokens = 0;
-  let totalCostUsd = 0;
   const reporter = progressContext?.reporter({
     phase: "folder_analysis",
     total: { kind: "fixed", total: groups.size },
   });
   await reporter?.start();
+  let totals: FolderSummaryTotals;
   try {
-    const tasks: Promise<void>[] = [];
-    for (const [folderPath, files] of groups.entries()) {
-      tasks.push(
-        limit(async () => {
-          try {
-            throwIfCancelled(knowledgeId);
-            const { summary, tokenUsage } = await summariseFolder(folderPath, files, llmCallContext);
-            totalInputTokens += tokenUsage.inputTokens;
-            totalOutputTokens += tokenUsage.outputTokens;
-            totalCostUsd += tokenUsage.costUsd;
-            if (summary !== null) {
-              await persistFolderSummary(metaPaths, summary);
-              succeeded += 1;
-            } else {
-              failed += 1;
-            }
-          } catch (cause: unknown) {
-            if (cause instanceof CancellationError) {
-              throw cause;
-            }
-            failed += 1;
-            logger.warn(`phase5: folder summary failed for ${folderPath || "<root>"}`);
-          } finally {
-            reporter?.increment(1, { fileName: folderPath || "<root>" });
-          }
-        }),
-      );
-    }
-    await Promise.all(tasks);
+    totals = await dispatchFolderSummaries(groups, metaPaths, limiter, llmCallContext, reporter, knowledgeId, "phase5");
   } finally {
     reporter?.stop();
   }
-  logger.info(`phase5 done: foldersSummarised=${succeeded} failed=${failed}`);
+  logger.info(`phase5 done: foldersSummarised=${totals.succeeded} failed=${totals.failed}`);
   return {
-    succeeded,
-    failed,
-    tokenUsage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens, costUsd: totalCostUsd },
+    succeeded: totals.succeeded,
+    failed: totals.failed,
+    tokenUsage: { inputTokens: totals.inputTokens, outputTokens: totals.outputTokens, costUsd: totals.costUsd },
   };
 }
 

@@ -153,10 +153,19 @@ worker hardcodes a single `IngestionStrategy` instance (currently
 1. **Shared LLM concurrency limiter.** The flat-folder strategy
    constructs one `withConcurrency(Config.LlmConcurrency)` instance at
    entry (default 29). The small-file phase, the big-file chunk phase,
-   and per-file condense calls all check out from this single pool, so
-   total in-flight LLM calls is bounded by one knob. The legacy
-   `processBigFile` driver used by the pull-path still uses its own
-   per-file pool sized by `Config.BigFileConcurrency`.
+   per-file condense calls, **and the folder-summary phase** all check
+   out from this single pool, so total in-flight LLM calls is bounded
+   by one knob. The pull-path constructs its own shared limiter at
+   `runPull` entry and threads it into the selective folder-summary
+   phase. The legacy `processBigFile` driver used by the pull-path
+   still uses its own per-file pool sized by `Config.BigFileConcurrency`.
+2. **Folder-summary batching by default.** Phase 5 groups small folders
+   (`≤ Config.FolderSummaryBatchMaxFiles`, default 15) into batches of
+   up to `Config.FolderSummaryBatchSize` (default 10) and asks the LLM
+   for one JSON object keyed by integer label that returns one summary
+   per folder. Bigger folders take the individual single-folder path.
+   Roll back to one LLM call per folder via
+   `bytebell set folder.summary.batch.size 1`.
 2. **Clone idempotent.** Re-runs (BullMQ retries) call `git fetch` +
    `git reset --hard` in the existing dir rather than re-cloning.
    Tokens are re-injected into the remote URL each time.

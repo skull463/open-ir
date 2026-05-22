@@ -24,6 +24,8 @@ export enum Config {
   AbsoluteFileSizeCap = "absolute.file.size.cap",
   ConcurrentWorkers = "concurrent.workers",
   LlmConcurrency = "llm.concurrency",
+  FolderSummaryBatchSize = "folder.summary.batch.size",
+  FolderSummaryBatchMaxFiles = "folder.summary.batch.max.files",
   CondenseContextLimit = "condense.context.limit",
   CondensePromptOverhead = "condense.prompt.overhead",
   SmallFileDedupThreshold = "small.file.dedup.threshold",

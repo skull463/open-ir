@@ -127,9 +127,17 @@ so phases 5 and 7 see the updated entries without re-reading disk.
   do not abort on a single bad file. Only `CancellationError`,
   `LlmConfigError`, and `LlmError` propagate.
 - The shared LLM limiter is the only place LLM concurrency is bounded
-  during the small/big phases. `Config.BigFileConcurrency` is no longer
-  consulted from the chunk-queue path (it is still consulted by the
-  legacy `processBigFile` used by the pull-path driver).
+  during the small/big phases **and the folder-summary phase**.
+  `Config.BigFileConcurrency` is no longer consulted from the chunk-queue
+  path (it is still consulted by the legacy `processBigFile` used by the
+  pull-path driver). `Config.ConcurrentWorkers` is no longer consulted
+  by the folder-summary phase.
+- Phase 5 batches small folders by default. `Config.FolderSummaryBatchSize`
+  (default 10) controls batch size; set to 1 to disable and restore one
+  LLM call per folder. `Config.FolderSummaryBatchMaxFiles` (default 15)
+  is the per-folder file ceiling above which a folder always takes the
+  individual path so the LLM still sees the full per-file context. Large
+  folders run side-by-side with batches under the same shared limiter.
 - Phase 1 respects `Config.ContextWindowLimit` and
   `Config.MaxTokensPerChunk`; do not hardcode either.
 - Phase 7 always emits a `:Repo` node, even when `repo-summary.json` is

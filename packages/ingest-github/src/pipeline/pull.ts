@@ -1,4 +1,6 @@
-import { KnowledgeState, type GithubPullPayload, type JobMessage } from "@bb/types";
+import { Config, KnowledgeState, type GithubPullPayload, type JobMessage } from "@bb/types";
+import { getConfigValue } from "@bb/config";
+import { withConcurrency } from "./concurrency.ts";
 import { getKnowledge, markKnowledgeFailed, setKnowledgeCommit, setKnowledgeState } from "@bb/mongo";
 import { setKnowledgeStateInGraph, snapshotFilesToVersion, type NodeScope } from "@bb/neo4j";
 import type { PipelineSummary } from "#src/types/pipeline.ts";
@@ -196,6 +198,7 @@ export async function runPull(
     logger.info(`pull: loading file-analysis cache`);
     throwIfCancelled(knowledgeId);
     const fileAnalysisCache = await FileAnalysisCache.loadAll(metaPaths);
+    const limiter = withConcurrency(getConfigValue(Config.LlmConcurrency));
 
     logger.info(`pull: phase backfill fields starting`);
     throwIfCancelled(knowledgeId);
@@ -221,6 +224,7 @@ export async function runPull(
       knowledgeId,
       metaPaths,
       cache: fileAnalysisCache,
+      limiter,
       affectedFolders,
     };
     if (llmCallContext !== undefined) {

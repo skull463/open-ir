@@ -42,6 +42,8 @@ export const configSchema = z
     "absolute.file.size.cap": z.number().int().positive().default(52428800),
     "concurrent.workers": z.number().int().positive().default(4),
     "llm.concurrency": z.number().int().positive().default(29),
+    "folder.summary.batch.size": z.number().int().positive().default(10),
+    "folder.summary.batch.max.files": z.number().int().positive().default(15),
     "condense.context.limit": z.number().int().positive().default(12000),
     "condense.prompt.overhead": z.number().int().nonnegative().default(1500),
     "small.file.dedup.threshold": z.number().int().positive().default(3),
@@ -83,6 +85,8 @@ export type ConfigValueMap = {
   [Config.AbsoluteFileSizeCap]: number;
   [Config.ConcurrentWorkers]: number;
   [Config.LlmConcurrency]: number;
+  [Config.FolderSummaryBatchSize]: number;
+  [Config.FolderSummaryBatchMaxFiles]: number;
   [Config.CondenseContextLimit]: number;
   [Config.CondensePromptOverhead]: number;
   [Config.SmallFileDedupThreshold]: number;
@@ -138,6 +142,8 @@ export const HINTS: Readonly<Record<Config, string>> = {
   [Config.AbsoluteFileSizeCap]: "bytebell set absolute.file.size.cap <bytes>",
   [Config.ConcurrentWorkers]: "bytebell set concurrent.workers <n>",
   [Config.LlmConcurrency]: "bytebell set llm.concurrency <n>",
+  [Config.FolderSummaryBatchSize]: "bytebell set folder.summary.batch.size <n>",
+  [Config.FolderSummaryBatchMaxFiles]: "bytebell set folder.summary.batch.max.files <n>",
   [Config.CondenseContextLimit]: "bytebell set condense.context.limit <n>",
   [Config.CondensePromptOverhead]: "bytebell set condense.prompt.overhead <n>",
   [Config.SmallFileDedupThreshold]: "bytebell set small.file.dedup.threshold <n>",
@@ -200,6 +206,10 @@ export function readField<K extends Config>(cfg: BytebellConfig, key: K): Config
       return cfg["concurrent.workers"] as ConfigValue<K>;
     case Config.LlmConcurrency:
       return cfg["llm.concurrency"] as ConfigValue<K>;
+    case Config.FolderSummaryBatchSize:
+      return cfg["folder.summary.batch.size"] as ConfigValue<K>;
+    case Config.FolderSummaryBatchMaxFiles:
+      return cfg["folder.summary.batch.max.files"] as ConfigValue<K>;
     case Config.CondenseContextLimit:
       return cfg["condense.context.limit"] as ConfigValue<K>;
     case Config.CondensePromptOverhead:
@@ -271,6 +281,10 @@ export function writeField<K extends Config>(cfg: BytebellConfig, key: K, value:
       return { ...cfg, "concurrent.workers": value as number };
     case Config.LlmConcurrency:
       return { ...cfg, "llm.concurrency": value as number };
+    case Config.FolderSummaryBatchSize:
+      return { ...cfg, "folder.summary.batch.size": value as number };
+    case Config.FolderSummaryBatchMaxFiles:
+      return { ...cfg, "folder.summary.batch.max.files": value as number };
     case Config.CondenseContextLimit:
       return { ...cfg, "condense.context.limit": value as number };
     case Config.CondensePromptOverhead:

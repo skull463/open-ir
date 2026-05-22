@@ -116,6 +116,7 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
           knowledgeId,
           metaPaths,
           fileAnalysisCache,
+          limiter,
           llmCallContext,
           progressContext,
         );

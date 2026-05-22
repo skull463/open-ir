@@ -17,6 +17,36 @@ single-tenant public layout.
 8. Persist verdict to ~/.bytebell/llmDecisions.json. LLM failure → reject + cache the rejection.
 ```
 
+Steps 1-6 are pure CPU + cached lookup — they run synchronously via
+`decideStatic`. Step 7 is the slow LLM branch; `decide` performs it
+inline, while `decideAndDeferSave` performs it without flushing the
+cache to disk so a batched caller can `persist()` once at the end of
+its batch.
+
+## Public methods (`SkipDecider`)
+
+```ts
+interface SkipDecider {
+  decide(input): Promise<SkipDecision>;                    // legacy single-shot path
+  decideStatic(input): SkipDecision | null;                // sync; null = needs LLM
+  decideAndDeferSave(input): Promise<SkipDecision>;        // LLM call, no disk save
+  persist(): void;                                          // flush cache to disk once
+}
+```
+
+- `decide` — the original single-shot API. Calls `decideStatic`; if that
+  returns `null`, runs the LLM call and `persist()`s the cache. Used by
+  the legacy `walk()` in `scan.ts` when no shared limiter is passed
+  (e.g. custom `SourceFactory` consumers that don't opt into two-pass).
+- `decideStatic` — synchronous. Returns the resolved `SkipDecision` for
+  steps 1-6; returns `null` to signal "would need an LLM call". Used by
+  the two-pass scan to categorise files without blocking the walk.
+- `decideAndDeferSave` — runs the LLM call and mutates the in-memory
+  cache but does **not** flush to disk. Scan calls this concurrently
+  for unique extension/filename keys under a shared limiter; the disk
+  write happens once via `persist()` after the batch.
+- `persist` — best-effort cache flush; swallows I/O errors.
+
 ## Files
 
 - `seed.ts` — loads the four bundled JSON files (directory/filename/pattern/extension lists)
@@ -36,7 +66,10 @@ single-tenant public layout.
   factory time; when disabled the decider degrades to "accept everything
   past the static blocklist". The LLM branch forwards
   `SkipDeciderInput.llmCallContext` (when set by the runner) into
-  `askYesNoLLM` so per-job credentials reach the decision call.
+  `askYesNoLLM` so per-job credentials reach the decision call. The four
+  methods (`decide`, `decideStatic`, `decideAndDeferSave`, `persist`) share
+  one internal `staticDecision()` helper so the seed-list + cache-lookup
+  branch is defined exactly once.
 - `seed-data/` — the five JSON files copied from kube's `shared/`:
   `directoryIgnore.json`, `filenameIgnore.json`, `ignorePatterns.json`,
   `extensions.json`, `llmDecisionsBase.json`. `llmDecisionsBase.json` is
@@ -56,8 +89,15 @@ single-tenant public layout.
   beyond reading the cache file once at factory time. Only the LLM branch
   reads file content from disk, and even that is bounded by
   `Config.SkipDecisionMaxCharsForLlm`.
-- Every LLM verdict is flushed to disk immediately so a crash mid-scan does
-  not lose decisions made earlier in the run.
+- `decide` flushes to disk immediately after each LLM verdict — same
+  semantics as before this refactor, so crash mid-scan does not lose
+  decisions made earlier in the run when the legacy inline path is in use.
+- `decideAndDeferSave` does **not** flush; the batched caller (two-pass
+  scan) is responsible for calling `persist()` exactly once after the
+  parallel batch resolves. This avoids racing tmp/rename writes when many
+  unique extensions resolve concurrently. Crash recovery in two-pass mode
+  is acceptable because the batch is short and re-running the scan
+  re-resolves the same decisions.
 - LLM failure defaults to reject and caches the rejection — matches kube's
   one-shot-rule behavior. Users can hand-edit the cache to revisit.
 - The decider is process-local: tests may construct one with `cachePath`

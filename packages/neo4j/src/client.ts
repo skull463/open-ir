@@ -81,6 +81,35 @@ export async function _runCypher<T = unknown>(query: string, params: Record<stri
   }
 }
 
+export interface CypherStep {
+  readonly query: string;
+  readonly params: Record<string, unknown>;
+}
+
+/**
+ * Run multiple Cypher statements inside one write transaction. All-or-nothing:
+ * either every statement commits or none do. Used by the batched upsert APIs
+ * so a 50-file batch lands as one transaction instead of 12 × 50 sessions.
+ *
+ * Uses the driver's `executeWrite` which retries automatically on transient
+ * errors (deadlock, leader switch) up to a few attempts.
+ */
+export async function _runInTransaction(steps: readonly CypherStep[]): Promise<void> {
+  if (steps.length === 0) {
+    return;
+  }
+  const session: Session = _getDriver().session();
+  try {
+    await session.executeWrite(async (tx) => {
+      for (const step of steps) {
+        await tx.run(step.query, step.params);
+      }
+    });
+  } finally {
+    await session.close();
+  }
+}
+
 export function toNeo4jInt(value: number): Integer {
   return int(value);
 }

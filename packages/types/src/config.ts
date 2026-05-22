@@ -26,6 +26,7 @@ export enum Config {
   LlmConcurrency = "llm.concurrency",
   FolderSummaryBatchSize = "folder.summary.batch.size",
   FolderSummaryBatchMaxFiles = "folder.summary.batch.max.files",
+  Neo4jBatchSize = "neo4j.batch.size",
   CondenseContextLimit = "condense.context.limit",
   CondensePromptOverhead = "condense.prompt.overhead",
   SmallFileDedupThreshold = "small.file.dedup.threshold",

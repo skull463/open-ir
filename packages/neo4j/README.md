@@ -40,20 +40,25 @@ The package owns:
   function / import edges), and one to remove the `:Knowledge` node
   itself. Called by the server's `DELETE /api/v1/repos/:knowledgeId`
   route.
-- File-node CRUD (`upsertFileNode`) — composes the per-file relationships
-  (`:HAS_KEYWORD / :HAS_CLASS / :HAS_FUNCTION / :HAS_IMPORT_INTERNAL /
-:HAS_IMPORT_EXTERNAL`), clearing stale relationships before
-  re-attaching for re-runs. The two-`:HAS_IMPORT_*` split mirrors
-  kube-package's distinction between relative imports and external
-  packages — downstream MCP queries can ask "which files import this
-  internal module" vs "which files import this external package"
-  cleanly
+- File-node CRUD (`upsertFileNode`, `upsertFileNodesBatch`) — composes
+  the per-file relationships (`:HAS_KEYWORD / :HAS_CLASS / :HAS_FUNCTION
+  / :HAS_IMPORT_INTERNAL / :HAS_IMPORT_EXTERNAL`), clearing stale
+  relationships before re-attaching for re-runs. The two-`:HAS_IMPORT_*`
+  split mirrors kube-package's distinction between relative imports and
+  external packages — downstream MCP queries can ask "which files
+  import this internal module" vs "which files import this external
+  package" cleanly. The `*Batch` variant lands an arbitrary number of
+  files in **one transaction** via Cypher `UNWIND` — same Cypher shape,
+  wrapped with an outer UNWIND so 50+ files cost the same 12 Cyphers a
+  single file used to cost.
+- Folder-node CRUD (`upsertFolderNode`, `upsertFolderNodesBatch`) —
+  same shape as file CRUD; batched variant for bulk indexing.
 
 The package does **not** own:
 
 - Read queries — defer to a future `@bb/graph` once `@bb/mcp` retrieval
   has a use case
-- Telemetry, retry, or transaction batching — driver defaults apply
+- Telemetry — driver defaults apply.
 - Migration tooling — the `IF NOT EXISTS` constraint creates handle
   schema drift; richer migrations land later
 
@@ -69,6 +74,9 @@ function upsertKnowledgeNode(doc: KnowledgeDoc): Promise<void>;
 function setKnowledgeStateInGraph(knowledgeId: string, state: KnowledgeState): Promise<void>;
 function deleteKnowledgeGraph(knowledgeId: string): Promise<void>;
 function upsertFileNode(input: UpsertFileNodeInput): Promise<void>;
+function upsertFileNodesBatch(inputs: readonly UpsertFileNodeInput[]): Promise<void>;
+function upsertFolderNode(input: UpsertFolderNodeInput): Promise<void>;
+function upsertFolderNodesBatch(inputs: readonly UpsertFolderNodeInput[]): Promise<void>;
 
 function runCypher<T = unknown>(query: string, params?: Record<string, unknown>): Promise<T[]>;
 
@@ -160,9 +168,12 @@ Neo4jPassword`). Repo-wide ESLint rule blocks `process.env`.
    "already exists" errors (Neo4j refuses constraints when a matching
    plain index exists). Operators must drop conflicting indexes manually
    if uniqueness guarantees matter.
-6. **`upsertFileNode` clears stale relationships before re-attaching.**
-   Re-runs of the same `(knowledgeId, relativePath)` produce a clean
-   relationship set rather than accumulating outdated keywords/imports.
+6. **`upsertFileNode` and `upsertFileNodesBatch` clear stale relationships
+   before re-attaching.** Re-runs of the same `(knowledgeId, relativePath)`
+   produce a clean relationship set rather than accumulating outdated
+   keywords/imports. In the batched variant the clear-then-attach happens
+   atomically inside one transaction per batch — partial failures roll
+   back, so re-runs always start from a consistent state.
 7. **No raw `Driver` leaks.** `_getDriver()` is not in `src/index.ts`.
    Higher tiers go through the typed helpers.
 
@@ -174,7 +185,6 @@ Neo4jPassword`). Repo-wide ESLint rule blocks `process.env`.
 ## What is intentionally out of scope (v0)
 
 - Read queries (defer to `@bb/graph`)
-- Cypher transactions / batch writes (single-statement per call)
 - Schema migrations / drops / renames (only `IF NOT EXISTS` creates)
 - Multi-database support (we use the default `neo4j` db)
 - Pub/sub / change-data-capture

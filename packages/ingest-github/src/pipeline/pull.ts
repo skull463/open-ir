@@ -201,7 +201,7 @@ export async function runPull(
 
     logger.info(`pull: phase backfill fields starting`);
     throwIfCancelled(knowledgeId);
-    await backfillMissingFields(metaPaths, fileAnalysisCache, llmCallContext, progressContext);
+    await backfillMissingFields(metaPaths, fileAnalysisCache, limiter, llmCallContext, progressContext);
 
     progressContext.phaseChanged("folder_analysis");
     logger.info(`pull: phase selective folder summary (${affectedFolders.size} folders) starting`);

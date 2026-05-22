@@ -14,24 +14,27 @@ being marked failed.
 
 ## Files
 
-- `fields.ts` — Phase 3. `backfillMissingFields(metaPaths, cache, llmCallContext?, progressContext?)`
+- `fields.ts` — Phase 3. `backfillMissingFields(metaPaths, cache, limiter, llmCallContext?, progressContext?)`
   iterates every condensed entry from the shared `FileAnalysisCache`,
   computes which extended-analysis fields are missing (`keywords`,
   `ontologyConcepts`, `businessEntities`, `systemCapabilities`,
   `sideEffects`, `configDependencies`, `dataFlowDirection`,
   `integrationSurface`, `contractsProvided`, `contractsConsumed`,
-  `sectionMap`), and asks one LLM call per file to fill only the
-  missing slots. The response is validated and normalised
-  (`pickStringArray`, `pickSections`) before being written back via
-  `saveCondensed` **and** mirrored into the cache via `cache.set(entry)`
-  so downstream phases (folder summary, graph store) see the updated
-  entry without re-reading disk. Entries with nothing missing are
-  skipped without an LLM call. Progress reporter is fixed-total sized
-  by `cache.size`.
+  `sectionMap`), and dispatches one LLM call per file **through the shared
+  `ConcurrencyLimiter`** to fill only the missing slots. Tasks run
+  concurrently up to `Config.LlmConcurrency`; the loop builds the task
+  array and awaits `Promise.all` at the end. The response is validated and
+  normalised (`pickStringArray`, `pickSections`) before being written back
+  via `saveCondensed` **and** mirrored into the cache via `cache.set(entry)`
+  so downstream phases (folder summary, graph store) see the updated entry
+  without re-reading disk. Entries with nothing missing are skipped
+  without an LLM call. Progress reporter is fixed-total sized by
+  `cache.size`. Emits `phase3 dispatching N backfill tasks` at entry so the
+  caller can see how many tasks went through the limiter.
 
 ## Public interfaces
 
-- `backfillMissingFields(metaPaths, cache, llmCallContext?, progressContext?): Promise<{ updated, failed }>`
+- `backfillMissingFields(metaPaths, cache, limiter, llmCallContext?, progressContext?): Promise<{ updated, failed }>`
 
 Returns phase-summary counters consumed by `createFlatFolderStrategy`
 to roll up into the strategy result.
@@ -54,6 +57,10 @@ mutation into `FileAnalysisCache`.
   responses leave unfilled slots for a future pass.
 - Cache and disk stay in lockstep — every `saveCondensed` is paired
   with a `cache.set(entry)` in the same code path.
+- Concurrency is bounded by the shared `ConcurrencyLimiter` (today's
+  `Config.LlmConcurrency`). Counters (`updated`, `failed`, token totals)
+  are mutated from inside the concurrent tasks — safe under JS's
+  single-threaded event loop, no locking needed.
 
 ## External dependencies
 

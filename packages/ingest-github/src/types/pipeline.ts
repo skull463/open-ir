@@ -1,6 +1,7 @@
 import type { GithubIndexPayload, GithubPullPayload } from "@bb/types";
 import type { AskLlmOptions } from "@bb/llm";
 import type { FileAnalysis } from "@bb/mongo";
+import type { ConcurrencyLimiter } from "#src/pipeline/concurrency.ts";
 import type { DiffResult } from "#src/pipeline/git-diff.ts";
 
 export interface ScannedFile {
@@ -59,6 +60,14 @@ export interface ScanDeps {
    * invokes the LLM branch. Absent in OSS standalone runs.
    */
   llmCallContext?: AskLlmOptions;
+  /**
+   * Shared LLM-concurrency limiter. When set, `scanRepository` uses a
+   * two-pass strategy: walk + cache-only decisions in pass 1, parallel
+   * deduplicated LLM resolution under this limiter in pass 2, drain the
+   * pending list in pass 3 (all cache-hits). When absent (e.g. legacy
+   * `SourceFactory` consumers), scan falls back to inline-await per file.
+   */
+  limiter?: ConcurrencyLimiter;
 }
 
 export interface SourceReader {
@@ -152,5 +161,31 @@ export interface SkipDeciderInput {
 }
 
 export interface SkipDecider {
+  /**
+   * Single-shot decision: applies static filters, consults the in-memory
+   * + on-disk caches, and falls through to the LLM when neither resolves
+   * the decision. Persists the cache to disk after each LLM call.
+   * Kept for non-scan callers and the legacy inline-await path.
+   */
   decide(input: SkipDeciderInput): Promise<SkipDecision>;
+  /**
+   * Synchronous static-only decision. Returns the resolved `SkipDecision`
+   * when static filters or cache hit resolves it; returns `null` to signal
+   * "this needs an LLM call to resolve". Used by `scanRepository` in its
+   * two-pass mode to collect pending entries without blocking the walk.
+   */
+  decideStatic(input: SkipDeciderInput): SkipDecision | null;
+  /**
+   * Asynchronous LLM-resolution path that **mutates the in-memory cache**
+   * but does NOT persist to disk. The caller (typically `scanRepository`)
+   * batches these under a `ConcurrencyLimiter` and then calls `persist()`
+   * exactly once at the end of the batch, so concurrent `saveCache` calls
+   * don't race on the tmp/rename atomicity.
+   */
+  decideAndDeferSave(input: SkipDeciderInput): Promise<SkipDecision>;
+  /**
+   * Persist the in-memory decision cache to disk. Best-effort: swallows
+   * I/O errors. Called once at the end of a `decideAndDeferSave` batch.
+   */
+  persist(): void;
 }

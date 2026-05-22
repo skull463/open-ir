@@ -28,7 +28,7 @@ Domain (sub-folder of `@bb/ingest-github`).
 - `skip-decisions/` — LLM-backed unknown-extension gate. See
   `skip-decisions/README.md`. Active when `Config.SkipDecisionEnabled =
 true` (default). Consumed by `scan.ts` via the optional `skipDecider`
-  dep; built by `classifyAndAnalyseSmall` if not injected.
+  dep; built by `scanAndClassify` (Phase 1) if not injected.
 - `disk-source-reader.ts` — `createDiskSourceReader({ repoDir, commitHash })`
   returns a `SourceReader` that wraps `scanRepository` + `node:fs.readFile`.
   The default reader the open-source binary always uses, unless the caller
@@ -40,9 +40,26 @@ true` (default). Consumed by `scan.ts` via the optional `skipDecider`
   enters the big-file phase). Both thresholds are config-driven — no
   magic numbers in this file. `deps.llmCallContext` (when present) is
   forwarded into every `SkipDeciderInput` so the LLM branch of the
-  unknown-extension gate uses per-job credentials. `readScannedFile`
-  re-reads a file by absolute path for the big-file phase which streams
-  content lazily.
+  unknown-extension gate uses per-job credentials.
+
+  **Two scan modes:**
+  - **Two-pass (default for the flat-folder strategy)** — activated when
+    `deps.skipDecider` AND `deps.limiter` are both supplied. Pass 1 walks
+    the tree calling `decider.decideStatic(...)`; static-resolved files
+    yield immediately, "needs LLM" files go into a pending buffer with
+    their content. Pass 2 dedupes pending entries by `ext:<ext>` or
+    `filename:<name>`, dispatches one `decider.decideAndDeferSave(...)` per
+    unique key through the shared limiter via `Promise.all`, then calls
+    `decider.persist()` exactly once. Pass 3 drains pending — every
+    `decideStatic` call is now a cache hit, so the drain is sync at the
+    decider boundary and yields each kept file with its buffered content.
+  - **Legacy inline (`walk()`)** — used when `deps.limiter` is omitted (e.g.
+    a custom `SourceFactory` consumer that didn't opt in). Inline `await
+deps.skipDecider.decide(input)` per file. Same semantics as before this
+    refactor; preserved for backwards compatibility.
+
+  `readScannedFile` re-reads a file by absolute path for the big-file phase
+  which streams content lazily.
 - `run.ts` — `createPipelineRunner({ reposRootDir, strategy, sourceFactory?, progressContextFactory? })`
   builds an `IngestRunnerDeps`. GitHub payloads run: branch resolve,
   source-reader construction, strategy execute, commit persistence. Local
@@ -76,7 +93,7 @@ archiveSink?}` and `runPull` skips `syncRepository` + `materialiseEndpoints`
     (open-source default), the legacy git-based path runs. Either path
     produces the same downstream pipeline: snapshot prior version,
     `analyseChangedFiles` (now reading via `SourceReader`),
-    `processBigFilesQueue`, `backfillMissingFields`, `backfillBigFiles`,
+    `processBigFilesQueue`, `backfillMissingFields`,
     `runSelectiveFolderSummary`, `summariseRepo`, `storePullAnalysis`.
     Mirrors the index-side strategy orchestrator for progress: builds one
     `ProgressContext` per job from the optional `progressContextFactory`

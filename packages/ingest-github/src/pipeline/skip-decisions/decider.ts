@@ -29,6 +29,11 @@ export interface SkipDeciderDeps {
   cachePath?: string;
 }
 
+interface StaticDecisionContext {
+  filename: string;
+  segments: string[];
+}
+
 export function makeSkipDecider(deps: SkipDeciderDeps = {}): SkipDecider {
   const enabled = getConfigValue(Config.SkipDecisionEnabled);
   const cachePath = deps.cachePath ?? defaultCachePath();
@@ -37,54 +42,90 @@ export function makeSkipDecider(deps: SkipDeciderDeps = {}): SkipDecider {
     logCacheSummary(cache);
   }
 
+  function contextFor(input: SkipDeciderInput): StaticDecisionContext {
+    const segments = input.relativePath.split("/");
+    const filename = segments[segments.length - 1] ?? input.relativePath;
+    return { filename, segments };
+  }
+
+  function staticDecision(input: SkipDeciderInput): SkipDecision | null {
+    const { filename, segments } = contextFor(input);
+    for (const segment of segments.slice(0, -1)) {
+      if (SEED_DIRECTORIES.has(segment)) {
+        return "reject-static";
+      }
+    }
+    if (SEED_FILENAMES.has(filename)) {
+      return "reject-static";
+    }
+    if (input.ext.length > 0 && SEED_EXTENSIONS.has(input.ext)) {
+      return "reject-static";
+    }
+    if (matchesAnyGlob(filename)) {
+      return "reject-static";
+    }
+
+    if (input.ext.length > 0 && KNOWN_LANGUAGE_EXTENSIONS.has(input.ext)) {
+      return "accept";
+    }
+
+    if (!enabled) {
+      return "accept";
+    }
+
+    const cacheKey = input.ext.length > 0 ? input.ext : filename;
+    const section = input.ext.length > 0 ? cache.extensions : cache.filenames;
+    const cached = section[cacheKey];
+    if (cached !== undefined) {
+      return cached.ignore ? "reject-llm" : "accept-llm";
+    }
+    return null;
+  }
+
+  async function resolveLlm(input: SkipDeciderInput): Promise<SkipDecision> {
+    const { filename } = contextFor(input);
+    const decision = await askLlmDecision(input, deps.repositoryName, input.llmCallContext);
+    if (input.ext.length > 0) {
+      setExtensionDecision(cache, input.ext, !decision, "llm", deps.repositoryName, input.relativePath);
+    } else {
+      setFilenameDecision(cache, filename, !decision, "llm", deps.repositoryName, input.relativePath);
+    }
+    return decision ? "accept-llm" : "reject-llm";
+  }
+
+  function persist(): void {
+    if (!enabled) {
+      return;
+    }
+    try {
+      saveCache(cachePath, cache);
+    } catch (cause: unknown) {
+      const msg = cause instanceof Error ? cause.message : String(cause);
+      logger.warn(`skip-decisions: failed to save cache to ${cachePath}: ${msg}`);
+    }
+  }
+
   return {
     async decide(input: SkipDeciderInput): Promise<SkipDecision> {
-      const segments = input.relativePath.split("/");
-      const filename = segments[segments.length - 1] ?? input.relativePath;
-      for (const segment of segments.slice(0, -1)) {
-        if (SEED_DIRECTORIES.has(segment)) {
-          return "reject-static";
-        }
+      const sync = staticDecision(input);
+      if (sync !== null) {
+        return sync;
       }
-      if (SEED_FILENAMES.has(filename)) {
-        return "reject-static";
-      }
-      if (input.ext.length > 0 && SEED_EXTENSIONS.has(input.ext)) {
-        return "reject-static";
-      }
-      if (matchesAnyGlob(filename)) {
-        return "reject-static";
-      }
-
-      if (input.ext.length > 0 && KNOWN_LANGUAGE_EXTENSIONS.has(input.ext)) {
-        return "accept";
-      }
-
-      if (!enabled) {
-        return "accept";
-      }
-
-      const cacheKey = input.ext.length > 0 ? input.ext : filename;
-      const section = input.ext.length > 0 ? cache.extensions : cache.filenames;
-      const cached = section[cacheKey];
-      if (cached !== undefined) {
-        return cached.ignore ? "reject-llm" : "accept-llm";
-      }
-
-      const decision = await askLlmDecision(input, deps.repositoryName, input.llmCallContext);
-      if (input.ext.length > 0) {
-        setExtensionDecision(cache, input.ext, !decision, "llm", deps.repositoryName, input.relativePath);
-      } else {
-        setFilenameDecision(cache, filename, !decision, "llm", deps.repositoryName, input.relativePath);
-      }
-      try {
-        saveCache(cachePath, cache);
-      } catch (cause: unknown) {
-        const msg = cause instanceof Error ? cause.message : String(cause);
-        logger.warn(`skip-decisions: failed to save cache to ${cachePath}: ${msg}`);
-      }
-      return decision ? "accept-llm" : "reject-llm";
+      const result = await resolveLlm(input);
+      persist();
+      return result;
     },
+    decideStatic(input: SkipDeciderInput): SkipDecision | null {
+      return staticDecision(input);
+    },
+    async decideAndDeferSave(input: SkipDeciderInput): Promise<SkipDecision> {
+      const sync = staticDecision(input);
+      if (sync !== null) {
+        return sync;
+      }
+      return await resolveLlm(input);
+    },
+    persist,
   };
 }
 

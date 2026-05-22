@@ -44,6 +44,7 @@ export const configSchema = z
     "llm.concurrency": z.number().int().positive().default(29),
     "folder.summary.batch.size": z.number().int().positive().default(10),
     "folder.summary.batch.max.files": z.number().int().positive().default(15),
+    "neo4j.batch.size": z.number().int().positive().default(50),
     "condense.context.limit": z.number().int().positive().default(12000),
     "condense.prompt.overhead": z.number().int().nonnegative().default(1500),
     "small.file.dedup.threshold": z.number().int().positive().default(3),
@@ -87,6 +88,7 @@ export type ConfigValueMap = {
   [Config.LlmConcurrency]: number;
   [Config.FolderSummaryBatchSize]: number;
   [Config.FolderSummaryBatchMaxFiles]: number;
+  [Config.Neo4jBatchSize]: number;
   [Config.CondenseContextLimit]: number;
   [Config.CondensePromptOverhead]: number;
   [Config.SmallFileDedupThreshold]: number;
@@ -144,6 +146,7 @@ export const HINTS: Readonly<Record<Config, string>> = {
   [Config.LlmConcurrency]: "bytebell set llm.concurrency <n>",
   [Config.FolderSummaryBatchSize]: "bytebell set folder.summary.batch.size <n>",
   [Config.FolderSummaryBatchMaxFiles]: "bytebell set folder.summary.batch.max.files <n>",
+  [Config.Neo4jBatchSize]: "bytebell set neo4j.batch.size <n>",
   [Config.CondenseContextLimit]: "bytebell set condense.context.limit <n>",
   [Config.CondensePromptOverhead]: "bytebell set condense.prompt.overhead <n>",
   [Config.SmallFileDedupThreshold]: "bytebell set small.file.dedup.threshold <n>",
@@ -210,6 +213,8 @@ export function readField<K extends Config>(cfg: BytebellConfig, key: K): Config
       return cfg["folder.summary.batch.size"] as ConfigValue<K>;
     case Config.FolderSummaryBatchMaxFiles:
       return cfg["folder.summary.batch.max.files"] as ConfigValue<K>;
+    case Config.Neo4jBatchSize:
+      return cfg["neo4j.batch.size"] as ConfigValue<K>;
     case Config.CondenseContextLimit:
       return cfg["condense.context.limit"] as ConfigValue<K>;
     case Config.CondensePromptOverhead:
@@ -285,6 +290,8 @@ export function writeField<K extends Config>(cfg: BytebellConfig, key: K, value:
       return { ...cfg, "folder.summary.batch.size": value as number };
     case Config.FolderSummaryBatchMaxFiles:
       return { ...cfg, "folder.summary.batch.max.files": value as number };
+    case Config.Neo4jBatchSize:
+      return { ...cfg, "neo4j.batch.size": value as number };
     case Config.CondenseContextLimit:
       return { ...cfg, "condense.context.limit": value as number };
     case Config.CondensePromptOverhead:

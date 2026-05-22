@@ -7,6 +7,7 @@ import type { MetaPaths } from "#src/types/meta-paths.ts";
 import type { BigFileEntry } from "#src/types/big-file.ts";
 import type { SkipDecider, SourceReader } from "#src/types/pipeline.ts";
 import type { ProgressContext } from "#src/progress/types.ts";
+import type { ConcurrencyLimiter } from "#src/pipeline/concurrency.ts";
 import { throwIfCancelled } from "#src/pipeline/cancellation.ts";
 import { makeSkipDecider } from "#src/pipeline/skip-decisions/index.ts";
 import { classifyByTokens, writeBigFiles } from "#src/strategies/flat-folder/big-file/detector.ts";
@@ -24,6 +25,14 @@ export interface ScanAndClassifyInput {
   skipDecider?: SkipDecider;
   llmCallContext?: AskLlmOptions;
   progressContext?: ProgressContext;
+  /**
+   * Shared LLM-concurrency limiter. When supplied the underlying
+   * `scanRepository` runs its two-pass strategy: walk + cache-only decisions
+   * first, then parallel-deduplicated LLM resolution for unknown
+   * extensions/filenames under this limiter. Optional so the function
+   * still works standalone.
+   */
+  limiter?: ConcurrencyLimiter;
 }
 
 export interface ScanAndClassifyResult {
@@ -56,6 +65,9 @@ export async function scanAndClassify(input: ScanAndClassifyInput): Promise<Scan
 
   try {
     const scanDeps: Parameters<typeof input.source.scan>[0] = { skipDecider };
+    if (input.limiter !== undefined) {
+      scanDeps.limiter = input.limiter;
+    }
     if (input.llmCallContext !== undefined) {
       scanDeps.llmCallContext = input.llmCallContext;
     }

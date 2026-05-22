@@ -51,14 +51,23 @@ progressContext?})` — legacy serial driver kept for the pull-path
     `analyseBigFiles(manifest, …)`. Reads `bigFiles.json`, dispatches
     `processBigFile` once per file in a `for` loop.
 - `store-flat-analysis.ts` — Phase 7.
-  `storeFlatAnalysis({scope, payload, branch, metaPaths})` ensures
+  `storeFlatAnalysis({scope, payload, branch, metaPaths, cache})` ensures
   `flat-folder` Neo4j indexes, upserts `:Repo` (from `repo-summary.json`
-  if present, empty payload otherwise), then iterates folder summaries
-  via `iterateFolderSummaries` to upsert `:Folder`, then iterates
-  condensed entries via `iterateCondensed` to upsert `:File`. Files whose
-  containing folder was not in the summaries set get a synthesised empty
-  `:Folder` so the `CONTAINS` edge always lands. `languageFromPath`
-  fills `language` when the analysis left it blank.
+  if present, empty payload otherwise), then **dispatches `:Folder` and
+  `:File` upserts in batches of `Config.Neo4jBatchSize` (default 50)**
+  via `upsertFolderNodesBatch` / `upsertFileNodesBatch` from `@bb/neo4j`.
+  Each batch is one Neo4j write transaction containing the same 12
+  Cyphers (1 MERGE + 1 folder-attach + 5 rel CLEARs + 5 rel ATTACHes via
+  UNWIND) that a single upsert used to issue — so a 1 000-file repo
+  collapses from ~12 000 round-trips to ~240. Files whose containing
+  folder was not in the summaries set get a synthesised empty `:Folder`
+  entry added to the folder batch list **up front** (before any batch
+  dispatches) so the `CONTAINS` edge always lands.
+  `languageFromPath` fills `language` when the analysis left it blank.
+  Both progress reporters (`folders`, `files`) open at phase entry with
+  their fixed totals so the indexing overall-progress aggregate sees
+  both denominators from the first tick — fixes the prior "leaps to 100
+  then sits there" UX bug.
 
 ## Execution order
 

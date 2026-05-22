@@ -1,6 +1,16 @@
 import { readFile } from "node:fs/promises";
+import { Config } from "@bb/types";
+import { getConfigValue } from "@bb/config";
 import { logger } from "@bb/logger";
-import { ensureFlatFolderIndexes, upsertFileNode, upsertFolderNode, upsertRepoNode, type NodeScope } from "@bb/neo4j";
+import {
+  ensureFlatFolderIndexes,
+  upsertFileNodesBatch,
+  upsertFolderNodesBatch,
+  upsertRepoNode,
+  type NodeScope,
+  type UpsertFileNodeInput,
+  type UpsertFolderNodeInput,
+} from "@bb/neo4j";
 import type { GithubIndexPayload } from "@bb/types";
 import type { MetaPaths } from "#src/types/meta-paths.ts";
 import { throwIfCancelled } from "#src/pipeline/cancellation.ts";
@@ -30,10 +40,10 @@ export async function storeFlatAnalysis(input: StoreFlatAnalysisInput): Promise<
   throwIfCancelled(input.scope.knowledgeId);
   await ensureFlatFolderIndexes();
 
-  let nodesWritten = 0;
-  let foldersWritten = 0;
-  let filesWritten = 0;
+  const batchSize = getConfigValue(Config.Neo4jBatchSize);
 
+  // 1. :Repo node — single upsert, not batched (one repo per knowledge).
+  let nodesWritten = 0;
   const repoSummary = await readRepoSummary(input.metaPaths);
   if (repoSummary !== null) {
     await upsertRepoNode({
@@ -50,7 +60,6 @@ export async function storeFlatAnalysis(input: StoreFlatAnalysisInput): Promise<
         keyPatterns: repoSummary.keyPatterns,
       },
     });
-    nodesWritten += 1;
   } else {
     logger.warn(`phase7: no repo summary on disk; writing :Repo with empty summary`);
     await upsertRepoNode({
@@ -59,60 +68,79 @@ export async function storeFlatAnalysis(input: StoreFlatAnalysisInput): Promise<
       branch: input.branch,
       summary: emptyRepoSummaryPayload(),
     });
-    nodesWritten += 1;
+  }
+  nodesWritten += 1;
+
+  // 2. Collect every folder we'll upsert: the on-disk folder summaries plus
+  // synthesised parents for any file whose folder didn't get a summary. Doing
+  // this up front gives both reporters real fixed totals so `overallProgress`
+  // doesn't leap to 100 the moment the folder loop completes (the previous
+  // UX bug where the file sub-phase registered too late to dilute the
+  // indexing aggregate).
+  const folderInputs: UpsertFolderNodeInput[] = [];
+  const folderPaths = new Set<string>();
+  for await (const folder of iterateFolderSummaries(input.metaPaths)) {
+    folderInputs.push({
+      scope: input.scope,
+      folderPath: folder.folderPath,
+      summary: shapeFolderPayload(folder),
+    });
+    folderPaths.add(folder.folderPath);
+  }
+  for (const file of input.cache.values()) {
+    const folderPath = directFolderOf(file.relativePath);
+    if (!folderPaths.has(folderPath)) {
+      folderInputs.push({
+        scope: input.scope,
+        folderPath,
+        summary: emptyFolderPayload(),
+      });
+      folderPaths.add(folderPath);
+    }
   }
 
+  // 3. Both reporters open at phase entry with their true totals so the
+  // overall-progress aggregate sees both denominators from the first tick.
   const folderReporter = input.progressContext?.reporter({
     phase: "indexing",
     subPhase: "folders",
-    total: { kind: "growing" },
+    total: { kind: "fixed", total: folderInputs.length },
   });
-  await folderReporter?.start();
-  const folderPaths = new Set<string>();
-  try {
-    for await (const folder of iterateFolderSummaries(input.metaPaths)) {
-      throwIfCancelled(input.scope.knowledgeId);
-      folderReporter?.incrementSeen();
-      await upsertFolderNode({
-        scope: input.scope,
-        folderPath: folder.folderPath,
-        summary: shapeFolderPayload(folder),
-      });
-      folderPaths.add(folder.folderPath);
-      foldersWritten += 1;
-      nodesWritten += 1;
-      folderReporter?.increment(1, { fileName: folder.folderPath || "<root>" });
-    }
-  } finally {
-    folderReporter?.stop();
-  }
-
   const fileReporter = input.progressContext?.reporter({
     phase: "indexing",
     subPhase: "files",
     total: { kind: "fixed", total: input.cache.size },
   });
+  await folderReporter?.start();
   await fileReporter?.start();
+
+  let foldersWritten = 0;
+  let filesWritten = 0;
   try {
-    for (const file of input.cache.values()) {
+    // 4. Batched folder upserts.
+    logger.info(
+      `phase7: folder upsert dispatching ${Math.ceil(folderInputs.length / batchSize)} batches of up to ${batchSize} folders (total=${folderInputs.length})`,
+    );
+    for (let i = 0; i < folderInputs.length; i += batchSize) {
       throwIfCancelled(input.scope.knowledgeId);
-      const folderPath = directFolderOf(file.relativePath);
-      if (!folderPaths.has(folderPath)) {
-        await upsertFolderNode({
-          scope: input.scope,
-          folderPath,
-          summary: emptyFolderPayload(),
-        });
-        folderPaths.add(folderPath);
-        foldersWritten += 1;
-        nodesWritten += 1;
+      const batch = folderInputs.slice(i, i + batchSize);
+      await upsertFolderNodesBatch(batch);
+      foldersWritten += batch.length;
+      nodesWritten += batch.length;
+      for (const item of batch) {
+        folderReporter?.increment(1, { fileName: item.folderPath || "<root>" });
       }
-      await upsertFileNode({
+    }
+
+    // 5. Batched file upserts.
+    const fileInputs: UpsertFileNodeInput[] = [];
+    for (const file of input.cache.values()) {
+      fileInputs.push({
         orgId: input.scope.orgId,
         knowledgeId: input.scope.knowledgeId,
         repoId: input.scope.repoId,
         relativePath: file.relativePath,
-        folderPath,
+        folderPath: directFolderOf(file.relativePath),
         language: file.language.length > 0 ? file.language : languageFromPath(file.relativePath),
         sha: file.sha256,
         sizeBytes: file.sizeBytes,
@@ -121,11 +149,22 @@ export async function storeFlatAnalysis(input: StoreFlatAnalysisInput): Promise<
         totalChunks: file.totalChunks,
         totalTokenCount: file.totalTokenCount,
       });
-      filesWritten += 1;
-      nodesWritten += 1;
-      fileReporter?.increment(1, { fileName: file.relativePath });
+    }
+    logger.info(
+      `phase7: file upsert dispatching ${Math.ceil(fileInputs.length / batchSize)} batches of up to ${batchSize} files (total=${fileInputs.length})`,
+    );
+    for (let i = 0; i < fileInputs.length; i += batchSize) {
+      throwIfCancelled(input.scope.knowledgeId);
+      const batch = fileInputs.slice(i, i + batchSize);
+      await upsertFileNodesBatch(batch);
+      filesWritten += batch.length;
+      nodesWritten += batch.length;
+      for (const item of batch) {
+        fileReporter?.increment(1, { fileName: item.relativePath });
+      }
     }
   } finally {
+    folderReporter?.stop();
     fileReporter?.stop();
   }
 

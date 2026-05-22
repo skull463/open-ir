@@ -12,13 +12,13 @@ export {
   deleteKnowledgeGraph,
 } from "./knowledge.ts";
 
-export { upsertFileNode, deleteFileNodes } from "./files.ts";
+export { upsertFileNode, upsertFileNodesBatch, deleteFileNodes } from "./files.ts";
 export type { UpsertFileNodeInput } from "./files.ts";
 
 export { upsertRepoNode } from "./repo.ts";
 export type { NodeScope, RepoSummaryPayload, UpsertRepoNodeInput } from "./repo.ts";
 
-export { upsertFolderNode } from "./folder.ts";
+export { upsertFolderNode, upsertFolderNodesBatch } from "./folder.ts";
 export type { FolderSummaryPayload, UpsertFolderNodeInput } from "./folder.ts";
 
 export { snapshotFilesToVersion } from "./fileVersions.ts";

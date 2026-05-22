@@ -19,9 +19,21 @@ llmCallContext? }`; `llmCallContext` is the optional `AskLlmOptions`
 - `pipeline.ts` — `ScannedFile`, `OversizedFile`, `ScanEntry`, `FileAnalyzer`
   port, `AnalyzedFileResult`, `PipelineDeps`, `PipelineSummary`,
   `SkipDecider` / `SkipDeciderInput` / `SkipDecision` (the unknown-extension
-  gate port; implementation lives under `pipeline/skip-decisions/`),
+  gate port; implementation lives under `pipeline/skip-decisions/`). The
+  `SkipDecider` interface exposes four methods: `decide` (legacy async
+  single-shot), `decideStatic` (synchronous; returns the resolved decision
+  or `null` to signal "needs an LLM call"), `decideAndDeferSave` (async LLM
+  call that mutates the in-memory cache without flushing to disk), and
+  `persist` (one-shot cache flush). The two-pass scan in `scan.ts` uses the
+  latter three so unknown-extension probes fan out under the shared LLM
+  limiter and the disk cache is written exactly once at the end of the
+  batch.
   `SourceReader` / `ScanDeps` (the repository-read abstraction; default
-  implementation in `pipeline/disk-source-reader.ts`), `ArchiveSink` /
+  implementation in `pipeline/disk-source-reader.ts`). `ScanDeps.limiter`
+  is the optional shared `ConcurrencyLimiter`; when supplied together with
+  `skipDecider`, `scanRepository` switches to its two-pass strategy
+  instead of the legacy inline-await walk.
+  `ArchiveSink` /
   `ArchiveSinkInput` (an optional non-fatal sink that the open-source
   binary never calls), `SourceFactory` / `SourceFactoryInput` /
   `SourceFactoryResult` (the optional index-side injection hook surfaced

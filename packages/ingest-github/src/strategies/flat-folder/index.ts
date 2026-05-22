@@ -44,6 +44,7 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
           knowledgeId,
           source,
           metaPaths,
+          limiter,
           progressContext,
         };
         if (llmCallContext !== undefined) {
@@ -93,7 +94,7 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
 
         logger.info(`flat-folder: phase3 (backfill missing fields) starting`);
         throwIfCancelled(knowledgeId);
-        await backfillMissingFields(metaPaths, fileAnalysisCache, llmCallContext, progressContext);
+        await backfillMissingFields(metaPaths, fileAnalysisCache, limiter, llmCallContext, progressContext);
 
         progressContext.phaseChanged("folder_analysis");
         logger.info(`flat-folder: phase5 (folder summaries) starting`);

@@ -29,10 +29,15 @@ selected by `Config.LlmProvider` (`"openrouter"` default, or
   fallback chain. The request body includes a `models: [...]` array
   when the deduplicated chain has ≥2 non-empty entries and always sends
   `usage: { include: true }` so OpenRouter populates `usage.cost` in
-  the response. `usage.model` is the actual model the gateway picked.
-  Tokens come straight from OpenRouter's `usage.prompt_tokens` /
-  `usage.completion_tokens`; `costUsd` from `usage.cost` (defaults to
-  `0` when the provider omits it — common for `:free` models).
+  the response. The body also pins `provider: { allow_fallbacks: false }`
+  so OpenRouter does not silently cycle across upstream providers of the
+  same model — a slow or sick provider surfaces a real error to us
+  instead of consuming the wall-clock budget. Model-level fallback
+  through the `models` chain is unaffected. `usage.model` is the actual
+  model the gateway picked. Tokens come straight from OpenRouter's
+  `usage.prompt_tokens` / `usage.completion_tokens`; `costUsd` from
+  `usage.cost` (defaults to `0` when the provider omits it — common for
+  `:free` models).
 - **Ollama mode** — POST to `${Config.OllamaUrl}/api/chat` with
   `{ model: Config.OllamaModel, messages, stream: false }`. Single
   model per request — no fallback chain (Ollama does not have a
@@ -151,6 +156,15 @@ it. The cost ledger described in [docs/arch.md](../../docs/arch.md) is
    sees a single `AskLlmResult`. BullMQ's `attempts: 3` wraps the whole
    call — retries walk the chain again, useful when a transient
    OpenRouter outage clears between retries.
+4a. **No upstream-provider fallback.** Every request carries
+   `provider: { allow_fallbacks: false }`. This is orthogonal to the
+   `models` chain in invariant 4 — `models` controls *which model* the
+   gateway tries; `allow_fallbacks` controls whether OpenRouter routes
+   to a different upstream backend serving the same model when the first
+   one stalls. We disable the latter so a slow provider cannot eat the
+   wall-clock without ever producing tokens; the surfaced error becomes
+   actionable (specific provider, specific status) instead of a generic
+   timeout.
 5. **Errors are typed, not strings.** `LlmConfigError` carries the exact
    `bytebell keys set` hint; `LlmError` carries `cause`.
 6. **Timeout is enforced.** AbortController fires at `timeoutMs`; the

@@ -20,11 +20,19 @@ interface OpenRouterUsageAccounting {
   include: true;
 }
 
+interface OpenRouterProviderRouting {
+  // Pin OpenRouter to the first viable upstream provider. Without this,
+  // OpenRouter silently cycles across providers on slow/failed calls and
+  // we lose the per-call wall-clock budget before a real error surfaces.
+  allow_fallbacks: boolean;
+}
+
 interface OpenRouterRequest {
   model: string;
   models?: string[];
   messages: OpenRouterMessage[];
   usage: OpenRouterUsageAccounting;
+  provider: OpenRouterProviderRouting;
 }
 
 interface OpenRouterResponse {
@@ -67,10 +75,11 @@ export async function callOpenRouter(prompt: string, opts: AskLlmOptions, timeou
   messages.push({ role: "user", content: prompt });
 
   const usageAccounting: OpenRouterUsageAccounting = { include: true };
+  const providerRouting: OpenRouterProviderRouting = { allow_fallbacks: false };
   const body: OpenRouterRequest =
     cappedChain.length > 1
-      ? { model, models: cappedChain, messages, usage: usageAccounting }
-      : { model, messages, usage: usageAccounting };
+      ? { model, models: cappedChain, messages, usage: usageAccounting, provider: providerRouting }
+      : { model, messages, usage: usageAccounting, provider: providerRouting };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 

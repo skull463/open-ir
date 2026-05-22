@@ -21,10 +21,13 @@ package-level contract; this file documents how the source tree is split.
   or `Config.OpenrouterModel` + four fallback slots), caps the chain at
   3 entries (OpenRouter's hard limit), POSTs to the chat-completions
   endpoint with an AbortController timeout, parses the typed
-  `OpenRouterResponse`, returns the first choice's content. `usage.model`
-  reflects which model OpenRouter actually routed to. Throws
-  `LlmConfigError` if the API key resolves to empty, `LlmError` on
-  timeout / HTTP non-2xx / empty completion.
+  `OpenRouterResponse`, returns the first choice's content. The body
+  always carries `provider: { allow_fallbacks: false }` so OpenRouter
+  cannot silently route across upstream providers of the same model;
+  see `OpenRouterProviderRouting` in this file and invariant 4a in the
+  package README. `usage.model` reflects which model OpenRouter actually
+  routed to. Throws `LlmConfigError` if the API key resolves to empty,
+  `LlmError` on timeout / HTTP non-2xx / empty completion.
 - **[ollama.ts](ollama.ts)** — `callOllama` and `resolveOllamaChain`.
   Single-model per request (Ollama has no fan-out). Reads model from
   `opts.model ?? Config.OllamaModel`. Ignores `opts.apiKey` (Ollama is

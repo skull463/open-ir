@@ -305,7 +305,8 @@
     { "type": "exact", "pattern": "CODE_OF_CONDUCT.txt" },
     { "type": "exact", "pattern": "FAQ.md" },
     { "type": "exact", "pattern": "TROUBLESHOOTING.md" },
-    { "type": "exact", "pattern": "UPGRADING.md" }
+    { "type": "exact", "pattern": "UPGRADING.md" },
+    { "type": "extension", "pattern": ".md" }
   ],
   "logFiles": [
     { "type": "extension", "pattern": ".log" },

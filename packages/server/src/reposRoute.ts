@@ -19,7 +19,7 @@ export function buildReposRoute(): Router {
       state: e.status.state,
       createdAt: e.createdAt instanceof Date ? e.createdAt.toISOString() : new Date(e.createdAt).toISOString(),
       updatedAt: e.updatedAt instanceof Date ? e.updatedAt.toISOString() : new Date(e.updatedAt).toISOString(),
-      fileCount: e.fileCount,
+      fileCount: e.status.totalFiles ?? e.fileCount,
     }));
     res.status(200).json({ repos });
   });
@@ -50,7 +50,7 @@ export function buildReposRoute(): Router {
         entry.createdAt instanceof Date ? entry.createdAt.toISOString() : new Date(entry.createdAt).toISOString(),
       updatedAt:
         entry.updatedAt instanceof Date ? entry.updatedAt.toISOString() : new Date(entry.updatedAt).toISOString(),
-      fileCount: entry.fileCount,
+      fileCount: entry.status.totalFiles ?? entry.fileCount,
       totalFiles: entry.status.totalFiles,
       processedFiles: entry.status.processedFiles,
     });

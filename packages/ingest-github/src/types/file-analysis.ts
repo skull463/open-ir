@@ -1,4 +1,4 @@
-import type { FileAnalysis } from "@bb/mongo";
+import type { FileAnalysis } from "@bb/db-core";
 
 export const FALLBACK_LANGUAGE = "unknown";
 

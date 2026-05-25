@@ -15,7 +15,7 @@
     "@bb/config": "workspace:*",
     "@bb/logger": "workspace:*",
     "@bb/llm": "workspace:*",
-    "@bb/neo4j": "workspace:*",
+    "@bb/graph-db": "workspace:*",
     "@bb/types": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.23.0",
     "zod": "^4.3.6"

@@ -35,4 +35,17 @@ export enum Config {
   SkipDecisionEnabled = "skip.decision.enabled",
   SkipDecisionMaxCharsForLlm = "skip.decision.max.chars.for.llm",
   SkipDecisionCachePath = "skip.decision.cache.path",
+  DbProvider = "db_provider",
+  GraphProvider = "graph_provider",
+  SqlitePath = "sqlite_path",
+}
+
+export enum DbProviderType {
+  Sqlite = "sqlite",
+  Mongo = "mongo",
+}
+
+export enum GraphProviderType {
+  Neo4j = "neo4j",
+  Ladybug = "ladybug",
 }

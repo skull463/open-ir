@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { UsageTracker } from "@bb/llm";
-import { toNeo4jInt } from "@bb/neo4j";
+import { toNeo4jInt } from "@bb/graph-db";
 import { getLogger } from "@bb/logger";
 import {
   CHANNEL_RUNNERS,

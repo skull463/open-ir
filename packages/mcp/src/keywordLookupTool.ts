@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { runCypher, toNeo4jInt } from "@bb/neo4j";
+import { runCypher, toNeo4jInt } from "@bb/graph-db";
 import { UsageTracker } from "@bb/llm";
 import { buildFulltextQuery, escapeLucene } from "./smartSearchChannels.ts";
 
@@ -167,7 +167,7 @@ async function runMatchQuery(args: MatchQueryArgs): Promise<RowShape[]> {
   } else {
     params["fulltextQuery"] = buildFulltextQuery([escapeLucene(lower)]);
   }
-  return runCypher<RowShape>(cypher, params);
+  return (await runCypher(cypher, params)) as RowShape[];
 }
 
 function cypherForMatch(match: MatchMode): string {

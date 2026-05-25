@@ -1,4 +1,4 @@
-import { runCypher } from "@bb/neo4j";
+import { runCypher } from "@bb/graph-db";
 import { logger } from "@bb/logger";
 
 const INDEX_DEFINITIONS: readonly string[] = [

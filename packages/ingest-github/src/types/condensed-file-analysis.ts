@@ -1,4 +1,4 @@
-import type { FileAnalysis } from "@bb/mongo";
+import type { FileAnalysis } from "@bb/db-core";
 
 export interface CondensedFileAnalysis {
   relativePath: string;

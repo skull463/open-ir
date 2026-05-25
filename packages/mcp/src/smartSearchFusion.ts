@@ -1,4 +1,4 @@
-import { runCypher } from "@bb/neo4j";
+import { runCypher } from "@bb/graph-db";
 import type { ChannelName, ScoredHit } from "./smartSearchChannels.ts";
 
 export interface FusedResult {
@@ -78,11 +78,11 @@ export async function attachRepoNames(results: FusedResult[]): Promise<void> {
   if (ids.length === 0) {
     return;
   }
-  const rows = await runCypher<{ knowledgeId: string; repoName: string | null }>(
+  const rows = (await runCypher(
     `MATCH (k:Knowledge) WHERE k.knowledgeId IN $ids
      RETURN k.knowledgeId AS knowledgeId, k.repoName AS repoName`,
     { ids },
-  );
+  )) as Array<{ knowledgeId: string; repoName: string | null }>;
   const lookup = new Map(rows.map((row) => [row.knowledgeId, row.repoName ?? ""]));
   for (const result of results) {
     result.repo_name = lookup.get(result.knowledge_id) ?? "";

@@ -1,5 +1,6 @@
 import React from "react";
 import { render } from "ink";
+import type { CommitHashRecord } from "@bb/types";
 import { getJson } from "./httpClient.ts";
 import {
   RepoSelector,
@@ -27,7 +28,13 @@ import {
 export interface RepoListEntry {
   knowledgeId: string;
   source:
-    | { kind: "github"; repoUrl: string; branch?: string; commitId?: string; commitHashes?: string[] }
+    | {
+        kind: "github";
+        repoUrl: string;
+        branch?: string;
+        commitId?: string;
+        commitHashes?: (string | CommitHashRecord)[];
+      }
     | { kind: "local"; sourcePath: string };
   state: string;
   createdAt: string;

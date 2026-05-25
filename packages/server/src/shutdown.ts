@@ -1,8 +1,8 @@
 import { unlink } from "node:fs/promises";
 import path from "node:path";
-import { closeMongo } from "@bb/mongo";
+import { closeDb } from "@bb/db";
 import { closeRedis } from "@bb/redis";
-import { closeNeo4j } from "@bb/neo4j";
+import { closeGraph } from "@bb/graph-db";
 import { closeQueue } from "@bb/queue";
 import { closeAllMcpSessions } from "@bb/mcp";
 import { getBytebellHome } from "@bb/config";
@@ -29,8 +29,8 @@ async function shutdown(signal: string): Promise<void> {
     await closeAllMcpSessions();
     await closeQueue();
     await closeRedis();
-    await closeNeo4j();
-    await closeMongo();
+    await closeGraph();
+    await closeDb();
     await unlink(path.join(getBytebellHome(), "pid")).catch(() => undefined);
   } catch (cause: unknown) {
     process.stderr.write(`Shutdown error: ${cause instanceof Error ? cause.message : String(cause)}\n`);

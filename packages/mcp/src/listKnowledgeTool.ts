@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { UsageTracker } from "@bb/llm";
-import { runCypher } from "@bb/neo4j";
+import { runCypher } from "@bb/graph-db";
 
 const MAX_PAGE_CHARS = 20_000;
 
@@ -116,7 +116,7 @@ async function fetchAllRows(): Promise<KnowledgeRow[]> {
            fileCount
     ORDER BY k.updatedAt DESC
   `;
-  const raw = await runCypher<RawRow>(cypher, {});
+  const raw = (await runCypher(cypher, {})) as RawRow[];
   return raw.map(coerceRow);
 }
 

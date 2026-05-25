@@ -12,7 +12,7 @@ import {
 } from "./strategies/flat-folder/prompts/file-analysis.ts";
 import type { PullFactory, SourceFactory } from "./types/pipeline.ts";
 import type { ProgressContextFactory } from "./progress/types.ts";
-import { nullProgressContextFactory } from "./progress/NullProgressReporter.ts";
+import { dbProgressContextFactory } from "./progress/DbProgressReporter.ts";
 
 /**
  * Optional dependencies for the GitHub workers. Factories are documented in
@@ -47,7 +47,7 @@ function buildRunner(
 }
 
 export function registerGithubWorkers(deps: RegisterGithubWorkersDeps = {}): void {
-  const progressContextFactory = deps.progressContextFactory ?? nullProgressContextFactory;
+  const progressContextFactory = deps.progressContextFactory ?? dbProgressContextFactory;
   const runner = buildRunner(deps.sourceFactory, progressContextFactory);
   // `registerWorker` expects `Promise<void>`; the handler now returns
   // `Promise<PipelineSummary>` so the enterprise queue bridge can mirror
@@ -65,7 +65,7 @@ export function registerGithubWorkers(deps: RegisterGithubWorkersDeps = {}): voi
 }
 
 export function registerLocalIngestWorker(): void {
-  const runner = buildRunner(undefined, nullProgressContextFactory);
+  const runner = buildRunner(undefined, dbProgressContextFactory);
   const localHandler = createLocalIngestHandler({ runner });
   registerWorker(JobType.LocalIngest, async (msg) => {
     await localHandler(msg);
@@ -133,3 +133,4 @@ export type {
   ProgressTotalMode,
 } from "./progress/types.ts";
 export { nullProgressContextFactory } from "./progress/NullProgressReporter.ts";
+export { dbProgressContextFactory } from "./progress/DbProgressReporter.ts";

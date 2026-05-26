@@ -26,6 +26,10 @@ Domain (composes infra: `@bb/config`, `@bb/llm`, `@bb/mongo`, `@bb/neo4j`,
     `OversizedFile` / `ScanDeps` / `ArchiveSink` / `ArchiveSinkInput` /
     `SourceFactory` / `SourceFactoryInput` / `SourceFactoryResult` /
     `PullFactory` / `PullFactoryInput` / `PullFactoryResult` /
+    `PipelineSummary` (the index/pull return value carrying `commitHash`,
+    `tokenUsage: { inputTokens, outputTokens, costUsd }`, `filesAnalyzed`,
+    `foldersSummarised`, `repoSummarised`, `graphNodesWritten` —
+    downstream consumers use it to mirror telemetry into their own stores) /
     `DiffResult` / `RenamedFile` / `FileAnalyzer` / `AnalyzedFileResult`.
   - Runner types: `IngestRunnerDeps` / `IngestRunnerInput` /
     `IngestJobHandlerDeps` / `CreatePipelineRunnerDeps`.

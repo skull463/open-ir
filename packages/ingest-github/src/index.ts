@@ -107,6 +107,7 @@ export type {
   PullFactory,
   PullFactoryInput,
   PullFactoryResult,
+  PipelineSummary,
 } from "./types/pipeline.ts";
 export type { DiffResult, RenamedFile } from "./pipeline/git-diff.ts";
 export type { CondensedFileAnalysis } from "./types/condensed-file-analysis.ts";

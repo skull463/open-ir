@@ -68,6 +68,28 @@ export interface KnowledgeFailure {
   detail?: string;
 }
 
+/**
+ * State machine for the ConceptGraphStrategy enrichment phase. Independent
+ * of `KnowledgeState` — a knowledge stays in `PROCESSING` until enrichment
+ * reaches `Completed`, then transitions to `PROCESSED`.
+ */
+export enum EnrichmentState {
+  Pending = "pending",
+  Running = "running",
+  Completed = "completed",
+  Failed = "failed",
+}
+
+export type EnrichmentFailureReason = "cap-exceeded" | "validation-failed" | "provider-error";
+
+export interface EnrichmentFailure {
+  filePath: string;
+  reason: EnrichmentFailureReason;
+  attemptCount: number;
+  lastError: string;
+  lastAttemptAt: Date;
+}
+
 export interface KnowledgeDoc {
   knowledgeId: string;
   source: KnowledgeSource;
@@ -80,6 +102,19 @@ export interface KnowledgeDoc {
    * automatically on the next successful transition out of FAILED.
    */
   failure?: KnowledgeFailure;
+  /**
+   * Set when this knowledge is being / has been processed by
+   * ConceptGraphStrategy. Absent for legacy flat-folder knowledges. The
+   * worker writes a fresh UUID at the start of each enrichment attempt
+   * and threads it through every `:Concept` / `:Contract` / `:Guidepost`
+   * + edge it upserts so a single run is queryable end-to-end.
+   */
+  enrichmentRunId?: string;
+  enrichmentState?: EnrichmentState;
+  /** Relative paths of files that have completed enrichment in this run. */
+  completedFiles?: string[];
+  /** Per-file failure diagnostics. Cleared on a fresh enrichment run. */
+  enrichmentFailures?: EnrichmentFailure[];
 }
 
 export interface KnowledgeListEntry extends KnowledgeDoc {

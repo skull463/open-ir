@@ -42,7 +42,22 @@ QUEUED → INGESTED → PROCESSING → PROCESSED ↘ FAILED`) referenced by
   pipeline reads on every run (URL and branch); it has an open shape so
   downstream consumers can attach extra fields without forcing schema
   changes here. The pull pipeline reads URL and branch off `KnowledgeInfo`
-  directly — there is no fallback chain to `KnowledgeSource`.
+  directly — there is no fallback chain to `KnowledgeSource`. The
+  ConceptGraphStrategy enrichment ledger lives on `KnowledgeDoc` too —
+  optional `enrichmentRunId`, `enrichmentState` (`EnrichmentState` enum:
+  `pending | running | completed | failed`), `completedFiles[]`,
+  `enrichmentFailures[]` (carrying `EnrichmentFailureReason` =
+  `cap-exceeded | validation-failed | provider-error`).
+- Concept-graph kernel types (`ConceptKind`, `ContractKind`,
+  `GuidepostKind` enums; `UpsertConceptInput`, `AttachFileToConceptInput`,
+  `UpsertContractInput`, `AttachFileToContractInput`,
+  `UpsertGuidepostInput`, `AttachGuidepostInput`, `UpsertTestsEdgeInput`
+  and the `ConceptEdgeKind` / `ContractEdgeKind` discriminators). Live
+  in `src/graph.ts`; consumed by `@bb/graph-core` (interfaces) and
+  `@bb/neo4j` (implementation).
+- `IngestionStrategyType` enum (`flat-folder | concept-graph`) — the
+  closed set of values for `Config.IngestionStrategy`. Lives in
+  `src/config.ts` alongside the other strategy-selection enums.
 
 Future inhabitants (added on need basis): full `Raw`, `Node`, `MCP*`
 document shapes — the cross-package domain types named in

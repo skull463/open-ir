@@ -65,6 +65,23 @@ package-level contract; this file documents how the source tree is split.
     `status.state === FAILED` and cleared automatically by the next
     `setKnowledgeState` call (the function `$unset`s it on transitions out
     of FAILED).
+  - `EnrichmentState` (`Pending | Running | Completed | Failed`) and
+    `EnrichmentFailure` (`{ filePath, reason, attemptCount, lastError,
+lastAttemptAt }`) plus `EnrichmentFailureReason` (`"cap-exceeded" |
+"validation-failed" | "provider-error"`) live here too. Optional
+    `enrichmentRunId`, `enrichmentState`, `completedFiles[]`,
+    `enrichmentFailures[]` fields hang off `KnowledgeDoc` for the
+    ConceptGraphStrategy ledger; absent on legacy flat-folder
+    knowledges.
+- **[graph.ts](graph.ts)** — kernel graph types: `NodeScope`,
+  per-summary payloads, `Upsert*Input` shapes. Also home of the
+  ConceptGraphStrategy schema kernel: `ConceptKind`, `ContractKind`,
+  `GuidepostKind` enums; `ConceptEdgeKind` / `ContractEdgeKind`
+  discriminators; `UpsertConceptInput`, `AttachFileToConceptInput`,
+  `UpsertContractInput`, `AttachFileToContractInput`,
+  `UpsertGuidepostInput`, `AttachGuidepostInput`, `UpsertTestsEdgeInput`.
+  Consumed by `@bb/graph-core` (interfaces) and `@bb/neo4j`
+  (implementation).
 
 ## Module dependency graph
 

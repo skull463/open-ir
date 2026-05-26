@@ -35,6 +35,30 @@ package-level contract; this file documents how the source tree is split.
     operator-readable; `detail` is the optional raw provider response.
     Called by `@bb/ingest-github/src/pipeline/run.ts` (and `pull.ts`)
     catch blocks via the shared `classifyFailure` helper.
+- **[enrichment.ts](enrichment.ts)** — ConceptGraphStrategy ledger
+  helpers on `Collections.Knowledge`. State lives on the existing
+  `KnowledgeDoc` — no new collection. Exports:
+  - `startEnrichmentRun(knowledgeId, runId)` — stamps a fresh
+    `enrichmentRunId`, clears `completedFiles` and `enrichmentFailures`,
+    transitions `enrichmentState` to `Running`. Must be called before
+    any per-file write so stale state from a prior run can't masquerade
+    as already-done.
+  - `markFileEnriched(knowledgeId, relativePath)` — atomic
+    `$addToSet` to `completedFiles`. Idempotent.
+  - `recordEnrichmentFailure(knowledgeId, failure)` — replaces any
+    existing entry with `failure.filePath` (one entry per file) so the
+    array doesn't accumulate stale records across retries.
+  - `completeEnrichmentRun(knowledgeId)` /
+    `failEnrichmentRun(knowledgeId)` — terminal transitions of
+    `enrichmentState`. The parent `KnowledgeState` is the worker's
+    responsibility; this ledger only tracks the enrichment slice.
+
+  All helpers throw `KnowledgeNotFoundError` on `matchedCount === 0`,
+  matching the existing `knowledge.ts` pattern. The Mongo collection
+  helper is typed via `_getDb().collection<KnowledgeDoc>(...)` so
+  `$push` / `$pull` / `$addToSet` operators type-check against the
+  ledger arrays.
+
 - **[raw.ts](raw.ts)** — domain CRUD helpers for `Collections.Raw`. Defines
   the `FileAnalysis` and `RawFileDoc` interfaces (package-local until
   promotion to `@bb/types`). Exports:

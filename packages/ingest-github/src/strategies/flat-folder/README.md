@@ -21,6 +21,14 @@ this single pool. One knob bounds total in-flight LLM concurrency.
    **two-pass** strategy: walk + cache-only `decideStatic` first, then
    parallel-deduplicated LLM resolution for unknown extensions/filenames
    through the shared limiter, then drain.
+   1b. **write-eligible-files** (`eligible-files.ts`) — between scan and the
+   2a/2b parallel block, persists `.bytebell/eligible_files.json` (paths +
+   parent folders for every `small`/`big` entry, plus the commit hash) to
+   the source layer (local disk under `source.localRepoDir/.bytebell/` and/or
+   the `archiveSink`). Read back by `@bytebell/knowledge-validation` to
+   verify every file the analyzer was asked to process landed in Neo4j.
+   Hard-fails if neither write target is available — an un-validatable
+   knowledge is not a state we want.
    2a. **analyse-small** (`phases/analyse-small.ts`) — reads the manifest's
    `kind: "small"` entries, re-opens content, runs the LLM file-analyser
    per file under the shared limiter, writes `CondensedFileAnalysis` JSON.
@@ -104,6 +112,7 @@ The strategy emits progress through the `ProgressContext` port defined in
   see updated entries without re-reading disk.
 - `scan-manifest.ts` — `ScanManifest` shape, `readScanManifest`,
   `writeScanManifest`. The canonical handoff between phase 1 and phases 2a/2b.
+- `eligible-files.ts` — `writeEligibleFiles({knowledgeId, manifest, source, archiveSink?})`. Writes `.bytebell/eligible_files.json` to the source layer between phase 1 and 2a/2b. The validation service (`@bytebell/knowledge-validation`) reads this artifact to cross-check post-indexing consistency.
 - `folder-path.ts` — `directFolderOf`, `affectedFolderPaths`.
 - `folder-summary.ts` — group + summarise (individual or batched) + persist
   - iterate folder summaries; shared `dispatchFolderSummaries` used by both

@@ -53,7 +53,7 @@ export const configSchema = z
     "skip.decision.enabled": z.boolean().default(true),
     "skip.decision.max.chars.for.llm": z.number().int().positive().default(4000),
     "skip.decision.cache.path": z.string().default(""),
-    db_provider: z.string().default("sqlite"),
+    db_provider: z.string().default("mongo"),
     graph_provider: z.string().default("neo4j"),
     sqlite_path: z.string().default(""),
     ladybug_path: z.string().default(""),

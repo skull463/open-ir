@@ -8,6 +8,12 @@ set -e
 
 REPO_URL="https://github.com/kaushalya4s5s7/bytebell-oss"
 
+# When piped through curl, stdin is the script — not the terminal.
+# Re-exec with stdin attached to /dev/tty so the Ink TUI gets a real TTY.
+if [ ! -t 0 ]; then
+  exec bash "$0" "$@" </dev/tty
+fi
+
 # ── helpers ──────────────────────────────────
 
 print_step() { echo ""; echo "▶  $1"; }

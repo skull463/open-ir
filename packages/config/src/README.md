@@ -58,5 +58,5 @@ seam so that `loader.ts` and `writer.ts` never have to import each other.
   `loadConfig()` throw and the server refuses to boot. `writeField`
   throws on `Config.OrgId`, and `keyMap.ts` in `@bb/cli` deliberately
   has no entry for it so `bytebell set org_id …` is rejected at the CLI.
-  Per-job org overrides for downstream enterprise builds live on the
+  Per-job org overrides for downstream consumers live on the
   payload (`GithubIndexPayload.orgId?`), not in config.json.

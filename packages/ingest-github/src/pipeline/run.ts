@@ -3,10 +3,11 @@ import {
   type GithubIndexPayload,
   type KnowledgeFailureCategory,
   type LocalIngestPayload,
+  type UsageGuard,
 } from "@bb/types";
 import { knowledgeDb } from "@bb/db";
 import { knowledgeGraph } from "@bb/graph-db";
-import { IngestError } from "@bb/errors";
+import { IngestError, UsageLimitExceededError } from "@bb/errors";
 import { logger } from "@bb/logger";
 import { classifyFailure } from "./failure-classifier.ts";
 import type { IngestRunnerDeps, IngestRunnerInput } from "#src/types/ingest-runner.ts";
@@ -48,9 +49,9 @@ export function createPipelineRunner(deps: CreatePipelineRunnerDeps): IngestRunn
     run: async (input: IngestRunnerInput): Promise<PipelineSummary> => {
       const payload = input.payload;
       if (isGithubPayload(payload)) {
-        return await runGithub(deps.strategy, payload, deps.sourceFactory, progressContextFactory);
+        return await runGithub(deps.strategy, payload, deps.sourceFactory, progressContextFactory, input.usageGuard);
       }
-      return await runLocal(deps.strategy, payload);
+      return await runLocal(deps.strategy, payload, input.usageGuard);
     },
   };
 }
@@ -60,6 +61,7 @@ async function runGithub(
   payload: GithubIndexPayload,
   sourceFactory: SourceFactory | undefined,
   progressContextFactory: ProgressContextFactory,
+  usageGuard: UsageGuard | undefined,
 ): Promise<PipelineSummary> {
   const { knowledgeId } = payload;
   clearCancellation(knowledgeId);
@@ -126,6 +128,9 @@ async function runGithub(
     if (archiveSink !== undefined) {
       strategyInput.archiveSink = archiveSink;
     }
+    if (usageGuard !== undefined) {
+      strategyInput.usageGuard = usageGuard;
+    }
     strategyStarted = true;
     const result = await strategy.execute(strategyInput);
 
@@ -157,6 +162,13 @@ async function runGithub(
       logger.info(`pipeline/run: ingestion cancelled for ${knowledgeId}`);
       throw cause;
     }
+    if (cause instanceof UsageLimitExceededError && usageGuard !== undefined) {
+      await usageGuard.flushPartial(cause.cumulative).catch((flushErr: unknown) => {
+        logger.warn(
+          `pipeline/run: usageGuard.flushPartial failed for ${knowledgeId}: ${flushErr instanceof Error ? flushErr.message : String(flushErr)}`,
+        );
+      });
+    }
     const { category, reason, detail } = classifyFailure(cause);
     await persistFailure(knowledgeId, category, reason, detail);
     if (!strategyStarted) {
@@ -166,7 +178,11 @@ async function runGithub(
   }
 }
 
-async function runLocal(strategy: IngestStrategy, payload: LocalIngestPayload): Promise<PipelineSummary> {
+async function runLocal(
+  strategy: IngestStrategy,
+  payload: LocalIngestPayload,
+  usageGuard: UsageGuard | undefined,
+): Promise<PipelineSummary> {
   const { knowledgeId, rootDir } = payload;
   clearCancellation(knowledgeId);
   const startedAt = Date.now();
@@ -178,13 +194,17 @@ async function runLocal(strategy: IngestStrategy, payload: LocalIngestPayload): 
 
     const source = createDiskSourceReader({ repoDir: rootDir, commitHash: `local-${startedAt}` });
 
-    const result = await strategy.execute({
+    const localStrategyInput: Parameters<typeof strategy.execute>[0] = {
       payload: { knowledgeId, repoUrl: `local:${rootDir}` },
       branch: "local",
       source,
       metaPaths,
       context: { knowledgeId, orgId: resolveOrgId(payload), repoId: knowledgeId },
-    });
+    };
+    if (usageGuard !== undefined) {
+      localStrategyInput.usageGuard = usageGuard;
+    }
+    const result = await strategy.execute(localStrategyInput);
 
     const commitHash = `local-${startedAt}`;
     logger.info(
@@ -203,6 +223,13 @@ async function runLocal(strategy: IngestStrategy, payload: LocalIngestPayload): 
     if (cause instanceof CancellationError) {
       clearCancellation(knowledgeId);
       throw cause;
+    }
+    if (cause instanceof UsageLimitExceededError && usageGuard !== undefined) {
+      await usageGuard.flushPartial(cause.cumulative).catch((flushErr: unknown) => {
+        logger.warn(
+          `pipeline/run: usageGuard.flushPartial failed for ${knowledgeId}: ${flushErr instanceof Error ? flushErr.message : String(flushErr)}`,
+        );
+      });
     }
     const { category, reason, detail } = classifyFailure(cause);
     await persistFailure(knowledgeId, category, reason, detail);

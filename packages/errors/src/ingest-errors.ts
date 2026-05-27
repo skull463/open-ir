@@ -40,6 +40,34 @@ export class CancellationError extends Error {
   }
 }
 
+export interface UsageLimitExceededDetail {
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+}
+
+export class UsageLimitExceededError extends Error {
+  override readonly name = "UsageLimitExceededError";
+  readonly knowledgeId: string;
+  readonly phase: string;
+  readonly cumulative: UsageLimitExceededDetail;
+  readonly current: number;
+  readonly max: number;
+
+  constructor(knowledgeId: string, phase: string, cumulative: UsageLimitExceededDetail, current: number, max: number) {
+    super(
+      `[knowledgeId=${knowledgeId}] usage limit exceeded at phase=${phase} (current=${current}, max=${max}, cumulativeTokens=${
+        cumulative.inputTokens + cumulative.outputTokens
+      })`,
+    );
+    this.knowledgeId = knowledgeId;
+    this.phase = phase;
+    this.cumulative = cumulative;
+    this.current = current;
+    this.max = max;
+  }
+}
+
 function describe(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }

@@ -24,6 +24,6 @@ re-validates because:
   error path.
 - Optional fields are passed through only when present and non-empty. In
   particular, `orgId` is preserved when the payload carries it (downstream
-  enterprise builds set it per-job); when absent, the pipeline falls back
+  consumers may set it per-job); when absent, the pipeline falls back
   to `Config.OrgId` from `~/.bytebell/config.json` (locked to `"local"` in
   OSS — see `@bb/config/src/README.md`).

@@ -106,11 +106,22 @@ export async function askLLMWithTools(opts: AskLLMWithToolsOptions): Promise<Ask
     for (const call of callsInThisTurn) {
       const parsedInput = parseToolArguments(call.function.name, call.function.arguments);
       let output: unknown;
+      let toolErrored = false;
       try {
         output = await opts.executeTool(call.function.name, parsedInput);
       } catch (cause: unknown) {
+        // Surface tool errors to the LLM as a tool_result payload instead of
+        // killing the loop. The model can read the error and retry with
+        // different arguments (e.g. fix a hallucinated path, fall back to a
+        // different tool). Aborting on every tool failure made a single bad
+        // model-emitted arg fatal — that's worse than letting the model
+        // self-correct within its iteration budget.
         const reason = cause instanceof Error ? cause.message : String(cause);
-        throw new LlmError(`tool "${call.function.name}" threw: ${reason}`, cause);
+        output = { error: reason };
+        toolErrored = true;
+        logger.warn(
+          `llm.tool: ${call.function.name} returned error to model (iter=${iterations}/${opts.maxIterations}): ${reason.slice(0, 200)}`,
+        );
       }
       const { serialised, truncated } = serialiseToolResult(output, maxToolResultChars);
       toolCalls.push({ name: call.function.name, input: parsedInput, output, outputTruncated: truncated });
@@ -120,9 +131,11 @@ export async function askLLMWithTools(opts: AskLLMWithToolsOptions): Promise<Ask
         name: call.function.name,
         content: serialised,
       });
-      logger.debug(
-        `llm.tool: ${call.function.name} (call=${toolCalls.length}/${opts.maxToolCalls}, iter=${iterations}/${opts.maxIterations}, truncated=${truncated})`,
-      );
+      if (!toolErrored) {
+        logger.debug(
+          `llm.tool: ${call.function.name} (call=${toolCalls.length}/${opts.maxToolCalls}, iter=${iterations}/${opts.maxIterations}, truncated=${truncated})`,
+        );
+      }
     }
   }
 }

@@ -41,6 +41,7 @@ export async function closeDb(): Promise<void> {
 export const knowledgeDb: IKnowledgeRepository = {
   setKnowledgeState: (...args) => getDb().knowledge.setKnowledgeState(...args),
   setKnowledgeCommit: (...args) => getDb().knowledge.setKnowledgeCommit(...args),
+  setKnowledgeCommitHead: (...args) => getDb().knowledge.setKnowledgeCommitHead(...args),
   setKnowledgeBranch: (...args) => getDb().knowledge.setKnowledgeBranch(...args),
   updateKnowledgeProgress: (...args) => getDb().knowledge.updateKnowledgeProgress(...args),
   upsertKnowledge: (...args) => getDb().knowledge.upsertKnowledge(...args),

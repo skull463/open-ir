@@ -160,6 +160,13 @@ async function runGithub(
     progressContext.phaseChanged("scan");
     const metaPaths = pathsFor(location);
 
+    // Persist `source.commitId` BEFORE strategy execution so MCP tools
+    // invoked during enrichment (`retrieve_file_content`, `smart_search`)
+    // can resolve the on-disk clone via the commit-scoped path layout.
+    // The full history entry with token totals is written after the
+    // strategy completes via `setKnowledgeCommit`.
+    await knowledgeDb.setKnowledgeCommitHead(knowledgeId, commitHash);
+
     const baseContext: Parameters<typeof strategy.execute>[0]["context"] = {
       knowledgeId,
       orgId,

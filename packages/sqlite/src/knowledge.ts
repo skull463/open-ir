@@ -77,6 +77,24 @@ export async function setKnowledgeCommit(
   db.run("UPDATE knowledge SET value = ? WHERE key = ?", [JSON.stringify(doc), knowledgeId]);
 }
 
+/**
+ * Sets `source.commitId` only — no history append. Used early in the
+ * pipeline so MCP tools (`retrieve_file_content` etc.) called during
+ * enrichment can resolve the on-disk clone dir via the commit-scoped path
+ * layout. The history entry is written later by `setKnowledgeCommit`.
+ */
+export async function setKnowledgeCommitHead(knowledgeId: string, commitHash: string): Promise<void> {
+  const db = getSqliteDb();
+  const now = new Date().toISOString();
+  const result = db.run(
+    "UPDATE knowledge SET value = json_set(value, '$.source.commitId', ?, '$.updatedAt', ?) WHERE key = ?",
+    [commitHash, now, knowledgeId],
+  );
+  if (result.changes === 0) {
+    throw new KnowledgeNotFoundError(knowledgeId);
+  }
+}
+
 export async function setKnowledgeBranch(knowledgeId: string, branch: string): Promise<void> {
   const db = getSqliteDb();
   const now = new Date().toISOString();

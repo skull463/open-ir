@@ -72,13 +72,23 @@ export async function resolveCloneDir(knowledgeId: string): Promise<string> {
 }
 
 export async function resolveFilePath(knowledgeId: string, relativePath: string): Promise<string> {
-  const normalized = relativePath.replace(/\\/gu, "/");
+  const normalized = relativePath.replace(/\\/gu, "/").replace(/^\.\/+/u, "");
   if (normalized.length === 0 || normalized.startsWith("/") || normalized.includes("..")) {
     throw new PathTraversalError(relativePath);
   }
-  const cloneDir = await resolveCloneDir(knowledgeId);
+  // Canonicalize both sides via path.resolve so any non-canonical segments in
+  // cloneDir (trailing slash, `.`, embedded `//`) don't break the string-prefix
+  // containment check. Then verify containment with path.relative — if the
+  // resolved target lives inside cloneDir, the relative form is a non-`..`,
+  // non-absolute string.
+  const cloneDir = path.resolve(await resolveCloneDir(knowledgeId));
   const target = path.resolve(cloneDir, normalized);
-  if (!target.startsWith(`${cloneDir}${path.sep}`) && target !== cloneDir) {
+  const rel = path.relative(cloneDir, target);
+  if (rel.length === 0) {
+    // Asking for the clone dir itself — not a file, refuse.
+    throw new PathTraversalError(relativePath);
+  }
+  if (rel.startsWith("..") || path.isAbsolute(rel)) {
     throw new PathTraversalError(relativePath);
   }
   return target;

@@ -130,11 +130,11 @@ it. The cost ledger described in [docs/arch.md](../../docs/arch.md) is
    override on a per-call basis.
 2. **Per-call credential override.** When `opts.apiKey` is set, the
    OpenRouter call uses it directly and skips `Config.OpenrouterApiKey`.
-   This is the extension point that lets downstream consumers (e.g. the
-   enterprise wrapper) pre-resolve per-org credentials at the enqueue
-   boundary and pass them through job payloads, without the LLM client
-   knowing anything about per-org resolution. The Ollama provider is
-   keyless and ignores `opts.apiKey`.
+   This is the extension point that lets downstream consumers
+   pre-resolve per-org credentials at the enqueue boundary and pass them
+   through job payloads, without the LLM client knowing anything about
+   per-org resolution. The Ollama provider is keyless and ignores
+   `opts.apiKey`.
 3. **No env reads.** API key + model come from `getConfigValue(...)` or
    `opts.apiKey`. No `process.env`, no `.env`. Repo-wide ESLint rule
    blocks `process.env`.

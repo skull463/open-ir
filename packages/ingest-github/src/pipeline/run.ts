@@ -1,14 +1,12 @@
-import {
-  KnowledgeState,
-  type GithubIndexPayload,
-  type KnowledgeFailureCategory,
-  type LocalIngestPayload,
-} from "@bb/types";
+import { KnowledgeState, type GithubIndexPayload, type UsageGuard } from "@bb/types";
 import { knowledgeDb } from "@bb/db";
 import { knowledgeGraph } from "@bb/graph-db";
-import { IngestError } from "@bb/errors";
+import { IngestError, UsageLimitExceededError } from "@bb/errors";
 import { logger } from "@bb/logger";
 import { classifyFailure } from "./failure-classifier.ts";
+import { transitionState } from "./pull-helpers.ts";
+import { isGithubPayload, persistFailure } from "./run-helpers.ts";
+import { runLocal } from "./run-local.ts";
 import type { IngestRunnerDeps, IngestRunnerInput } from "#src/types/ingest-runner.ts";
 import type { IngestStrategy } from "#src/types/strategy.ts";
 import type { ArchiveSink, PipelineSummary, SourceFactory, SourceReader } from "#src/types/pipeline.ts";
@@ -20,7 +18,6 @@ import { resolveBranch } from "./branch.ts";
 import { CancellationError, clearCancellation, throwIfCancelled } from "./cancellation.ts";
 import { createDiskSourceReader } from "./disk-source-reader.ts";
 import { resolveOrgId, llmCallContextFromPayload } from "./context.ts";
-import { localRepoName } from "./stats.ts";
 import { fetchLatestCommitHash } from "#src/githubApi.ts";
 import { parseGithubRepo } from "#src/githubUrl.ts";
 
@@ -50,9 +47,9 @@ export function createPipelineRunner(deps: CreatePipelineRunnerDeps): IngestRunn
     run: async (input: IngestRunnerInput): Promise<PipelineSummary> => {
       const payload = input.payload;
       if (isGithubPayload(payload)) {
-        return await runGithub(deps.strategy, payload, deps.sourceFactory, progressContextFactory);
+        return await runGithub(deps.strategy, payload, deps.sourceFactory, progressContextFactory, input.usageGuard);
       }
-      return await runLocal(deps.strategy, payload);
+      return await runLocal(deps.strategy, payload, input.usageGuard);
     },
   };
 }
@@ -62,6 +59,7 @@ async function runGithub(
   payload: GithubIndexPayload,
   sourceFactory: SourceFactory | undefined,
   progressContextFactory: ProgressContextFactory,
+  usageGuard: UsageGuard | undefined,
 ): Promise<PipelineSummary> {
   const { knowledgeId } = payload;
   clearCancellation(knowledgeId);
@@ -186,6 +184,9 @@ async function runGithub(
     if (archiveSink !== undefined) {
       strategyInput.archiveSink = archiveSink;
     }
+    if (usageGuard !== undefined) {
+      strategyInput.usageGuard = usageGuard;
+    }
     strategyStarted = true;
     const result = await strategy.execute(strategyInput);
 
@@ -217,6 +218,13 @@ async function runGithub(
       logger.info(`pipeline/run: ingestion cancelled for ${knowledgeId}`);
       throw cause;
     }
+    if (cause instanceof UsageLimitExceededError && usageGuard !== undefined) {
+      await usageGuard.flushPartial(cause.cumulative).catch((flushErr: unknown) => {
+        logger.warn(
+          `pipeline/run: usageGuard.flushPartial failed for ${knowledgeId}: ${flushErr instanceof Error ? flushErr.message : String(flushErr)}`,
+        );
+      });
+    }
     const { category, reason, detail } = classifyFailure(cause);
     await persistFailure(knowledgeId, category, reason, detail);
     if (!strategyStarted) {
@@ -226,74 +234,6 @@ async function runGithub(
   }
 }
 
-async function runLocal(strategy: IngestStrategy, payload: LocalIngestPayload): Promise<PipelineSummary> {
-  const { knowledgeId, rootDir } = payload;
-  clearCancellation(knowledgeId);
-  const startedAt = Date.now();
-  await transitionState(knowledgeId, KnowledgeState.Processing);
-  try {
-    throwIfCancelled(knowledgeId);
-    // Synthetic commitHash so the layout slot is populated. The source tree
-    // stays at `payload.rootDir` (we don't copy local sources into our managed
-    // repository/ dir); only meta-output lives under the kube-v2 tree.
-    const commitHash = `local-${startedAt}`;
-    const orgId = resolveOrgId(payload);
-    const location: RepoLocation = { provider: "local", orgId, knowledgeId, commitHash };
-    await ensureCommitDirs(location);
-    const metaPaths = pathsFor(location);
-
-    const source = createDiskSourceReader({ repoDir: rootDir, commitHash });
-
-    const result = await strategy.execute({
-      payload: { knowledgeId, repoUrl: `local:${rootDir}` },
-      branch: "local",
-      source,
-      metaPaths,
-      context: { knowledgeId, orgId, repoId: knowledgeId },
-    });
-    logger.info(
-      `pipeline/run: ✓ local_ingest complete (knowledgeId=${knowledgeId}, repo=${localRepoName(rootDir)}, files=${result.filesAnalyzed}, in=${result.tokenUsage.inputTokens}, out=${result.tokenUsage.outputTokens}, cost=$${result.tokenUsage.costUsd})`,
-    );
-    await transitionState(knowledgeId, KnowledgeState.Processed);
-    return {
-      filesAnalyzed: result.filesAnalyzed,
-      foldersSummarised: result.foldersSummarised,
-      repoSummarised: result.repoSummarised,
-      graphNodesWritten: result.graphNodesWritten,
-      commitHash,
-      tokenUsage: result.tokenUsage,
-    };
-  } catch (cause: unknown) {
-    if (cause instanceof CancellationError) {
-      clearCancellation(knowledgeId);
-      throw cause;
-    }
-    const { category, reason, detail } = classifyFailure(cause);
-    await persistFailure(knowledgeId, category, reason, detail);
-    throw new IngestError(knowledgeId, `local_ingest pipeline failed: ${reason}`, cause);
-  }
-}
-
-async function transitionState(knowledgeId: string, state: KnowledgeState): Promise<void> {
-  await knowledgeDb.setKnowledgeState(knowledgeId, state);
-  await knowledgeGraph.setKnowledgeStateInGraph(knowledgeId, state).catch(() => undefined);
-}
-
-/**
- * Persists the FAILED state + structured failure reason to Mongo, then
- * mirrors the state into Neo4j on a best-effort basis. Errors from both
- * sides are swallowed so the throw path is preserved.
- */
-async function persistFailure(
-  knowledgeId: string,
-  category: KnowledgeFailureCategory,
-  reason: string,
-  detail?: string,
-): Promise<void> {
-  await knowledgeDb.markKnowledgeFailed(knowledgeId, reason, category, detail).catch(() => undefined);
-  await knowledgeGraph.setKnowledgeStateInGraph(knowledgeId, KnowledgeState.Failed).catch(() => undefined);
-}
-
-function isGithubPayload(payload: GithubIndexPayload | LocalIngestPayload): payload is GithubIndexPayload {
-  return (payload as GithubIndexPayload).repoUrl !== undefined;
-}
+// `runLocal` lives in `./run-local.ts`. Shared helpers (`transitionState`,
+// `persistFailure`, `isGithubPayload`) live in `./pull-helpers.ts` and
+// `./run-helpers.ts` so this file stays under the 300-line cap.

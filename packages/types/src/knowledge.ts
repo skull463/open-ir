@@ -48,6 +48,7 @@ export interface KnowledgeInfo {
  * - `llm_rate_limit` — 429, transient — could be retried later by operator
  * - `llm_unreachable` — 5xx / network / timeout (transient infra issue)
  * - `cancelled` — operator-initiated cancellation
+ * - `usage_limit_exceeded` — downstream subscription quota tripped mid-run; partial usage was charged
  * - `internal` — anything else (bug, infra, unexpected exception)
  */
 export type KnowledgeFailureCategory =
@@ -57,7 +58,37 @@ export type KnowledgeFailureCategory =
   | "llm_rate_limit"
   | "llm_unreachable"
   | "cancelled"
+  | "usage_limit_exceeded"
   | "internal";
+
+/**
+ * Cumulative token totals consumed by an ingestion run. Mirrors the shape
+ * returned by the per-phase analyzers (`StrategyResult.tokenUsage`) — the
+ * three fields are identical so a guard implementation can compare or
+ * persist them without further reshaping.
+ */
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+}
+
+/**
+ * Optional callback contract for enforcing downstream usage limits during a
+ * pipeline run. OSS itself never constructs an instance — the enterprise
+ * wrapper supplies one when wiring `runner.run(...)` / `runPull(...)`.
+ *
+ * The pipeline calls `onPhaseComplete` after every token-consuming phase
+ * with the cumulative tokens consumed by *this* job so far. If the guard
+ * decides the user is over budget it throws a typed error (OSS catches it
+ * by class, not by category), at which point the pipeline calls
+ * `flushPartial` with the same cumulative figure so the partial usage is
+ * persisted before the failure surfaces.
+ */
+export interface UsageGuard {
+  onPhaseComplete(phase: string, cumulative: TokenUsage): Promise<void>;
+  flushPartial(cumulative: TokenUsage): Promise<void>;
+}
 
 export interface KnowledgeFailure {
   /** Short, operator-readable sentence. UI can render this directly. */

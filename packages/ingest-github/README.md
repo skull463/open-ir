@@ -65,40 +65,6 @@ The package does **not** own:
 - Concurrency control (sequential per-file processing intentional for
   v0; revisit when users complain)
 
-## Public exports
-
-```ts
-// High-level registration (OSS standalone wires this once at boot)
-function registerGithubWorkers(deps?: RegisterGithubWorkersDeps): void; // wires GithubIndex + GithubPull
-function registerLocalIngestWorker(): void; // wires LocalIngest
-
-interface RegisterGithubWorkersDeps {
-  sourceFactory?: SourceFactory; // index-side hook
-  pullFactory?: PullFactory; // pull-side hook (provides reader + diff + targetCommit)
-  progressContextFactory?: ProgressContextFactory; // SSE progress hook (default: no-op)
-}
-
-// Lower-level building blocks (downstream consumers with their own queue
-// skip registerGithubWorkers and wire these against their own registry)
-function createPipelineRunner(deps: CreatePipelineRunnerDeps): IngestRunnerDeps;
-function createGithubIngestHandler(deps: IngestJobHandlerDeps): (msg) => Promise<void>;
-function createLocalIngestHandler(deps: IngestJobHandlerDeps): (msg) => Promise<void>;
-function runPull(msg: JobMessage<GithubPullPayload>, pullFactory?: PullFactory): Promise<void>;
-// Commit-scoped path resolvers. `pathsFor(loc)` is the pure builder;
-// the knowledgeId-keyed helpers are async — they look up KnowledgeDoc
-// from Mongo to derive the active RepoLocation.
-function pathsFor(loc: RepoLocation): MetaPaths;
-function orgsRoot(): string;
-async function metaRootFor(knowledgeId: string): Promise<string>;
-async function businessContextDir(knowledgeId: string, commitHash: string, sanitizedTitle: string): Promise<string>;
-async function orgRegistryDir(knowledgeId: string, orgId: string): Promise<string>;
-
-function createFlatFolderStrategy(deps): IngestStrategy;
-function createConceptGraphStrategy(deps): IngestStrategy;
-function createLlmFileAnalyzer(deps): FileAnalyzer;
-function createDiskSourceReader(deps): SourceReader;
-```
-
 The optional `sourceFactory` lets downstream consumers inject a custom
 `SourceReader` for index jobs (no local clone). The analogous
 `pullFactory` does the same for pull jobs — its result carries the
@@ -117,6 +83,21 @@ For per-job LLM credentials, downstream consumers set
 can carry richer taxonomies; the OSS LLM client narrows to
 `openrouter`/`ollama` at the boundary. OSS standalone leaves the overrides
 unset and falls back to `Config.OpenrouterApiKey` + `Config.LlmProvider`.
+
+For runtime token-quota enforcement, an optional `UsageGuard` (from
+`@bb/types`) can be threaded per job. `IngestJobHandlerDeps` accepts a
+`usageGuardFactory: (payload) => UsageGuard | undefined`; `runPull`
+accepts a `usageGuard` as its 4th argument; and `IngestRunnerInput`
+exposes `usageGuard?` directly. The pipeline calls
+`onPhaseComplete(phase, cumulative)` after every token-consuming phase
+(`file_analysis`, `folder_analysis`, `repo_summary`, plus the pull
+equivalents `file_analysis_changed` and `big_file_analysis`). A guard
+implementation may throw `UsageLimitExceededError` (from `@bb/errors`) to
+abort the run; the pipeline's catch path then invokes
+`flushPartial(cumulative)` once and persists a `FAILED` knowledge state
+with category `usage_limit_exceeded`. OSS standalone leaves the guard
+unset — every hook call short-circuits via `await usageGuard?.…` and
+behavior is identical to today.
 
 Both `register*Workers()` calls run once at `@bb/server` boot. The
 worker picks the active `IngestionStrategy` based on

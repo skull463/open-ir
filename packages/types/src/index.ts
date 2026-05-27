@@ -20,6 +20,8 @@ export type {
   LocalKnowledgeSource,
   KnowledgeListEntry,
   CommitHashRecord,
+  TokenUsage,
+  UsageGuard,
 } from "./knowledge.ts";
 export type { StatsCommitEntry, StatsRepoEntry, StatsResponse, StatsTotals } from "./stats.ts";
 export type { UsageDoc, ActivityDoc, UsageIncrement, ActivityInput } from "./usage.ts";

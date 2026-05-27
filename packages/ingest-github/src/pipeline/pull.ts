@@ -1,4 +1,4 @@
-import { Config, KnowledgeState, type GithubPullPayload, type JobMessage } from "@bb/types";
+import { Config, KnowledgeState, type GithubPullPayload, type JobMessage, type UsageGuard } from "@bb/types";
 import type { NodeScope } from "@bb/types";
 import { getConfigValue } from "@bb/config";
 import { withConcurrency } from "./concurrency.ts";
@@ -6,7 +6,7 @@ import { knowledgeDb } from "@bb/db";
 import { knowledgeGraph, filesGraph } from "@bb/graph-db";
 import type { PipelineSummary } from "#src/types/pipeline.ts";
 import { resolveOrgId, llmCallContextFromPayload } from "./context.ts";
-import { IngestError, KnowledgeNotFoundError } from "@bb/errors";
+import { IngestError, KnowledgeNotFoundError, UsageLimitExceededError } from "@bb/errors";
 import { classifyFailure } from "./failure-classifier.ts";
 import { transitionState, emptyPullSummary } from "./pull-helpers.ts";
 import { logger } from "@bb/logger";
@@ -41,6 +41,7 @@ export async function runPull(
   msg: JobMessage<GithubPullPayload>,
   pullFactory?: PullFactory,
   progressContextFactory: ProgressContextFactory = nullProgressContextFactory,
+  usageGuard?: UsageGuard,
 ): Promise<PipelineSummary> {
   const { knowledgeId } = msg.payload;
   if (msg.payload.targetCommitHash !== undefined && !COMMIT_HASH_RE.test(msg.payload.targetCommitHash)) {
@@ -149,6 +150,11 @@ export async function runPull(
     let totalInputTokens = phase1.tokenUsage.inputTokens;
     let totalOutputTokens = phase1.tokenUsage.outputTokens;
     let totalCostUsd = phase1.tokenUsage.costUsd;
+    await usageGuard?.onPhaseComplete("file_analysis_changed", {
+      inputTokens: totalInputTokens,
+      outputTokens: totalOutputTokens,
+      costUsd: totalCostUsd,
+    });
 
     logger.info(`pull: phase process big files starting`);
     throwIfCancelled(knowledgeId);
@@ -165,6 +171,11 @@ export async function runPull(
     totalInputTokens += phase2.tokenUsage.inputTokens;
     totalOutputTokens += phase2.tokenUsage.outputTokens;
     totalCostUsd += phase2.tokenUsage.costUsd;
+    await usageGuard?.onPhaseComplete("big_file_analysis", {
+      inputTokens: totalInputTokens,
+      outputTokens: totalOutputTokens,
+      costUsd: totalCostUsd,
+    });
 
     logger.info(`pull: loading file-analysis cache`);
     throwIfCancelled(knowledgeId);
@@ -192,6 +203,11 @@ export async function runPull(
     totalInputTokens += phase5.tokenUsage.inputTokens;
     totalOutputTokens += phase5.tokenUsage.outputTokens;
     totalCostUsd += phase5.tokenUsage.costUsd;
+    await usageGuard?.onPhaseComplete("folder_analysis", {
+      inputTokens: totalInputTokens,
+      outputTokens: totalOutputTokens,
+      costUsd: totalCostUsd,
+    });
 
     progressContext.phaseChanged("indexing");
     logger.info(`pull: phase repo summary starting`);
@@ -201,6 +217,11 @@ export async function runPull(
     totalInputTokens += repoUsage.inputTokens;
     totalOutputTokens += repoUsage.outputTokens;
     totalCostUsd += repoUsage.costUsd;
+    await usageGuard?.onPhaseComplete("repo_summary", {
+      inputTokens: totalInputTokens,
+      outputTokens: totalOutputTokens,
+      costUsd: totalCostUsd,
+    });
     if (repoSummary !== null) {
       await persistRepoSummary(metaPaths, makeRepoSummaryEnvelope(knowledgeId, orgId, repoSummary));
     }
@@ -241,6 +262,13 @@ export async function runPull(
       clearCancellation(knowledgeId);
       logger.info(`pull: cancelled for ${knowledgeId}`);
       throw cause;
+    }
+    if (cause instanceof UsageLimitExceededError && usageGuard !== undefined) {
+      await usageGuard.flushPartial(cause.cumulative).catch((flushErr: unknown) => {
+        logger.warn(
+          `pull: usageGuard.flushPartial failed for ${knowledgeId}: ${flushErr instanceof Error ? flushErr.message : String(flushErr)}`,
+        );
+      });
     }
     const { category, reason, detail } = classifyFailure(cause);
     await knowledgeDb.markKnowledgeFailed(knowledgeId, reason, category, detail).catch(() => undefined);

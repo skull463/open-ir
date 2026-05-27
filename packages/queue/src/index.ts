@@ -1,4 +1,4 @@
-export { connectQueue, closeQueue } from "./manager.ts";
+export { connectQueue, closeQueue, pingQueue, registerQueueProvider, getQueue } from "./registry.ts";
 
 export { enqueueGithubIndex } from "./github-index.ts";
 export type { EnqueueOptions } from "./github-index.ts";
@@ -10,3 +10,9 @@ export type { JobHandler, WorkerRegistrationOptions } from "./workers.ts";
 
 export { removeKnowledgeJobs } from "./cancel.ts";
 export type { RemoveKnowledgeJobsResult } from "./cancel.ts";
+
+export { listFailedJobs } from "./failed.ts";
+export type { FailedJob } from "./failed.ts";
+
+export { buildJobMessage } from "./envelope.ts";
+export { defaultConcurrencyFor } from "./concurrency.ts";

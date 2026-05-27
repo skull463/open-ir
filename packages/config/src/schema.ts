@@ -55,6 +55,7 @@ export const configSchema = z
     "skip.decision.cache.path": z.string().default(""),
     db_provider: z.string().default("mongo"),
     graph_provider: z.string().default("neo4j"),
+    queue_provider: z.string().default("bullmq"),
     sqlite_path: z.string().default(""),
   })
   .strict();
@@ -102,6 +103,7 @@ export type ConfigValueMap = {
   [Config.SkipDecisionCachePath]: string;
   [Config.DbProvider]: string;
   [Config.GraphProvider]: string;
+  [Config.QueueProvider]: string;
   [Config.SqlitePath]: string;
 };
 
@@ -163,6 +165,7 @@ export const HINTS: Readonly<Record<Config, string>> = {
   [Config.SkipDecisionCachePath]: "bytebell set skip.decision.cache.path <path>",
   [Config.DbProvider]: "bytebell set db-provider <mongo|...>",
   [Config.GraphProvider]: "bytebell set graph-provider <neo4j|...>",
+  [Config.QueueProvider]: "bytebell set queue-provider <bullmq|honker>",
   [Config.SqlitePath]: "bytebell set sqlite-path <path>",
 };
 

@@ -1,7 +1,6 @@
 import { unlink } from "node:fs/promises";
 import path from "node:path";
 import { closeDb } from "@bb/db";
-import { closeRedis } from "@bb/redis";
 import { closeGraph } from "@bb/graph-db";
 import { closeQueue } from "@bb/queue";
 import { closeAllMcpSessions } from "@bb/mcp";
@@ -28,7 +27,6 @@ async function shutdown(signal: string): Promise<void> {
   try {
     await closeAllMcpSessions();
     await closeQueue();
-    await closeRedis();
     await closeGraph();
     await closeDb();
     await unlink(path.join(getBytebellHome(), "pid")).catch(() => undefined);

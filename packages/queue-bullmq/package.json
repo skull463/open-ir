@@ -1,5 +1,5 @@
 {
-  "name": "@bb/queue",
+  "name": "@bb/queue-bullmq",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -13,9 +13,11 @@
   },
   "dependencies": {
     "@bb/config": "workspace:*",
-    "@bb/db": "workspace:*",
     "@bb/errors": "workspace:*",
+    "@bb/queue": "workspace:*",
     "@bb/queue-core": "workspace:*",
-    "@bb/types": "workspace:*"
+    "@bb/redis": "workspace:*",
+    "@bb/types": "workspace:*",
+    "bullmq": "^5.76.3"
   }
 }

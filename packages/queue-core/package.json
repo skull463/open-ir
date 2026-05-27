@@ -1,5 +1,5 @@
 {
-  "name": "@bb/queue",
+  "name": "@bb/queue-core",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -12,10 +12,6 @@
     "#src/*": "./src/*"
   },
   "dependencies": {
-    "@bb/config": "workspace:*",
-    "@bb/db": "workspace:*",
-    "@bb/errors": "workspace:*",
-    "@bb/queue-core": "workspace:*",
     "@bb/types": "workspace:*"
   }
 }

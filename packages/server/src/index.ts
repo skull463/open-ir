@@ -2,15 +2,17 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import express from "express";
-import { Config, DbProviderType, type Config as ConfigEnum } from "@bb/types";
+import { Config, DbProviderType, QueueProviderType, type Config as ConfigEnum } from "@bb/types";
 import { getBytebellHome, getConfigValue, HINTS } from "@bb/config";
 import { connectDb } from "@bb/db";
-import { connectRedis } from "@bb/redis";
 import { connectGraph, indexesGraph } from "@bb/graph-db";
 import { connectQueue } from "@bb/queue";
 import "@bb/mongo";
 import "@bb/sqlite";
 import "@bb/neo4j";
+import "@bb/ladybug";
+import "@bb/queue-bullmq";
+
 import { registerGithubWorkers, registerLocalIngestWorker } from "@bb/ingest-github";
 import { ServerConfigError } from "@bb/errors";
 import { registerRoutes } from "./routes.ts";
@@ -29,10 +31,17 @@ function checkRequiredConfig(): void {
   const missing: string[] = [];
   const hints: string[] = [];
   const dbProvider = getConfigValue(Config.DbProvider);
+  const queueProvider = getConfigValue(Config.QueueProvider);
 
   const required = [...REQUIRED];
   if (dbProvider !== DbProviderType.Mongo) {
     const idx = required.indexOf(Config.MongoUri);
+    if (idx !== -1) {
+      required.splice(idx, 1);
+    }
+  }
+  if (queueProvider !== QueueProviderType.Bullmq) {
+    const idx = required.indexOf(Config.RedisUrl);
     if (idx !== -1) {
       required.splice(idx, 1);
     }
@@ -55,12 +64,11 @@ async function main(): Promise<void> {
   const dbProvider = getConfigValue(Config.DbProvider);
   await connectDb(dbProvider);
 
-  await connectRedis();
-
   const graphProvider = getConfigValue(Config.GraphProvider);
   await connectGraph(graphProvider);
   await indexesGraph.ensureKnowledgeIndexes();
-  await connectQueue();
+  const queueProvider = getConfigValue(Config.QueueProvider);
+  await connectQueue(queueProvider);
   registerGithubWorkers();
   registerLocalIngestWorker();
   installShutdownHandlers();

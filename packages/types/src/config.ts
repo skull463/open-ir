@@ -37,6 +37,7 @@ export enum Config {
   SkipDecisionCachePath = "skip.decision.cache.path",
   DbProvider = "db_provider",
   GraphProvider = "graph_provider",
+  QueueProvider = "queue_provider",
   SqlitePath = "sqlite_path",
 }
 
@@ -48,4 +49,9 @@ export enum DbProviderType {
 export enum GraphProviderType {
   Neo4j = "neo4j",
   Ladybug = "ladybug",
+}
+
+export enum QueueProviderType {
+  Bullmq = "bullmq",
+  Honker = "honker",
 }

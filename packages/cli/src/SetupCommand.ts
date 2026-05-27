@@ -142,15 +142,12 @@ async function stopRunningServer(): Promise<void> {
 async function boot(): Promise<boolean> {
   const spinner = createSpinner("Starting ByteBell server...");
   try {
+    // Always stop any running server so the freshly installed binary is used
+    // and the new config written by applyConfig is read from disk on startup.
+    spinner.update("Stopping any running server...");
+    await stopRunningServer();
     const ctx = await ensureServerRunning((line) => spinner.update(`Server: ${line}`));
-    if (ctx.alreadyRunning) {
-      // Server was already running with old config — restart it so the new
-      // LLM provider/model written by applyConfig is picked up from disk.
-      spinner.update("Restarting server to apply new config...");
-      await stopRunningServer();
-    }
-    const fresh = await ensureServerRunning((line) => spinner.update(`Server: ${line}`));
-    spinner.stop(true, `Server started (logs: ${fresh.logPath ?? "n/a"})`);
+    spinner.stop(true, `Server started (logs: ${ctx.logPath ?? "n/a"})`);
     const port = getConfigValue(Config.ServerPort);
     success(`MCP endpoint: http://127.0.0.1:${port}/mcp`);
     return true;

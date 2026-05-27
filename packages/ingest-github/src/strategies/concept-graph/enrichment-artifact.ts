@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { MetaPaths } from "#src/types/meta-paths.ts";
 import type { PerFileEnrichment } from "./enrichment-schema.ts";
@@ -86,4 +86,22 @@ export async function writeEnrichmentArtifact(
   await mkdir(layout.baseDir, { recursive: true });
   const target = layout.pathForFile(payload.relativePath);
   await writeFile(target, JSON.stringify(payload, null, 2), "utf8");
+}
+
+/**
+ * Cheap disk-level resume guard: true if a successful artifact already
+ * exists for this file at the commit-scoped layout. Called on every retry
+ * before scheduling the LLM call, so a single fs stat per file is the
+ * difference between "re-burn the LLM" and "skip".
+ */
+export async function enrichmentArtifactExists(
+  layout: EnrichmentArtifactLayout,
+  relativePath: string,
+): Promise<boolean> {
+  try {
+    const s = await stat(layout.pathForFile(relativePath));
+    return s.isFile() && s.size > 0;
+  } catch {
+    return false;
+  }
 }

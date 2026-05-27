@@ -18,11 +18,13 @@ function knowledgeCollection() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Begin a fresh enrichment attempt. Stamps a new `enrichmentRunId`, clears
- * `completedFiles` and `enrichmentFailures`, and transitions to `Running`.
- * Callers MUST call this before any per-file write so the ledger is
- * consistent — re-running across a stale run accidentally would treat
- * previously-completed files as already done.
+ * Begin or resume an enrichment attempt. Stamps a new `enrichmentRunId`,
+ * clears `enrichmentFailures` (failed files should be re-evaluated on the
+ * retry), transitions to `Running`. `completedFiles` is preserved so a
+ * BullMQ retry can skip work that already finished — the disk artifact
+ * tree at `meta-output/enrichment/<slug>.json` is the canonical source of
+ * truth, and `completedFiles` mirrors that. A clean re-enrichment requires
+ * an explicit reset, not a retry.
  */
 export async function startEnrichmentRun(knowledgeId: string, runId: string): Promise<void> {
   const now = new Date();
@@ -32,15 +34,30 @@ export async function startEnrichmentRun(knowledgeId: string, runId: string): Pr
       $set: {
         enrichmentRunId: runId,
         enrichmentState: EnrichmentState.Running,
-        completedFiles: [],
         enrichmentFailures: [],
         updatedAt: now,
+      },
+      $setOnInsert: {
+        completedFiles: [],
       },
     },
   );
   if (result.matchedCount === 0) {
     throw new KnowledgeNotFoundError(knowledgeId);
   }
+}
+
+/**
+ * Returns the list of files already enriched in the current/last attempt.
+ * Used by the strategy to pre-filter the work queue on retry. Empty array
+ * if the knowledge has no recorded enrichment runs.
+ */
+export async function getCompletedEnrichmentFiles(knowledgeId: string): Promise<string[]> {
+  const doc = await knowledgeCollection().findOne({ knowledgeId }, { projection: { completedFiles: 1 } });
+  if (doc === null) {
+    throw new KnowledgeNotFoundError(knowledgeId);
+  }
+  return Array.isArray(doc.completedFiles) ? doc.completedFiles : [];
 }
 
 /**

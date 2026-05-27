@@ -7,6 +7,7 @@ import { LlmConfigError, LlmError } from "@bb/errors";
 import type { EnrichmentFailure, EnrichmentFailureReason, NodeScope } from "@bb/types";
 import {
   startEnrichmentRun,
+  getCompletedEnrichmentFiles,
   markFileEnriched,
   recordEnrichmentFailure,
   completeEnrichmentRun,
@@ -17,7 +18,10 @@ import { withConcurrency } from "#src/pipeline/concurrency.ts";
 import type { MetaPaths } from "#src/types/meta-paths.ts";
 import type { ProgressContext } from "#src/progress/types.ts";
 import type { FileAnalysisCache } from "#src/strategies/flat-folder/file-analysis-cache.ts";
-import { enrichmentArtifactLayout } from "#src/strategies/concept-graph/enrichment-artifact.ts";
+import {
+  enrichmentArtifactExists,
+  enrichmentArtifactLayout,
+} from "#src/strategies/concept-graph/enrichment-artifact.ts";
 import {
   buildEnrichmentToolCatalog,
   buildEnrichmentToolExecutor,
@@ -82,15 +86,46 @@ export async function enrichFiles(input: EnrichFilesInput): Promise<EnrichFilesR
   const executor = buildEnrichmentToolExecutor({ knowledgeId: input.scope.knowledgeId });
   const systemPrompt = buildEnrichFileSystemPrompt();
 
-  const filesToEnrich = Array.from(input.cache.values());
+  // Resume: union of (a) Mongo `completedFiles[]` from prior attempts and
+  // (b) on-disk artifacts under `meta-output/enrichment/`. Either is
+  // sufficient evidence the file was successfully enriched. The disk check
+  // is the canonical source of truth — `completedFiles[]` mirrors it.
+  // Pre-filter the work queue so already-enriched files never reach the LLM.
+  const allFiles = Array.from(input.cache.values());
+  const completedFromMongo = new Set(await getCompletedEnrichmentFiles(input.scope.knowledgeId));
+  const filesToEnrich: typeof allFiles = [];
+  let resumedFromPriorRun = 0;
+  for (const file of allFiles) {
+    if (completedFromMongo.has(file.relativePath)) {
+      resumedFromPriorRun += 1;
+      continue;
+    }
+    if (await enrichmentArtifactExists(layout, file.relativePath)) {
+      // Disk says done but Mongo doesn't — reconcile so subsequent retries
+      // hit the cheap Mongo check first.
+      await markFileEnriched(input.scope.knowledgeId, file.relativePath);
+      resumedFromPriorRun += 1;
+      continue;
+    }
+    filesToEnrich.push(file);
+  }
+  if (resumedFromPriorRun > 0) {
+    logger.info(
+      `concept-graph: resuming enrichment — skipping ${resumedFromPriorRun} already-enriched file(s); ${filesToEnrich.length} remaining`,
+    );
+  }
+
   const reporter = input.progressContext?.reporter({
     phase: "enrichment",
-    total: { kind: "fixed", total: filesToEnrich.length },
+    total: { kind: "fixed", total: allFiles.length },
   });
   await reporter?.start();
+  if (resumedFromPriorRun > 0) {
+    reporter?.increment(resumedFromPriorRun);
+  }
 
   const cumulativeUsage = { inputTokens: 0, outputTokens: 0, costUsd: 0 };
-  let filesEnriched = 0;
+  let filesEnriched = resumedFromPriorRun;
   let filesFailed = 0;
   const failedPaths: string[] = [];
 

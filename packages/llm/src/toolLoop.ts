@@ -25,6 +25,15 @@ const TRUNCATED_MARKER = "\n…[truncated]";
 // models served via Ollama lack the OpenAI-style `tool_calls` block, and
 // validating per-model capability is the caller's problem (see the
 // `EnrichmentModel` capability gate in the strategy package).
+//
+// Cache scope: deliberately uncached. The single-shot `askLLM` path is
+// cached on (provider, prompt, systemPrompt, modelChain). Tool-use is not,
+// because tool results (MCP graph queries) aren't deterministic between
+// attempts — caching a prior turn's output could replay a stale graph
+// view and silently change model behaviour. Resumability for partially-
+// completed files is handled one level up by `enrich-files.ts` via
+// `KnowledgeDoc.completedFiles[]`; if a file partially completed and the
+// job retries, the loop replays from turn 1. That's an accepted cost.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function askLLMWithTools(opts: AskLLMWithToolsOptions): Promise<AskLLMWithToolsResult> {

@@ -26,6 +26,7 @@ export { recordActivity } from "./activity.ts";
 
 export {
   startEnrichmentRun,
+  getCompletedEnrichmentFiles,
   markFileEnriched,
   recordEnrichmentFailure,
   completeEnrichmentRun,

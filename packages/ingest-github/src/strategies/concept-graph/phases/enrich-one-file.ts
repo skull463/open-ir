@@ -2,6 +2,7 @@ import type { NodeScope } from "@bb/types";
 import type { AskLlmOptions } from "@bb/llm";
 import { askLLMWithTools } from "@bb/llm";
 import { LlmError } from "@bb/errors";
+import { retryLlmCall } from "#src/pipeline/retry-llm.ts";
 import type { FileAnalysisCache } from "#src/strategies/flat-folder/file-analysis-cache.ts";
 import { perFileEnrichmentSchema, type PerFileEnrichment } from "#src/strategies/concept-graph/enrichment-schema.ts";
 import {
@@ -57,12 +58,24 @@ export async function enrichOneFile(
     ...(opts.llmCallContext?.apiKey !== undefined ? { apiKey: opts.llmCallContext.apiKey } : {}),
   };
 
-  const result = await askLLMWithTools(llmOpts);
-  if (result.terminationReason !== "completed") {
-    throw new LlmError(
-      `enrichment loop did not complete for ${opts.file.relativePath}: ${result.terminationReason} (iterations=${result.iterations}, toolCalls=${result.toolCalls.length})`,
-    );
-  }
+  // Wrap the tool-use loop in retryLlmCall so a single network blip during
+  // the LLM round trip (or during an MCP tool result roundtrip) gets up to
+  // MAX_LLM_ATTEMPTS attempts before this file is marked failed by the
+  // enrichFiles batch. Cap-exhaustion (terminationReason !== "completed")
+  // is treated like any other LLM failure so retry can also un-stick a
+  // loop that ran out of iterations transiently.
+  const result = await retryLlmCall(
+    async () => {
+      const r = await askLLMWithTools(llmOpts);
+      if (r.terminationReason !== "completed") {
+        throw new LlmError(
+          `enrichment loop did not complete for ${opts.file.relativePath}: ${r.terminationReason} (iterations=${r.iterations}, toolCalls=${r.toolCalls.length})`,
+        );
+      }
+      return r;
+    },
+    { phase: "enrich", unit: opts.file.relativePath },
+  );
   const parsed = parseAndValidate(result.content, opts.file.relativePath);
 
   // Registry writes happen before the next file's prompt sees this file's

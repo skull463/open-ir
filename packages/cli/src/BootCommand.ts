@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only WITH non-commercial-clause
 import { Command } from "commander";
+import React from "react";
+import { render } from "ink";
 import { Config } from "@bb/types";
 import { HINTS, getConfigValue, isDevMode } from "@bb/config";
 import { applyInfraDefaults, checkPreflight } from "./bootConfig.ts";
+import { SetupForm } from "./SetupForm.tsx";
 import {
   DockerComposeError,
   DockerHealthTimeoutError,
@@ -35,15 +38,6 @@ export function buildBootCommand(): Command {
 }
 
 async function runBoot(): Promise<void> {
-  if (!enforcePreflight()) {
-    process.exitCode = 1;
-    return;
-  }
-
-  if (isDevMode()) {
-    info(`dev mode: logs → ${process.cwd()}/logs/`);
-  }
-
   const defaults = applyInfraDefaults();
   for (const entry of defaults.written) {
     if (entry.redacted) {
@@ -51,6 +45,15 @@ async function runBoot(): Promise<void> {
     } else {
       success(`set ${entry.cliKey} (auto-filled with local-docker default)`);
     }
+  }
+
+  if (!(await ensurePreflight())) {
+    process.exitCode = 1;
+    return;
+  }
+
+  if (isDevMode()) {
+    info(`dev mode: logs → ${process.cwd()}/logs/`);
   }
 
   if (defaults.neo4jPassword.length === 0) {
@@ -232,15 +235,40 @@ async function startServer(): Promise<boolean> {
   }
 }
 
-function enforcePreflight(): boolean {
-  const result = checkPreflight();
-  if (result.ok) {
+async function ensurePreflight(): Promise<boolean> {
+  const initial = checkPreflight();
+  if (initial.ok) {
     return true;
   }
-  for (const entry of result.missing) {
+  if (process.stdin.isTTY !== true || process.stdout.isTTY !== true) {
+    reportMissing(initial.missing);
+    return false;
+  }
+  info("Bytebell needs a few settings before first boot — opening setup form…");
+  const saved = await renderSetupForm();
+  if (!saved) {
+    return false;
+  }
+  const after = checkPreflight();
+  if (after.ok) {
+    return true;
+  }
+  reportMissing(after.missing);
+  return false;
+}
+
+function reportMissing(missing: ReturnType<typeof checkPreflight>["missing"]): void {
+  for (const entry of missing) {
     error(`${entry.hintKey} is not set`, HINTS[entry.configKey]);
   }
-  return false;
+}
+
+async function renderSetupForm(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const onDone = (result: { saved: boolean }): void => resolve(result.saved);
+    const { waitUntilExit } = render(React.createElement(SetupForm, { onDone }));
+    waitUntilExit().catch(() => resolve(false));
+  });
 }
 
 function handleDockerError(cause: unknown): void {

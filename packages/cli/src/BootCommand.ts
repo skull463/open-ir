@@ -129,10 +129,10 @@ async function handlePortConflict(
   const ctx = await diagnosePortConflict(cause.port, serviceLabel);
 
   if (process.stdin.isTTY !== true) {
-    error(
-      `Port ${cause.port} conflict on ${serviceLabel} — cannot resolve interactively (no TTY). Free the port and retry.`,
-    );
-    return false;
+    await safeComposeDown();
+    skipServices.add(composeService);
+    info(`port ${cause.port} already in use — reusing existing ${serviceLabel} (non-interactive mode).`);
+    return true;
   }
 
   const resolution = await promptPortConflict(ctx);

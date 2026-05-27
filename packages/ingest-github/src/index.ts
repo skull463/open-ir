@@ -1,5 +1,6 @@
+import path from "node:path";
 import { Config, JobType } from "@bb/types";
-import { getConfigValue } from "@bb/config";
+import { getBytebellHome, getConfigValue } from "@bb/config";
 import { logger } from "@bb/logger";
 import { registerWorker } from "@bb/queue";
 import { createPipelineRunner } from "./pipeline/run.ts";
@@ -60,7 +61,7 @@ interface PickStrategyDeps {
  * Defaults to flat-folder when the config value is unset or unrecognised
  * (with a warning so the operator knows their typo silently fell back).
  */
-function pickStrategy(deps: PickStrategyDeps): IngestStrategy {
+export function pickStrategy(deps: PickStrategyDeps): IngestStrategy {
   const selected = getConfigValue(Config.IngestionStrategy);
   switch (selected) {
     case "concept-graph":
@@ -112,6 +113,18 @@ export function registerLocalIngestWorker(): void {
 
 export { createFlatFolderStrategy } from "./strategies/flat-folder/index.ts";
 export { createConceptGraphStrategy } from "./strategies/concept-graph/index.ts";
+
+/**
+ * Compatibility shim — the legacy `<bytebellHome>/repos/` directory still
+ * hosts the LLM-decision cache (`repos/llmdecisions/`) and the
+ * local-snapshots staging dir for `localIndexRoute`. Knowledge / ingest
+ * artifacts moved to the commit-scoped `orgs/` tree, but `reposRoot()` is
+ * preserved as a stable handle for downstream consumers that still need
+ * the root.
+ */
+export function reposRoot(): string {
+  return path.join(getBytebellHome(), "repos");
+}
 export { createLlmFileAnalyzer } from "./adapters/llm-file-analyzer.ts";
 export { createDiskSourceReader } from "./pipeline/disk-source-reader.ts";
 export { createPipelineRunner } from "./pipeline/run.ts";

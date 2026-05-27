@@ -9,6 +9,9 @@ import { KEY_MAP } from "./keyMap.ts";
 import { ensureServerRunning, ServerStartTimeoutError } from "./serverSpawn.ts";
 import { getJson, postJson, HttpClientError } from "./httpClient.ts";
 import { success, error, info, createSpinner, createProgressBar, type ProgressBar } from "./output.ts";
+import { getBytebellHome } from "@bb/config";
+import { readFile, stat } from "node:fs/promises";
+import path from "node:path";
 
 export function buildSetupCommand(): Command {
   const cmd = new Command("setup");
@@ -107,15 +110,48 @@ function applyConfig(result: InstallWizardResult): void {
   }
 }
 
+async function stopRunningServer(): Promise<void> {
+  const pidFile = path.join(getBytebellHome(), "pid");
+  let pid: number | null = null;
+  try {
+    const raw = await readFile(pidFile, "utf8");
+    const n = Number.parseInt(raw.trim(), 10);
+    if (Number.isFinite(n) && n > 0) {
+      pid = n;
+    }
+  } catch {
+    return;
+  }
+  if (pid === null) {
+    return;
+  }
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch {
+    return;
+  }
+  for (let i = 0; i < 25; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    try {
+      await stat(pidFile);
+    } catch {
+      return;
+    }
+  }
+}
+
 async function boot(): Promise<boolean> {
   const spinner = createSpinner("Starting ByteBell server...");
   try {
     const ctx = await ensureServerRunning((line) => spinner.update(`Server: ${line}`));
     if (ctx.alreadyRunning) {
-      spinner.stop(true, "Server already running");
-    } else {
-      spinner.stop(true, `Server started (logs: ${ctx.logPath ?? "n/a"})`);
+      // Server was already running with old config — restart it so the new
+      // LLM provider/model written by applyConfig is picked up from disk.
+      spinner.update("Restarting server to apply new config...");
+      await stopRunningServer();
     }
+    const fresh = await ensureServerRunning((line) => spinner.update(`Server: ${line}`));
+    spinner.stop(true, `Server started (logs: ${fresh.logPath ?? "n/a"})`);
     const port = getConfigValue(Config.ServerPort);
     success(`MCP endpoint: http://127.0.0.1:${port}/mcp`);
     return true;

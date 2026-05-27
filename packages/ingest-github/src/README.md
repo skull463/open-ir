@@ -19,8 +19,9 @@ Domain (composes infra: `@bb/config`, `@bb/llm`, `@bb/mongo`, `@bb/neo4j`,
     `createDiskSourceReader`, `createPipelineRunner` (the orchestrator),
     `createGithubIngestHandler` / `createLocalIngestHandler` (the BullMQ
     processor factories used internally by `registerGithubWorkers`).
-  - Direct runner: `runPull(msg, pullFactory?)` — the pull worker the
-    enterprise wrapper invokes directly from its own registry.
+  - Direct runner: `runPull(msg, pullFactory?, progressContextFactory?, usageGuard?)`
+    — the pull worker downstream consumers invoke directly from their
+    own registry.
   - Helper: `reposRoot()` — resolves `~/.bytebell/repos`.
   - Port types: `SourceReader` / `ScanEntry` / `ScannedFile` /
     `OversizedFile` / `ScanDeps` / `ArchiveSink` / `ArchiveSinkInput` /
@@ -44,9 +45,9 @@ Domain (composes infra: `@bb/config`, `@bb/llm`, `@bb/mongo`, `@bb/neo4j`,
     `JobType.GithubIndex` (full re-index, via `runner.run` + optional
     `sourceFactory`) and `JobType.GithubPull` (incremental diff-and-apply
     via `runPull` + optional `pullFactory`). Downstream consumers that
-    bring their own queue (e.g. the enterprise wrapper using `@bytebell/queue`)
-    skip `registerGithubWorkers` entirely and call `createPipelineRunner`,
-    `createGithubIngestHandler`, and `runPull` directly.
+    bring their own queue skip `registerGithubWorkers` entirely and call
+    `createPipelineRunner`, `createGithubIngestHandler`, and `runPull`
+    directly.
 - **[githubApi.ts](githubApi.ts)** — `parseGithubRepo(repoUrl)` and
   `fetchLatestCommitHash(owner, repo, branch, gitToken?)`. **Pull-only
   utility**; revisit in the pull plan. Kept in place rather than deleted so

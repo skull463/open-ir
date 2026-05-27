@@ -46,7 +46,7 @@ export async function executeBusinessContextStrategy(
   // 3. Cache hit? Skip the analysis call and return the existing paths.
   const cached = await loadCachedAnalysis(input.knowledgeId, input.commitHash, effectiveSlug);
   if (cached !== null) {
-    const dir = businessContextDir(input.knowledgeId, input.commitHash, effectiveSlug);
+    const dir = await businessContextDir(input.knowledgeId, input.commitHash, effectiveSlug);
     return {
       analysisPath: path.join(dir, "analysis.json"),
       originalTextPath: path.join(dir, "original.txt"),

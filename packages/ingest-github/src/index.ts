@@ -3,7 +3,7 @@ import { getConfigValue } from "@bb/config";
 import { logger } from "@bb/logger";
 import { registerWorker } from "@bb/queue";
 import { createPipelineRunner } from "./pipeline/run.ts";
-import { reposRoot } from "./pipeline/paths.ts";
+import { orgsRoot } from "./pipeline/paths.ts";
 import { runPull } from "./pipeline/pull.ts";
 import { createGithubIngestHandler, createLocalIngestHandler } from "./handlers/ingest-job.ts";
 import { createFlatFolderStrategy } from "./strategies/flat-folder/index.ts";
@@ -40,7 +40,7 @@ function buildRunner(
   });
   const strategy = pickStrategy({ fileAnalyzer, progressContextFactory });
   const runnerDeps: Parameters<typeof createPipelineRunner>[0] = {
-    reposRootDir: reposRoot(),
+    reposRootDir: orgsRoot(),
     strategy,
     progressContextFactory,
   };
@@ -119,15 +119,12 @@ export type { CreatePipelineRunnerDeps } from "./pipeline/run.ts";
 export { createGithubIngestHandler, createLocalIngestHandler } from "./handlers/ingest-job.ts";
 export type { IngestJobHandlerDeps } from "./handlers/ingest-job.ts";
 export { runPull } from "./pipeline/pull.ts";
-export {
-  reposRoot,
-  repoCloneDir,
-  metaRootFor,
-  metaPathsFor,
-  commitMetaDir,
-  businessContextDir,
-  orgRegistryDir,
-} from "./pipeline/paths.ts";
+// kube-v2 path resolver entry points. `pathsFor(loc)` is the pure path
+// builder; the knowledgeId-keyed helpers (`metaRootFor`, `businessContextDir`,
+// `orgRegistryDir`) are async — they look up `KnowledgeDoc` from Mongo to
+// derive the `RepoLocation` before resolving the path.
+export { pathsFor, orgsRoot, metaRootFor, businessContextDir, orgRegistryDir } from "./pipeline/paths.ts";
+export type { RepoLocation } from "./pipeline/paths.ts";
 export type { IngestRunnerDeps, IngestRunnerInput } from "./types/ingest-runner.ts";
 export type { IngestStrategy, StrategyInput, StrategyResult, StrategyContext } from "./types/strategy.ts";
 export type {

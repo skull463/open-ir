@@ -10,14 +10,12 @@ import { IngestError, KnowledgeNotFoundError } from "@bb/errors";
 import { classifyFailure } from "./failure-classifier.ts";
 import { transitionState, emptyPullSummary } from "./pull-helpers.ts";
 import { logger } from "@bb/logger";
-import { ensureMetaDirs, metaPathsFor, repoCloneDir, ensureReposRoot } from "./paths.ts";
-import { readHeadCommitHash, syncRepository } from "./source.ts";
+import { pathsFor } from "./paths.ts";
+import { parseGithubRepo } from "#src/githubUrl.ts";
 import { CancellationError, clearCancellation, throwIfCancelled } from "./cancellation.ts";
-import { assertReachableFromBranch, checkoutCommit, type DiffResult } from "./git-diff.ts";
-import { computePullDiff, materialiseEndpoints } from "./pull-diff-resolver.ts";
 import { affectedFoldersFromDiff } from "./affected-folders.ts";
-import { createDiskSourceReader } from "./disk-source-reader.ts";
-import type { PullFactory, SourceReader, ArchiveSink } from "#src/types/pipeline.ts";
+import { resolvePullSource } from "./pull-source-resolver.ts";
+import type { PullFactory } from "#src/types/pipeline.ts";
 import type { ProgressContextFactory } from "#src/progress/types.ts";
 import { nullProgressContextFactory } from "#src/progress/NullProgressReporter.ts";
 import { analyseChangedFiles } from "#src/strategies/flat-folder/analyse-changed.ts";
@@ -81,64 +79,35 @@ export async function runPull(
   try {
     throwIfCancelled(knowledgeId);
 
-    let source: SourceReader;
-    let diff: DiffResult;
-    let targetCommit: string;
-    let archiveSink: ArchiveSink | undefined;
-
-    if (pullFactory !== undefined) {
-      const factoryResult = await pullFactory({ knowledgeId, payload: msg.payload, currentCommit, branch });
-      source = factoryResult.source;
-      diff = factoryResult.diff;
-      targetCommit = factoryResult.targetCommit;
-      archiveSink = factoryResult.archiveSink;
-      logger.info(`pull: pull factory wired (knowledgeId=${knowledgeId}, target=${targetCommit.slice(0, 12)})`);
-      if (targetCommit === currentCommit) {
-        logger.info(`pull: ${knowledgeId} already at ${targetCommit.slice(0, 12)}; no-op`);
-        await transitionState(knowledgeId, KnowledgeState.Processed);
-        return emptyPullSummary(targetCommit);
-      }
-    } else {
-      await ensureReposRoot();
-      const repoDir = repoCloneDir(knowledgeId);
-      const cloneOpts: { repoUrl: string; branch: string; destinationDir: string; gitToken?: string } = {
-        repoUrl,
-        branch,
-        destinationDir: repoDir,
-      };
-      if (gitToken !== undefined) {
-        cloneOpts.gitToken = gitToken;
-      }
-      await syncRepository(cloneOpts);
-
-      const branchHead = await readHeadCommitHash(repoDir);
-      if (branchHead === "unknown") {
-        throw new IngestError(knowledgeId, "could not resolve branch HEAD after clone");
-      }
-      targetCommit = msg.payload.targetCommitHash ?? branchHead;
-
-      if (targetCommit === currentCommit) {
-        logger.info(`pull: ${knowledgeId} already at ${targetCommit.slice(0, 12)}; no-op`);
-        await transitionState(knowledgeId, KnowledgeState.Processed);
-        return emptyPullSummary(targetCommit);
-      }
-
-      // Deepen the shallow clone first so historical commits selected via the
-      // picker become visible to `merge-base --is-ancestor`. Without this the
-      // assertion below rejects every non-HEAD pick on a `--depth=1` clone.
-      await materialiseEndpoints(repoDir, branch, currentCommit, targetCommit);
-
-      if (!(await assertReachableFromBranch(repoDir, targetCommit, branch))) {
-        throw new IngestError(
-          knowledgeId,
-          `target commit ${targetCommit} is not reachable from origin/${branch}. Cross-branch pulls are not supported; create a fresh github_index job for the new branch.`,
-        );
-      }
-
-      diff = await computePullDiff(repoDir, currentCommit, targetCommit);
-      await checkoutCommit(repoDir, targetCommit);
-      source = createDiskSourceReader({ repoDir, commitHash: targetCommit });
+    // Parse owner/repo up front — the resolver needs them to build the
+    // commit-scoped path under the new layout.
+    const parsed = parseGithubRepo(repoUrl);
+    if (parsed === null) {
+      throw new IngestError(knowledgeId, `could not parse owner/repo from repoUrl=${repoUrl}`);
     }
+    const orgId = resolveOrgId({});
+
+    // Resolves target SHA via GitHub REST (or operator-supplied), clones into
+    // the commit-scoped `repository/` dir, computes the diff. See
+    // `pull-source-resolver.ts` for the dance.
+    const resolution = await resolvePullSource({
+      knowledgeId,
+      payload: msg.payload,
+      currentCommit,
+      branch,
+      repoUrl,
+      gitToken,
+      orgId,
+      owner: parsed.owner,
+      repo: parsed.repo,
+      pullFactory,
+    });
+    if (resolution.kind === "noop") {
+      logger.info(`pull: ${knowledgeId} already at ${resolution.targetCommit.slice(0, 12)}; no-op`);
+      await transitionState(knowledgeId, KnowledgeState.Processed);
+      return emptyPullSummary(resolution.targetCommit);
+    }
+    const { source, diff, targetCommit, location, archiveSink } = resolution;
 
     throwIfCancelled(knowledgeId);
     await filesGraph.snapshotFilesToVersion({ knowledgeId, commitHash: currentCommit }).catch((cause: unknown) => {
@@ -146,8 +115,9 @@ export async function runPull(
       logger.warn(`pull: snapshot of ${currentCommit.slice(0, 12)} failed (non-fatal): ${msgText}`);
     });
 
-    const metaPaths = metaPathsFor(knowledgeId);
-    await ensureMetaDirs(metaPaths);
+    // Meta-output for the new target commit. Past commits' meta-output stays
+    // untouched in its own sibling dir.
+    const metaPaths = pathsFor(location);
 
     const affectedFolders = affectedFoldersFromDiff(diff);
 
@@ -226,7 +196,6 @@ export async function runPull(
     progressContext.phaseChanged("indexing");
     logger.info(`pull: phase repo summary starting`);
     throwIfCancelled(knowledgeId);
-    const orgId = resolveOrgId({ ...(kDoc.source.kind === "github" ? {} : {}) });
     const scope: NodeScope = { orgId, knowledgeId, repoId: knowledgeId };
     const { summary: repoSummary, tokenUsage: repoUsage } = await summariseRepo(knowledgeId, metaPaths, llmCallContext);
     totalInputTokens += repoUsage.inputTokens;

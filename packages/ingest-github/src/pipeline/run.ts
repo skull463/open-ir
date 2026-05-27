@@ -14,13 +14,15 @@ import type { IngestStrategy } from "#src/types/strategy.ts";
 import type { ArchiveSink, PipelineSummary, SourceFactory, SourceReader } from "#src/types/pipeline.ts";
 import type { ProgressContextFactory } from "#src/progress/types.ts";
 import { nullProgressContextFactory } from "#src/progress/NullProgressReporter.ts";
-import { ensureMetaDirs, ensureReposRoot, metaPathsFor, repoCloneDir } from "./paths.ts";
+import { ensureCommitDirs, pathsFor, type RepoLocation } from "./paths.ts";
 import { readHeadCommitHash, syncRepository } from "./source.ts";
 import { resolveBranch } from "./branch.ts";
 import { CancellationError, clearCancellation, throwIfCancelled } from "./cancellation.ts";
 import { createDiskSourceReader } from "./disk-source-reader.ts";
 import { resolveOrgId, llmCallContextFromPayload } from "./context.ts";
 import { localRepoName } from "./stats.ts";
+import { fetchLatestCommitHash } from "#src/githubApi.ts";
+import { parseGithubRepo } from "#src/githubUrl.ts";
 
 export interface CreatePipelineRunnerDeps {
   reposRootDir: string;
@@ -73,9 +75,19 @@ async function runGithub(
     await knowledgeDb.setKnowledgeBranch(knowledgeId, branch);
     await knowledgeGraph.setKnowledgeBranchInGraph(knowledgeId, branch).catch(() => undefined);
 
+    const orgId = resolveOrgId(payload);
+    // Parse (owner, repo) up front — we need them to build the commit-scoped
+    // path *before* cloning. parseGithubRepo handles `.git`, `tree/branch`
+    // suffixes, and SSH-style URLs.
+    const parsed = parseGithubRepo(payload.repoUrl);
+    if (parsed === null) {
+      throw new IngestError(knowledgeId, `could not parse owner/repo from repoUrl=${payload.repoUrl}`);
+    }
+
     let source: SourceReader;
     let archiveSink: ArchiveSink | undefined;
     let commitHash: string;
+    let location: RepoLocation;
 
     progressContext.phaseChanged("clone");
     if (sourceFactory !== undefined) {
@@ -83,10 +95,36 @@ async function runGithub(
       source = factoryResult.source;
       commitHash = factoryResult.commitHash;
       archiveSink = factoryResult.archiveSink;
+      location = {
+        provider: "github",
+        orgId,
+        knowledgeId,
+        owner: parsed.owner,
+        repo: parsed.repo,
+        commitHash,
+      };
       logger.info(`pipeline/run: source factory wired (knowledgeId=${knowledgeId}, commit=${commitHash.slice(0, 12)})`);
     } else {
-      await ensureReposRoot();
-      const repoDir = repoCloneDir(knowledgeId);
+      // Resolve the HEAD commit SHA before cloning so we can clone *directly*
+      // into the commit-scoped `repository/` dir — no staging rename. Uses
+      // the GitHub REST `/branches/{branch}` endpoint via fetchLatestCommitHash.
+      const resolvedSha = await fetchLatestCommitHash(payload.repoUrl, branch, payload.gitToken);
+      if (resolvedSha === null) {
+        throw new IngestError(
+          knowledgeId,
+          `could not resolve HEAD commit hash for ${parsed.owner}/${parsed.repo}@${branch} before clone`,
+        );
+      }
+      location = {
+        provider: "github",
+        orgId,
+        knowledgeId,
+        owner: parsed.owner,
+        repo: parsed.repo,
+        commitHash: resolvedSha,
+      };
+      await ensureCommitDirs(location);
+      const repoDir = pathsFor(location).repositoryDir;
       const cloneOpts: { repoUrl: string; branch: string; destinationDir: string; gitToken?: string } = {
         repoUrl: payload.repoUrl,
         branch,
@@ -96,20 +134,35 @@ async function runGithub(
         cloneOpts.gitToken = payload.gitToken;
       }
       await syncRepository(cloneOpts);
-      commitHash = await readHeadCommitHash(repoDir);
-      if (commitHash === "unknown") {
+      // Sanity check: the post-clone HEAD must match what we resolved against
+      // the REST API. A mismatch means the branch advanced between resolve
+      // and clone — rare but worth surfacing.
+      const postCloneSha = await readHeadCommitHash(repoDir);
+      if (postCloneSha === "unknown") {
         throw new IngestError(knowledgeId, "could not resolve HEAD commit hash after clone");
+      }
+      commitHash = postCloneSha;
+      if (postCloneSha !== resolvedSha) {
+        logger.warn(
+          `pipeline/run: commit drift between REST and clone for ${knowledgeId} (rest=${resolvedSha.slice(0, 12)} clone=${postCloneSha.slice(0, 12)}); using clone SHA`,
+        );
+        // Rebuild the location with the post-clone SHA so meta-output lands
+        // at the same commit segment as the cloned tree.
+        location = { ...location, commitHash: postCloneSha };
+        // Repository tree is already at the new commit; meta dirs we ensured
+        // earlier are at the old SHA path. Re-ensure under the corrected
+        // path so the strategy writes to the right place.
+        await ensureCommitDirs(location);
       }
       source = createDiskSourceReader({ repoDir, commitHash });
     }
 
     progressContext.phaseChanged("scan");
-    const metaPaths = metaPathsFor(knowledgeId);
-    await ensureMetaDirs(metaPaths);
+    const metaPaths = pathsFor(location);
 
     const baseContext: Parameters<typeof strategy.execute>[0]["context"] = {
       knowledgeId,
-      orgId: resolveOrgId(payload),
+      orgId,
       repoId: knowledgeId,
     };
     const llmCallContext = llmCallContextFromPayload(payload);
@@ -173,20 +226,24 @@ async function runLocal(strategy: IngestStrategy, payload: LocalIngestPayload): 
   await transitionState(knowledgeId, KnowledgeState.Processing);
   try {
     throwIfCancelled(knowledgeId);
-    const metaPaths = metaPathsFor(knowledgeId);
-    await ensureMetaDirs(metaPaths);
+    // Synthetic commitHash so the layout slot is populated. The source tree
+    // stays at `payload.rootDir` (we don't copy local sources into our managed
+    // repository/ dir); only meta-output lives under the kube-v2 tree.
+    const commitHash = `local-${startedAt}`;
+    const orgId = resolveOrgId(payload);
+    const location: RepoLocation = { provider: "local", orgId, knowledgeId, commitHash };
+    await ensureCommitDirs(location);
+    const metaPaths = pathsFor(location);
 
-    const source = createDiskSourceReader({ repoDir: rootDir, commitHash: `local-${startedAt}` });
+    const source = createDiskSourceReader({ repoDir: rootDir, commitHash });
 
     const result = await strategy.execute({
       payload: { knowledgeId, repoUrl: `local:${rootDir}` },
       branch: "local",
       source,
       metaPaths,
-      context: { knowledgeId, orgId: resolveOrgId(payload), repoId: knowledgeId },
+      context: { knowledgeId, orgId, repoId: knowledgeId },
     });
-
-    const commitHash = `local-${startedAt}`;
     logger.info(
       `pipeline/run: ✓ local_ingest complete (knowledgeId=${knowledgeId}, repo=${localRepoName(rootDir)}, files=${result.filesAnalyzed}, in=${result.tokenUsage.inputTokens}, out=${result.tokenUsage.outputTokens}, cost=$${result.tokenUsage.costUsd})`,
     );

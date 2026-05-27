@@ -46,7 +46,12 @@ llmCallContext? }`; `llmCallContext` is the optional `AskLlmOptions`
   factories are documented in `docs/extension-points.md`. The two are
   separate because pull additionally needs a `diff` and a resolved
   `targetCommit`, which index doesn't.
-- `meta-paths.ts` — `MetaPaths` shape (`~/.bytebell/repos/.meta/<knowledgeId>/...`).
+- `meta-paths.ts` — `MetaPaths` shape — the per-commit `repositoryDir` +
+  `metaOutputRoot` siblings under
+  `~/.bytebell/orgs/<orgId>/<provider>/<knowledgeId>/<owner>/<repo>/<commit>/`,
+  plus the named leaf paths (`fileAnalysisDir`, `folderSummariesDir`, …)
+  computed under `metaOutputRoot`. `metaRoot` is preserved as a
+  back-compat alias for `metaOutputRoot`.
 - `file-analysis.ts` — `FALLBACK_LANGUAGE = "unknown"` and `emptyFileAnalysis()`
   factory. Both consumed by the LLM adapter and the big-file condenser.
 - `condensed-file-analysis.ts` — `CondensedFileAnalysis` is the on-disk record

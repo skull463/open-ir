@@ -19,6 +19,7 @@
     "@bb/errors": "workspace:*",
     "@bb/ingest-github": "workspace:*",
     "@bb/logger": "workspace:*",
+    "@bb/mongo": "workspace:*",
     "@bb/types": "workspace:*",
     "commander": "^14.0.3",
     "ink": "^7.0.1",

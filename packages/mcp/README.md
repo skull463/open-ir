@@ -118,10 +118,12 @@ hit.
   `File` to its outgoing edges, returning per-file `{purpose, summary,
 classes[], functions[], imports[], keywords[], language, sizeBytes}`.
 - `content` — single `relativePath` + optional `fromLine`/`toLine` /
-  `search` / `contextLines` / `maxTokens`. Reads from
-  `~/.bytebell/repos/{knowledgeId}/{relativePath}` via `repoFs.ts`,
+  `search` / `contextLines` / `maxTokens`. Resolves the active commit's
+  clone via `repoFs.ts` (one `KnowledgeDoc` lookup per call to derive
+  `(orgId, owner, repo, commitId)`), reads from
+  `~/.bytebell/orgs/<orgId>/github/<knowledgeId>/<owner>/<repo>/<commit>/repository/{relativePath}`,
   slices in process, prepends line numbers, trims to the token char
-  budget.
+  budget. Local knowledges read straight from `source.sourcePath`.
 - `bulk_search` — `paths[]` (≤ 50) + required `search` + optional
   `contextLines` / `matchOnly`. Parallel disk scan; returns matched +
   noMatch + errored.

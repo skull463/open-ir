@@ -11,8 +11,18 @@ Domain (sub-folder of `@bb/ingest-github`).
 
 ## Files
 
-- `paths.ts` — `reposRoot()`, `repoCloneDir(knowledgeId)`, `ensureReposRoot()`,
-  `metaPathsFor(knowledgeId)`, `ensureMetaDirs(metaPaths)`, plus
+- `paths.ts` — commit-scoped on-disk layout resolver. `pathsFor(loc:
+RepoLocation)` is the pure path builder (delegates to `bytebellPathsFor`
+  in `@bb/types`). Every per-commit artifact lives under
+  `~/.bytebell/orgs/<orgId>/<provider>/<knowledgeId>/<owner>/<repo>/<commit>/`
+  with the clone in `repository/` and meta in `meta-output/`. For local
+  knowledges the owner/repo segments collapse:
+  `orgs/<orgId>/local/<knowledgeId>/<syntheticCommit>/`. The
+  knowledgeId-keyed helpers (`metaRootFor`, `businessContextDir`,
+  `orgRegistryDir`) are async — they look up `KnowledgeDoc` from Mongo to
+  derive the active `RepoLocation` before resolving the path. The legacy
+  `repos/<id>/` + `repos/.meta/<id>/` layout is gone; `bytebell migrate
+paths` walks old data into the new tree. Also exports
   `encodeMetaPath`/`decodeMetaPath` (slash/backslash → `__SL__`/`__BS__` so
   paths flatten to one file on disk).
 - `source.ts` — `syncRepository({ repoUrl, branch, destinationDir, gitToken? })`.

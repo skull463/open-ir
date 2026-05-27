@@ -146,19 +146,29 @@ Force a failure mid-enrichment:
 
 ## Step 7 — Inspect disk artifacts
 
+Under the commit-scoped layout (`bytebell migrate paths` if you're upgrading
+from the legacy `repos/.meta/` tree first), every per-commit artifact lives
+under `~/.bytebell/orgs/<orgId>/github/<KID>/<owner>/<repo>/<COMMIT_ID>/`. For
+OSS the `<orgId>` segment is always `local`. The enrichment artifacts sit
+beside the rest of meta-output:
+
 ```bash
-ls ~/.bytebell/repos/<KID>/<COMMIT_ID>/enrichment/
+ORG=local
+ls ~/.bytebell/orgs/$ORG/github/<KID>/<OWNER>/<REPO>/<COMMIT_ID>/meta-output/enrichment/
 ```
 
 Each successfully enriched file gets a JSON artifact named after its
 flattened path. Open one to confirm the audit trail:
 
 ```bash
-cat ~/.bytebell/repos/<KID>/<COMMIT_ID>/enrichment/src__auth__controller.ts.json
+cat ~/.bytebell/orgs/$ORG/github/<KID>/<OWNER>/<REPO>/<COMMIT_ID>/meta-output/enrichment/src__auth__controller.ts.json
 ```
 
 The artifact carries `enrichment` (the validated LLM output), `llmUsage`
-(token + cost), `iterations`, `toolCallCount`, and `writtenAt`.
+(token + cost), `iterations`, `toolCallCount`, and `writtenAt`. Sibling dirs
+under `meta-output/` (`file-analysis/`, `folder-summaries/`,
+`big-file-analysis/`, …) hold the canonical analysis from phases 2–4. The
+clone tree sits at `<COMMIT_ID>/repository/` — same parent as `meta-output/`.
 
 ## Step 8 — Smoke `smart_search` for concept clusters
 

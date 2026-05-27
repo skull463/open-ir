@@ -74,7 +74,9 @@ export async function enrichFiles(input: EnrichFilesInput): Promise<EnrichFilesR
   const maxToolResultChars = getConfigValue(Config.EnrichmentMaxToolResultChars);
 
   const limiter = withConcurrency(concurrency);
-  const layout = enrichmentArtifactLayout(input.metaPaths, input.commitId);
+  // `metaPaths.metaOutputRoot` is already commit-scoped under the kube-v2 layout;
+  // the artifact layout no longer needs a separate commit id argument.
+  const layout = enrichmentArtifactLayout(input.metaPaths);
   const registry = new EnrichmentRegistry();
   const tools = buildEnrichmentToolCatalog();
   const executor = buildEnrichmentToolExecutor({ knowledgeId: input.scope.knowledgeId });

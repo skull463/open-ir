@@ -37,7 +37,7 @@ export async function saveAnalysis(
     analysis,
   };
 
-  const dir = businessContextDir(knowledgeId, commitHash, sanitizedTitle);
+  const dir = await businessContextDir(knowledgeId, commitHash, sanitizedTitle);
   await mkdir(dir, { recursive: true, mode: DIR_MODE });
   const filePath = path.join(dir, "analysis.json");
   await writeFile(filePath, JSON.stringify(envelope, null, 2), { encoding: "utf-8", mode: 0o600 });

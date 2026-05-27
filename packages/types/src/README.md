@@ -82,14 +82,29 @@ lastAttemptAt }`) plus `EnrichmentFailureReason` (`"cap-exceeded" |
   `UpsertGuidepostInput`, `AttachGuidepostInput`, `UpsertTestsEdgeInput`.
   Consumed by `@bb/graph-core` (interfaces) and `@bb/neo4j`
   (implementation).
+- **[path-layout.ts](path-layout.ts)** — pure on-disk path resolver.
+  Defines the `RepoLocation` union (github / local) and pure functions
+  (`bytebellPathsFor`, `commitBaseDirFor`, `repositoryDirFor`,
+  `metaOutputRootFor`, `orgsRootFor`) that take a `home` string and
+  return the kube-style layout
+  `<home>/orgs/<orgId>/<provider>/<knowledgeId>/<owner>/<repo>/<commit>/`.
+  Also exports `parseGithubOwnerRepo(repoUrl)` — a pure GitHub URL
+  parser that mirrors the `parseGithubRepo` in
+  `@bb/ingest-github/githubUrl` (duplicated deliberately so kernel-tier
+  code never reaches up into Domain). The `MetaPathsLayout` interface
+  documents the leaf-path shape returned by `bytebellPathsFor`. Lives
+  here so `@bb/ingest-github` (writer) and `@bb/mcp` (reader) can
+  agree on the layout without one importing the other.
 
 ## Module dependency graph
 
 ```
-config.ts    → (leaf — no imports)
-job.ts       → (leaf — no imports)
-knowledge.ts → (leaf — no imports)
-index.ts     → re-exports all three
+config.ts      → (leaf — no imports)
+job.ts         → (leaf — no imports)
+knowledge.ts   → (leaf — no imports)
+graph.ts       → ./analysis.ts (type-only)
+path-layout.ts → node:path (kernel-permitted std lib only)
+index.ts       → re-exports all of the above
 ```
 
 Pure declarations, no cycles possible.

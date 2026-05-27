@@ -5,7 +5,7 @@ import type { PerFileEnrichment } from "./enrichment-schema.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Disk audit trail for the ConceptGraphStrategy per-file enrichment phase.
-// Layout: `<metaRoot>/<commitId>/enrichment/<file-slug>.json`. One file per
+// Layout: `<metaOutputRoot>/enrichment/<file-slug>.json`. One file per
 // successfully enriched source file. The graph is the canonical store; disk
 // is the "why was this concept created" audit trail required by the LLM
 // usage rule. Mongo's `KnowledgeDoc.completedFiles[]` is the resume cursor —
@@ -13,9 +13,10 @@ import type { PerFileEnrichment } from "./enrichment-schema.ts";
 // success and never re-read by the strategy (a manual diff against graph
 // state is possible if needed).
 //
-// `commitId` scoping ensures a fresh enrichment pass starts cleanly when the
-// repo moves forward; older commits' artifacts stay on disk for forensic
-// comparison until the operator manually prunes.
+// `metaOutputRoot` is already commit-scoped
+// (`orgs/<orgId>/<provider>/<knowledgeId>/<owner>/<repo>/<commit>/meta-output/`),
+// so re-indexing at a new commit naturally lands in a fresh tree without any
+// commit-id segment inside the enrichment subdir.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const FILE_SLUG_MAX_LEN = 200;
@@ -25,10 +26,8 @@ export interface EnrichmentArtifactLayout {
   pathForFile(relativePath: string): string;
 }
 
-export function enrichmentArtifactLayout(metaPaths: MetaPaths, commitId: string): EnrichmentArtifactLayout {
-  // `metaRoot` is per-knowledge; we scope enrichment under <metaRoot>/<commitId>/enrichment/
-  // so re-indexing at a new commit doesn't collide with prior runs.
-  const baseDir = path.join(metaPaths.metaRoot, commitId, "enrichment");
+export function enrichmentArtifactLayout(metaPaths: MetaPaths): EnrichmentArtifactLayout {
+  const baseDir = path.join(metaPaths.metaOutputRoot, "enrichment");
   return {
     baseDir,
     pathForFile(relativePath: string): string {

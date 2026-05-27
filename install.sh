@@ -8,12 +8,6 @@ set -e
 
 REPO_URL="https://github.com/kaushalya4s5s7/bytebell-oss"
 
-# When piped through curl, stdin is the script — not the terminal.
-# Re-exec with stdin attached to /dev/tty so the Ink TUI gets a real TTY.
-if [ ! -t 0 ]; then
-  exec bash "$0" "$@" </dev/tty
-fi
-
 # ── helpers ──────────────────────────────────
 
 print_step() { echo ""; echo "▶  $1"; }
@@ -82,24 +76,15 @@ bun link
 cd ../..
 print_ok "bytebell linked"
 
-# ── 5. interactive setup (Ink TUI) ────────────
-
-print_step "Launching setup wizard"
-# bytebell setup collects LLM config, boots Docker infra + server,
-# and optionally kicks off indexing — all via the Ink TUI.
-bytebell setup
-
-# ── 6. done ───────────────────────────────────
+# ── 5. done ───────────────────────────────────
 
 echo ""
 echo "════════════════════════════════════════"
-echo "  Bytebell is running!"
+echo "  Bytebell installed!"
 echo ""
-echo "  Connect Claude Code:"
-echo "    claude mcp add --transport http bytebell http://127.0.0.1:8080/mcp"
+echo "  Run the setup wizard to configure your LLM provider and boot:"
 echo ""
-echo "  Watch indexing progress:"
-echo "    bytebell ls"
+echo "    bytebell setup"
 echo ""
 echo "  Commands reference:"
 echo "    https://github.com/kaushalya4s5s7/bytebell-oss/blob/main/commands.md"

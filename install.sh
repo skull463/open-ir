@@ -195,6 +195,8 @@ fi
 
 print_step "Booting Docker infra + Bytebell server"
 print_info "First boot pulls Docker images — this can take a few minutes"
+# Shut down any previously running server so the freshly installed binary is used.
+bytebell shutdown --keep-docker 2>/dev/null || true
 bytebell boot
 print_ok "Server is up"
 

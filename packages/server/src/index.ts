@@ -60,6 +60,7 @@ async function main(): Promise<void> {
   const graphProvider = getConfigValue(Config.GraphProvider);
   await connectGraph(graphProvider);
   await indexesGraph.ensureKnowledgeIndexes();
+  await indexesGraph.ensureConceptGraphIndexes();
   await connectQueue();
   registerGithubWorkers();
   registerLocalIngestWorker();

@@ -1,10 +1,14 @@
-import { JobType } from "@bb/types";
+import { Config, JobType } from "@bb/types";
+import { getConfigValue } from "@bb/config";
+import { logger } from "@bb/logger";
 import { registerWorker } from "@bb/queue";
 import { createPipelineRunner } from "./pipeline/run.ts";
 import { reposRoot } from "./pipeline/paths.ts";
 import { runPull } from "./pipeline/pull.ts";
 import { createGithubIngestHandler, createLocalIngestHandler } from "./handlers/ingest-job.ts";
 import { createFlatFolderStrategy } from "./strategies/flat-folder/index.ts";
+import { createConceptGraphStrategy } from "./strategies/concept-graph/index.ts";
+import type { IngestStrategy } from "./types/strategy.ts";
 import { createLlmFileAnalyzer } from "./adapters/llm-file-analyzer.ts";
 import {
   COMBINED_CODE_ANALYSIS_SYSTEM_PROMPT,
@@ -34,7 +38,7 @@ function buildRunner(
     buildSystemPrompt: () => COMBINED_CODE_ANALYSIS_SYSTEM_PROMPT,
     buildUserPrompt: buildFileAnalysisUserPrompt,
   });
-  const strategy = createFlatFolderStrategy({ fileAnalyzer, progressContextFactory });
+  const strategy = pickStrategy({ fileAnalyzer, progressContextFactory });
   const runnerDeps: Parameters<typeof createPipelineRunner>[0] = {
     reposRootDir: reposRoot(),
     strategy,
@@ -44,6 +48,40 @@ function buildRunner(
     runnerDeps.sourceFactory = sourceFactory;
   }
   return createPipelineRunner(runnerDeps);
+}
+
+interface PickStrategyDeps {
+  fileAnalyzer: Parameters<typeof createFlatFolderStrategy>[0]["fileAnalyzer"];
+  progressContextFactory: ProgressContextFactory;
+}
+
+/**
+ * Resolves the active ingestion strategy from `Config.IngestionStrategy`.
+ * Defaults to flat-folder when the config value is unset or unrecognised
+ * (with a warning so the operator knows their typo silently fell back).
+ */
+function pickStrategy(deps: PickStrategyDeps): IngestStrategy {
+  const selected = getConfigValue(Config.IngestionStrategy);
+  switch (selected) {
+    case "concept-graph":
+      logger.info("ingest-github: active strategy = concept-graph");
+      return createConceptGraphStrategy({
+        fileAnalyzer: deps.fileAnalyzer,
+        progressContextFactory: deps.progressContextFactory,
+      });
+    case "flat-folder":
+      logger.info("ingest-github: active strategy = flat-folder");
+      return createFlatFolderStrategy({
+        fileAnalyzer: deps.fileAnalyzer,
+        progressContextFactory: deps.progressContextFactory,
+      });
+    default:
+      logger.warn(`ingest-github: Config.IngestionStrategy="${selected}" unrecognised; falling back to flat-folder`);
+      return createFlatFolderStrategy({
+        fileAnalyzer: deps.fileAnalyzer,
+        progressContextFactory: deps.progressContextFactory,
+      });
+  }
 }
 
 export function registerGithubWorkers(deps: RegisterGithubWorkersDeps = {}): void {
@@ -73,6 +111,7 @@ export function registerLocalIngestWorker(): void {
 }
 
 export { createFlatFolderStrategy } from "./strategies/flat-folder/index.ts";
+export { createConceptGraphStrategy } from "./strategies/concept-graph/index.ts";
 export { createLlmFileAnalyzer } from "./adapters/llm-file-analyzer.ts";
 export { createDiskSourceReader } from "./pipeline/disk-source-reader.ts";
 export { createPipelineRunner } from "./pipeline/run.ts";

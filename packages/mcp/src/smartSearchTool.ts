@@ -70,7 +70,7 @@ const schema = {
     .describe(`Items per page (default ${DEFAULT_PAGE_SIZE})`),
 };
 
-interface SmartSearchInput {
+export interface SmartSearchInput {
   query: string;
   knowledgeId?: string | undefined;
   knowledgeIds?: string[] | undefined;
@@ -95,7 +95,15 @@ export function registerSmartSearchTool(server: McpServer): void {
   });
 }
 
-async function runSmartSearch(args: SmartSearchInput): Promise<SmartSearchResult> {
+/**
+ * In-process entry point for the smart_search tool. Exported so the
+ * ConceptGraphStrategy enrichment phase can call the same logic the MCP
+ * transport calls, without round-tripping through HTTP. The transport
+ * registration above wraps this with usage-tracking and char-budget
+ * trimming; in-process callers skip both (they aggregate usage themselves
+ * and accept full payloads).
+ */
+export async function runSmartSearch(args: SmartSearchInput): Promise<SmartSearchResult> {
   const queryTerms = args.query
     .trim()
     .toLowerCase()

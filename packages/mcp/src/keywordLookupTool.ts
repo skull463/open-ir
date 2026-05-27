@@ -53,7 +53,7 @@ const schema = {
   page: z.number().int().min(1).optional().describe("Page number (default 1)"),
 };
 
-interface KeywordLookupInput {
+export interface KeywordLookupInput {
   term: string;
   match?: MatchMode | undefined;
   knowledgeId?: string | undefined;
@@ -77,7 +77,7 @@ interface MatchedEntity {
   files: MatchedFile[];
 }
 
-interface KeywordLookupResult {
+export interface KeywordLookupResult {
   query: string;
   match: MatchMode;
   cross_repo: boolean;
@@ -115,7 +115,12 @@ export function registerKeywordLookupTool(server: McpServer): void {
   });
 }
 
-async function runKeywordLookup(args: KeywordLookupInput): Promise<KeywordLookupResult> {
+/**
+ * In-process entry point for the keyword_lookup tool. Exported for the
+ * ConceptGraphStrategy enrichment phase — see the matching docblock on
+ * `runSmartSearch`.
+ */
+export async function runKeywordLookup(args: KeywordLookupInput): Promise<KeywordLookupResult> {
   const match: MatchMode = args.match ?? "keyword";
   const keywordLimit = args.keywordLimit ?? DEFAULT_KEYWORD_LIMIT;
   const filesPerKeyword = args.filesPerKeyword ?? DEFAULT_FILES_PER_KEYWORD;

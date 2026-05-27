@@ -22,13 +22,13 @@ package-level contract; this file documents how the source tree is split.
   (publisher) and `@bb/ingest-*` packages (worker handlers). Ingest
   payloads carry an optional `orgId?: string` override; OSS callers omit
   it and the pipeline reads `Config.OrgId` from `~/.bytebell/config.json`
-  (locked to `"local"` in OSS builds; downstream enterprise builds set
+  (locked to `"local"` in OSS builds; downstream consumers may set
   `orgId` per-job). Both GitHub payloads also extend `PayloadLlmOverrides`
   which adds optional `llmApiKey?`, `llmProvider?: string`, `llmModel?`,
-  `llmKeyId?` — the extension point that lets downstream enterprise
-  builds resolve per-org LLM credentials at the enqueue boundary and
-  pass them through the payload. `llmProvider` is `string` (not a closed
-  union) so multi-provider enterprise consumers can carry `"anthropic"`,
+  `llmKeyId?` — the extension point that lets downstream consumers
+  resolve per-org LLM credentials at the enqueue boundary and pass them
+  through the payload. `llmProvider` is `string` (not a closed
+  union) so multi-provider consumers can carry `"anthropic"`,
   `"gemini"`, etc.; OSS narrows to `"openrouter"`/`"ollama"` at the LLM
   client boundary. `llmKeyId` is opaque audit metadata OSS ignores. OSS
   standalone leaves all four fields unset and the pipeline falls back to

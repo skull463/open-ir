@@ -28,7 +28,7 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
   return {
     name: "flat-folder",
     async execute(input: StrategyInput): Promise<StrategyResult> {
-      const { context, source, archiveSink, metaPaths, payload, branch } = input;
+      const { context, source, archiveSink, metaPaths, payload, branch, usageGuard } = input;
       const { knowledgeId, orgId, repoId, llmCallContext } = context;
       const progressContext: ProgressContext = progressContextFactory(knowledgeId);
 
@@ -104,6 +104,11 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
         let totalInputTokens = smallResult.tokenUsage.inputTokens + bigResult.tokenUsage.inputTokens;
         let totalOutputTokens = smallResult.tokenUsage.outputTokens + bigResult.tokenUsage.outputTokens;
         let totalCostUsd = smallResult.tokenUsage.costUsd + bigResult.tokenUsage.costUsd;
+        await usageGuard?.onPhaseComplete("file_analysis", {
+          inputTokens: totalInputTokens,
+          outputTokens: totalOutputTokens,
+          costUsd: totalCostUsd,
+        });
 
         logger.info(`flat-folder: loading file-analysis cache`);
         throwIfCancelled(knowledgeId);
@@ -127,6 +132,11 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
         totalInputTokens += phase5.tokenUsage.inputTokens;
         totalOutputTokens += phase5.tokenUsage.outputTokens;
         totalCostUsd += phase5.tokenUsage.costUsd;
+        await usageGuard?.onPhaseComplete("folder_analysis", {
+          inputTokens: totalInputTokens,
+          outputTokens: totalOutputTokens,
+          costUsd: totalCostUsd,
+        });
 
         progressContext.phaseChanged("indexing");
         logger.info(`flat-folder: phase6 (repo summary) starting`);
@@ -139,6 +149,11 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
         totalInputTokens += repoUsage.inputTokens;
         totalOutputTokens += repoUsage.outputTokens;
         totalCostUsd += repoUsage.costUsd;
+        await usageGuard?.onPhaseComplete("repo_summary", {
+          inputTokens: totalInputTokens,
+          outputTokens: totalOutputTokens,
+          costUsd: totalCostUsd,
+        });
         let repoSummarised = false;
         if (repoSummary !== null) {
           await persistRepoSummary(metaPaths, makeRepoSummaryEnvelope(knowledgeId, orgId, repoSummary));

@@ -1,4 +1,4 @@
-import type { GithubIndexPayload } from "@bb/types";
+import type { GithubIndexPayload, UsageGuard } from "@bb/types";
 import type { AskLlmOptions } from "@bb/llm";
 import type { MetaPaths } from "./meta-paths.ts";
 import type { ArchiveSink, SourceReader } from "./pipeline.ts";
@@ -23,6 +23,14 @@ export interface StrategyInput {
   archiveSink?: ArchiveSink;
   metaPaths: MetaPaths;
   context: StrategyContext;
+  /**
+   * Optional usage guard. When provided, the strategy calls
+   * `onPhaseComplete(phase, cumulative)` after every token-consuming phase
+   * so a downstream subscription enforcer can abort the run by throwing.
+   * OSS standalone leaves this undefined and the strategy behaves
+   * identically to today.
+   */
+  usageGuard?: UsageGuard;
 }
 
 export interface StrategyResult {

@@ -6,7 +6,7 @@ set -e
 #  Usage: curl -fsSL https://raw.githubusercontent.com/kaushalya4s5s7/bytebell-oss/main/install.sh | bash
 # ─────────────────────────────────────────────
 
-REPO_URL="https://github.com/ByteBell/bytebell-oss"
+REPO_URL="https://github.com/kaushalya4s5s7/bytebell-oss"
 
 # ── helpers ──────────────────────────────────
 
@@ -17,11 +17,13 @@ print_info() { echo "  •  $1"; }
 
 # When piped through curl, stdin is the script itself — not the terminal.
 # All read calls must use /dev/tty so they block for real keyboard input.
+# -p flag is unreliable when stdin is redirected; print prompt with printf first.
 prompt() {
   local __var="$1"
   local __msg="$2"
   local __val
-  read -r -p "$__msg" __val </dev/tty
+  printf "%s" "$__msg" >/dev/tty
+  IFS= read -r __val </dev/tty
   eval "$__var=\"\$__val\""
 }
 
@@ -29,8 +31,9 @@ prompt_secret() {
   local __var="$1"
   local __msg="$2"
   local __val
-  read -r -s -p "$__msg" __val </dev/tty
-  echo ""
+  printf "%s" "$__msg" >/dev/tty
+  IFS= read -r -s __val </dev/tty
+  printf "\n" >/dev/tty
   eval "$__var=\"\$__val\""
 }
 
@@ -223,6 +226,6 @@ echo "  Watch indexing progress:"
 echo "    bytebell ls"
 echo ""
 echo "  Commands reference:"
-echo "    https://github.com/ByteBell/bytebell-oss/blob/main/commands.md"
+echo "    https://github.com/kaushalya4s5s7/bytebell-oss/blob/main/commands.md"
 echo "════════════════════════════════════════"
 echo ""

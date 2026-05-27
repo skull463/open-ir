@@ -8,7 +8,8 @@ import { InstallWizard, type InstallWizardResult } from "./InstallWizard.tsx";
 import { KEY_MAP } from "./keyMap.ts";
 import { ensureServerRunning, ServerStartTimeoutError } from "./serverSpawn.ts";
 import { postJson, HttpClientError } from "./httpClient.ts";
-import { success, error, info, createSpinner } from "./output.ts";
+import { success, error, info, createSpinner, createProgressBar, type ProgressBar } from "./output.ts";
+import { getJson } from "./httpClient.ts";
 
 export function buildSetupCommand(): Command {
   const cmd = new Command("setup");
@@ -29,8 +30,13 @@ async function runSetup(): Promise<void> {
   }
   applyConfig(result);
   const booted = await boot();
-  if (booted && result.indexUrl !== undefined) {
+  if (!booted) {
+    return;
+  }
+  if (result.indexUrl !== undefined) {
     await kickIndex(result.indexUrl);
+  } else {
+    success("Connect Claude Code:\n  claude mcp add --transport http bytebell http://127.0.0.1:8080/mcp");
   }
 }
 
@@ -131,16 +137,79 @@ interface IndexResponse {
   jobId: string;
 }
 
+interface RepoStatus {
+  state: string;
+  fileCount: number;
+  totalFiles?: number;
+  processedFiles?: number;
+  failure?: { reason: string; category: string; detail?: string } | null;
+}
+
 async function kickIndex(repoUrl: string): Promise<void> {
+  let res: IndexResponse;
   try {
-    const res = await postJson<IndexResponse>("/api/v1/github/index", { repoUrl });
-    success(`Indexing started: ${repoUrl} (knowledge ${res.knowledgeId})`);
-    info("Run 'bytebell ls' to watch progress.");
+    res = await postJson<IndexResponse>("/api/v1/github/index", { repoUrl });
   } catch (cause: unknown) {
     if (cause instanceof HttpClientError) {
       error(`Failed to start indexing: ${cause.message}`);
     } else {
       error(`Failed to start indexing: ${cause instanceof Error ? cause.message : String(cause)}`);
     }
+    return;
+  }
+
+  const { knowledgeId } = res;
+  const spinner = createSpinner(`Indexing ${repoUrl}...`);
+  let bar: ProgressBar | null = null;
+
+  while (true) {
+    try {
+      const status = await getJson<RepoStatus>(`/api/v1/repos/${knowledgeId}`);
+
+      if (status.totalFiles !== undefined && status.totalFiles > 0) {
+        if (bar === null) {
+          spinner.stop(true, `Ingesting ${knowledgeId}`);
+          bar = createProgressBar(`Ingesting ${knowledgeId}`);
+        }
+        bar.update(status.processedFiles ?? 0, status.totalFiles, `Ingesting ${knowledgeId}`);
+      } else {
+        spinner.update(`Indexing: ${status.state}${status.fileCount > 0 ? ` (${status.fileCount} files)` : ""}`);
+      }
+
+      if (status.state === "PROCESSED") {
+        const msg = `Successfully indexed ${knowledgeId} (${status.fileCount} files)`;
+        if (bar !== null) {
+          bar.stop(true, msg);
+        } else {
+          spinner.stop(true, msg);
+        }
+        success(`Connect Claude Code:\n  claude mcp add --transport http bytebell http://127.0.0.1:8080/mcp`);
+        return;
+      }
+      if (status.state === "FAILED") {
+        const failMsg = status.failure?.reason ?? "unknown error";
+        if (bar !== null) {
+          bar.stop(false, `Indexing failed: ${failMsg}`);
+        } else {
+          spinner.stop(false, `Indexing failed: ${failMsg}`);
+        }
+        if (status.failure) {
+          error(`category: ${status.failure.category}`);
+          if (status.failure.detail) {
+            error(`detail:   ${status.failure.detail}`);
+          }
+        }
+        return;
+      }
+    } catch (cause: unknown) {
+      const msg = `Failed to poll status: ${cause instanceof Error ? cause.message : String(cause)}`;
+      if (bar !== null) {
+        bar.stop(false, msg);
+      } else {
+        spinner.stop(false, msg);
+      }
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1500));
   }
 }

@@ -14,5 +14,8 @@ export type { RemoveKnowledgeJobsResult } from "./cancel.ts";
 export { listFailedJobs } from "./failed.ts";
 export type { FailedJob } from "./failed.ts";
 
+export { resumeOrphans } from "./resumer.ts";
+export type { ResumeResult } from "./resumer.ts";
+
 export { buildJobMessage } from "./envelope.ts";
 export { defaultConcurrencyFor } from "./concurrency.ts";

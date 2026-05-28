@@ -6,7 +6,7 @@ import { Config, DbProviderType, QueueProviderType, type Config as ConfigEnum } 
 import { getBytebellHome, getConfigValue, HINTS } from "@bb/config";
 import { connectDb } from "@bb/db";
 import { connectGraph, indexesGraph } from "@bb/graph-db";
-import { connectQueue } from "@bb/queue";
+import { connectQueue, resumeOrphans } from "@bb/queue";
 import "@bb/mongo";
 import "@bb/sqlite";
 import "@bb/neo4j";
@@ -71,6 +71,18 @@ async function main(): Promise<void> {
   await connectQueue(queueProvider);
   registerGithubWorkers();
   registerLocalIngestWorker();
+
+  // Boot-time orphan recovery: re-publish any knowledge doc stuck in
+  // KnowledgeState.Queued because the previous server crashed between
+  // setKnowledgeState(QUEUED) and the queue publish. Run AFTER workers
+  // are registered so resumed jobs are immediately consumable.
+  const resume = await resumeOrphans();
+  if (resume.scanned > 0) {
+    process.stdout.write(
+      `Orphan resumer: scanned=${resume.scanned} resumed=${resume.resumed} skipped=${resume.skipped}\n`,
+    );
+  }
+
   installShutdownHandlers();
 
   const app = express();

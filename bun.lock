@@ -188,6 +188,7 @@
         "@bb/config": "workspace:*",
         "@bb/db": "workspace:*",
         "@bb/errors": "workspace:*",
+        "@bb/logger": "workspace:*",
         "@bb/queue-core": "workspace:*",
         "@bb/types": "workspace:*",
       },

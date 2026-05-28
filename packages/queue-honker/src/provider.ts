@@ -59,6 +59,14 @@ class HonkerQueueProvider implements IQueueProvider {
       // Honker auto-creates `_honker_live` / `_honker_dead` / etc. on first
       // open — no explicit `bootstrap()` call needed.
       const db = open(dbPath);
+      // Honker defaults to WAL + busy_timeout=5000ms (verified in smoke
+      // tests), but we re-assert defensively so a future Honker default
+      // change can't silently regress concurrent-cancel safety.
+      // `removeKnowledgeJobs` runs a DELETE inside `db.transaction()`;
+      // without a busy_timeout, two simultaneous cancels would race and
+      // one would throw SQLITE_BUSY.
+      db.query("PRAGMA journal_mode=WAL", null);
+      db.query("PRAGMA busy_timeout=5000", null);
       for (const type of ALL_JOB_TYPES) {
         this.queues.set(type, db.queue(type, { visibilityTimeoutS: VISIBILITY_S, maxAttempts: MAX_ATTEMPTS }));
       }

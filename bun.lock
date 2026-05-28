@@ -30,6 +30,7 @@
         "@bb/errors": "workspace:*",
         "@bb/ingest-github": "workspace:*",
         "@bb/logger": "workspace:*",
+        "@bb/mongo": "workspace:*",
         "@bb/types": "workspace:*",
         "commander": "^14.0.3",
         "ink": "^7.0.1",
@@ -48,11 +49,40 @@
         "zod": "^4.3.6",
       },
     },
+    "packages/db": {
+      "name": "@bb/db",
+      "version": "0.0.0",
+      "dependencies": {
+        "@bb/db-core": "workspace:*",
+      },
+    },
+    "packages/db-core": {
+      "name": "@bb/db-core",
+      "version": "0.0.0",
+      "dependencies": {
+        "@bb/types": "workspace:*",
+      },
+    },
     "packages/errors": {
       "name": "@bb/errors",
       "version": "0.0.0",
       "dependencies": {
         "@bb/types": "workspace:*",
+      },
+    },
+    "packages/graph-core": {
+      "name": "@bb/graph-core",
+      "version": "0.0.0",
+      "dependencies": {
+        "@bb/db-core": "workspace:*",
+        "@bb/types": "workspace:*",
+      },
+    },
+    "packages/graph-db": {
+      "name": "@bb/graph-db",
+      "version": "0.0.0",
+      "dependencies": {
+        "@bb/graph-core": "workspace:*",
       },
     },
     "packages/ingest-business-context": {
@@ -61,10 +91,10 @@
       "dependencies": {
         "@bb/config": "workspace:*",
         "@bb/errors": "workspace:*",
+        "@bb/graph-db": "workspace:*",
         "@bb/ingest-github": "workspace:*",
         "@bb/llm": "workspace:*",
         "@bb/logger": "workspace:*",
-        "@bb/neo4j": "workspace:*",
         "@bb/queue": "workspace:*",
         "@bb/types": "workspace:*",
       },
@@ -74,12 +104,18 @@
       "version": "0.0.0",
       "dependencies": {
         "@bb/config": "workspace:*",
+        "@bb/db": "workspace:*",
+        "@bb/db-core": "workspace:*",
         "@bb/errors": "workspace:*",
+        "@bb/graph-core": "workspace:*",
+        "@bb/graph-db": "workspace:*",
         "@bb/llm": "workspace:*",
         "@bb/logger": "workspace:*",
+        "@bb/mcp": "workspace:*",
         "@bb/mongo": "workspace:*",
         "@bb/neo4j": "workspace:*",
         "@bb/queue": "workspace:*",
+        "@bb/sqlite": "workspace:*",
         "@bb/types": "workspace:*",
       },
     },
@@ -88,9 +124,9 @@
       "version": "0.0.0",
       "dependencies": {
         "@bb/config": "workspace:*",
+        "@bb/db": "workspace:*",
         "@bb/errors": "workspace:*",
         "@bb/logger": "workspace:*",
-        "@bb/mongo": "workspace:*",
         "@bb/types": "workspace:*",
         "tiktoken": "^1.0.22",
       },
@@ -110,9 +146,11 @@
       "version": "0.0.0",
       "dependencies": {
         "@bb/config": "workspace:*",
+        "@bb/errors": "workspace:*",
+        "@bb/graph-db": "workspace:*",
         "@bb/llm": "workspace:*",
         "@bb/logger": "workspace:*",
-        "@bb/neo4j": "workspace:*",
+        "@bb/mongo": "workspace:*",
         "@bb/types": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.23.0",
         "zod": "^4.3.6",
@@ -126,6 +164,8 @@
       "version": "0.0.0",
       "dependencies": {
         "@bb/config": "workspace:*",
+        "@bb/db": "workspace:*",
+        "@bb/db-core": "workspace:*",
         "@bb/errors": "workspace:*",
         "@bb/types": "workspace:*",
         "mongodb": "^7.2.0",
@@ -137,6 +177,8 @@
       "dependencies": {
         "@bb/config": "workspace:*",
         "@bb/errors": "workspace:*",
+        "@bb/graph-core": "workspace:*",
+        "@bb/graph-db": "workspace:*",
         "@bb/mongo": "workspace:*",
         "@bb/types": "workspace:*",
         "neo4j-driver": "^6.0.1",
@@ -147,6 +189,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@bb/config": "workspace:*",
+        "@bb/db": "workspace:*",
         "@bb/errors": "workspace:*",
         "@bb/mongo": "workspace:*",
         "@bb/redis": "workspace:*",
@@ -172,18 +215,32 @@
       },
       "dependencies": {
         "@bb/config": "workspace:*",
+        "@bb/db": "workspace:*",
         "@bb/errors": "workspace:*",
+        "@bb/graph-db": "workspace:*",
         "@bb/ingest-github": "workspace:*",
         "@bb/mcp": "workspace:*",
         "@bb/mongo": "workspace:*",
         "@bb/neo4j": "workspace:*",
         "@bb/queue": "workspace:*",
         "@bb/redis": "workspace:*",
+        "@bb/sqlite": "workspace:*",
         "@bb/types": "workspace:*",
         "express": "^5.2.1",
       },
       "devDependencies": {
         "@types/express": "^5.0.6",
+      },
+    },
+    "packages/sqlite": {
+      "name": "@bb/sqlite",
+      "version": "0.0.0",
+      "dependencies": {
+        "@bb/config": "workspace:*",
+        "@bb/db": "workspace:*",
+        "@bb/db-core": "workspace:*",
+        "@bb/errors": "workspace:*",
+        "@bb/types": "workspace:*",
       },
     },
     "packages/types": {
@@ -202,7 +259,15 @@
 
     "@bb/config": ["@bb/config@workspace:packages/config"],
 
+    "@bb/db": ["@bb/db@workspace:packages/db"],
+
+    "@bb/db-core": ["@bb/db-core@workspace:packages/db-core"],
+
     "@bb/errors": ["@bb/errors@workspace:packages/errors"],
+
+    "@bb/graph-core": ["@bb/graph-core@workspace:packages/graph-core"],
+
+    "@bb/graph-db": ["@bb/graph-db@workspace:packages/graph-db"],
 
     "@bb/ingest-business-context": ["@bb/ingest-business-context@workspace:packages/ingest-business-context"],
 
@@ -223,6 +288,8 @@
     "@bb/redis": ["@bb/redis@workspace:packages/redis"],
 
     "@bb/server": ["@bb/server@workspace:packages/server"],
+
+    "@bb/sqlite": ["@bb/sqlite@workspace:packages/sqlite"],
 
     "@bb/types": ["@bb/types@workspace:packages/types"],
 

@@ -28,6 +28,16 @@ MATCH (f:File {knowledgeId: $knowledgeId})
 DETACH DELETE f
 `;
 
+const DELETE_REPOS_BY_KNOWLEDGE = `
+MATCH (r:Repo {knowledgeId: $knowledgeId})
+DETACH DELETE r
+`;
+
+const DELETE_FOLDERS_BY_KNOWLEDGE = `
+MATCH (folder:Folder {knowledgeId: $knowledgeId})
+DETACH DELETE folder
+`;
+
 const DELETE_KNOWLEDGE_NODE = `
 MATCH (k:Knowledge {knowledgeId: $knowledgeId})
 DETACH DELETE k
@@ -52,7 +62,7 @@ const DELETE_ORPHAN_ENTITIES = `
 MATCH (n)
 WHERE (n:Keyword OR n:Class OR n:Function OR n:Module)
   AND NOT EXISTS { MATCH (:File)-[]->(n) }
-DELETE n
+DETACH DELETE n
 `;
 
 export async function upsertKnowledgeNode(doc: KnowledgeDoc): Promise<void> {
@@ -89,6 +99,8 @@ export async function setKnowledgeBranchInGraph(knowledgeId: string, branch: str
 
 export async function deleteKnowledgeGraph(knowledgeId: string): Promise<void> {
   await _runCypher(DELETE_FILES_BY_KNOWLEDGE, { knowledgeId });
+  await _runCypher(DELETE_REPOS_BY_KNOWLEDGE, { knowledgeId });
+  await _runCypher(DELETE_FOLDERS_BY_KNOWLEDGE, { knowledgeId });
   await _runCypher(DELETE_ORPHAN_FILES);
   await _runCypher(DELETE_KNOWLEDGE_NODE, { knowledgeId });
   await _runCypher(DELETE_ORPHAN_ENTITIES);
@@ -101,7 +113,7 @@ function deriveRepoName(doc: KnowledgeDoc): string {
   return repoNameFromGithubUrl(doc.info.repoUrl ?? "");
 }
 
-function repoNameFromGithubUrl(repoUrl: string): string {
+export function repoNameFromGithubUrl(repoUrl: string): string {
   let pathname: string;
   try {
     pathname = new URL(repoUrl).pathname;

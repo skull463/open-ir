@@ -7,3 +7,4 @@ coverage
 bun.lock
 docs
 .husky/_
+*.js

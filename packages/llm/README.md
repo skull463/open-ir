@@ -56,28 +56,21 @@ selected by `Config.LlmProvider` (`"openrouter"` default, or
   init failure. Used by `@bb/ingest-github` for chunk sizing,
   routing, and condense-prompt budgeting.
 
-## Public exports
-
-```ts
-function askLLM(prompt: string, opts?: AskLlmOptions): Promise<AskLlmResult>;
-function tokenLen(text: string): number;
-function encodeTokens(text: string): number[];
-function decodeTokens(tokens: number[]): string;
-
-type LlmProviderName = "openrouter" | "ollama";
-interface AskLlmOptions {
-  model?: string; // overrides Config.OpenrouterModel
-  fallbackModels?: string[]; // overrides Config.OpenrouterFallbackModel1..4
-  timeoutMs?: number; // default 90_000
-  systemPrompt?: string; // optional system role message
-  apiKey?: string; // per-call OpenRouter key override (ignored for Ollama); skips Config.OpenrouterApiKey
-  provider?: LlmProviderName; // per-call provider override; skips Config.LlmProvider
-}
-interface AskLlmResult {
-  content: string;
-  usage: { model: string; inputTokens: number; outputTokens: number; costUsd: number };
-}
-```
+`askLLMWithTools` drives an OpenRouter-routed model through a multi-turn
+`tool_use` / `tool_result` loop until the model emits a terminal
+assistant message. The caller supplies `tools: ToolDefinition[]` (name +
+description + JSON Schema parameters) and an async `executeTool(name,
+input)` callback the loop invokes for each tool the model picks. The
+loop caps every dimension: `maxIterations` (LLM round-trips),
+`maxToolCalls` (cumulative tool invocations), `wallTimeMs` (total
+clock), `maxToolResultChars` (per-result truncation before the result
+is fed back to the model). When a cap fires before the model returns
+text, the result carries `terminationReason: "max-iterations" |
+"max-tool-calls" | "wall-time-exceeded"` and empty `content`; callers
+decide whether to fail loud. Provider HTTP failures still propagate as
+`LlmError`. Tool-use is **OpenRouter only** — the Ollama path stays
+single-shot since open models behind Ollama vary in OpenAI-tool-format
+support; the caller is responsible for picking a tool-capable model.
 
 Local-pricing helpers (`estimateCostUsd`, `estimateCostFromBreakdown`)
 have been removed — cost is now sourced directly from
@@ -137,11 +130,11 @@ it. The cost ledger described in [docs/arch.md](../../docs/arch.md) is
    override on a per-call basis.
 2. **Per-call credential override.** When `opts.apiKey` is set, the
    OpenRouter call uses it directly and skips `Config.OpenrouterApiKey`.
-   This is the extension point that lets downstream consumers (e.g. the
-   enterprise wrapper) pre-resolve per-org credentials at the enqueue
-   boundary and pass them through job payloads, without the LLM client
-   knowing anything about per-org resolution. The Ollama provider is
-   keyless and ignores `opts.apiKey`.
+   This is the extension point that lets downstream consumers
+   pre-resolve per-org credentials at the enqueue boundary and pass them
+   through job payloads, without the LLM client knowing anything about
+   per-org resolution. The Ollama provider is keyless and ignores
+   `opts.apiKey`.
 3. **No env reads.** API key + model come from `getConfigValue(...)` or
    `opts.apiKey`. No `process.env`, no `.env`. Repo-wide ESLint rule
    blocks `process.env`.

@@ -13,7 +13,7 @@ const MIN_TOKENS = 1000;
 const MAX_TOKENS = 50_000;
 const MAX_CONTEXT_LINES = 10;
 
-const description = `Retrieve file information and content from the local clone at ~/.bytebell/repos/{knowledgeId}.
+const description = `Retrieve file information and content from the commit-scoped local clone for a knowledge.
 
 OPERATIONS:
 

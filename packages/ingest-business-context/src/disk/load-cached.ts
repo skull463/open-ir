@@ -17,7 +17,7 @@ export async function loadCachedAnalysis(
   commitHash: string,
   sanitizedTitle: string,
 ): Promise<BusinessContextAnalysisMetadata | null> {
-  const filePath = path.join(businessContextDir(knowledgeId, commitHash, sanitizedTitle), "analysis.json");
+  const filePath = path.join(await businessContextDir(knowledgeId, commitHash, sanitizedTitle), "analysis.json");
   let content: string;
   try {
     content = await readFile(filePath, "utf-8");

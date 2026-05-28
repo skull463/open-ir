@@ -1,17 +1,10 @@
 import { readFile } from "node:fs/promises";
-import { Config } from "@bb/types";
+import { Config, type UpsertFolderNodeInput, type UpsertFileNodeInput } from "@bb/types";
 import { getConfigValue } from "@bb/config";
 import { logger } from "@bb/logger";
-import {
-  ensureFlatFolderIndexes,
-  upsertFileNodesBatch,
-  upsertFolderNodesBatch,
-  upsertRepoNode,
-  type NodeScope,
-  type UpsertFileNodeInput,
-  type UpsertFolderNodeInput,
-} from "@bb/neo4j";
+import { repoGraph, indexesGraph, foldersGraph, filesGraph } from "@bb/graph-db";
 import type { GithubIndexPayload } from "@bb/types";
+import type { NodeScope } from "@bb/graph-core";
 import type { MetaPaths } from "#src/types/meta-paths.ts";
 import { throwIfCancelled } from "#src/pipeline/cancellation.ts";
 import type { FileAnalysisCache } from "#src/strategies/flat-folder/file-analysis-cache.ts";
@@ -38,7 +31,7 @@ export interface StoreFlatAnalysisResult {
 
 export async function storeFlatAnalysis(input: StoreFlatAnalysisInput): Promise<StoreFlatAnalysisResult> {
   throwIfCancelled(input.scope.knowledgeId);
-  await ensureFlatFolderIndexes();
+  await indexesGraph.ensureFlatFolderIndexes();
 
   const batchSize = getConfigValue(Config.Neo4jBatchSize);
 
@@ -46,7 +39,7 @@ export async function storeFlatAnalysis(input: StoreFlatAnalysisInput): Promise<
   let nodesWritten = 0;
   const repoSummary = await readRepoSummary(input.metaPaths);
   if (repoSummary !== null) {
-    await upsertRepoNode({
+    await repoGraph.upsertRepoNode({
       scope: input.scope,
       repoUrl: input.payload.repoUrl,
       branch: input.branch,
@@ -62,7 +55,7 @@ export async function storeFlatAnalysis(input: StoreFlatAnalysisInput): Promise<
     });
   } else {
     logger.warn(`phase7: no repo summary on disk; writing :Repo with empty summary`);
-    await upsertRepoNode({
+    await repoGraph.upsertRepoNode({
       scope: input.scope,
       repoUrl: input.payload.repoUrl,
       branch: input.branch,
@@ -124,7 +117,7 @@ export async function storeFlatAnalysis(input: StoreFlatAnalysisInput): Promise<
     for (let i = 0; i < folderInputs.length; i += batchSize) {
       throwIfCancelled(input.scope.knowledgeId);
       const batch = folderInputs.slice(i, i + batchSize);
-      await upsertFolderNodesBatch(batch);
+      await foldersGraph.upsertFolderNodesBatch(batch);
       foldersWritten += batch.length;
       nodesWritten += batch.length;
       for (const item of batch) {
@@ -156,7 +149,7 @@ export async function storeFlatAnalysis(input: StoreFlatAnalysisInput): Promise<
     for (let i = 0; i < fileInputs.length; i += batchSize) {
       throwIfCancelled(input.scope.knowledgeId);
       const batch = fileInputs.slice(i, i + batchSize);
-      await upsertFileNodesBatch(batch);
+      await filesGraph.upsertFileNodesBatch(batch);
       filesWritten += batch.length;
       nodesWritten += batch.length;
       for (const item of batch) {

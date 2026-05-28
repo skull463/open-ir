@@ -1,4 +1,4 @@
-export { Config } from "./config.ts";
+export { Config, DbProviderType, GraphProviderType } from "./config.ts";
 export { JobType, JobPriority } from "./job.ts";
 export type {
   GithubIndexPayload,
@@ -18,6 +18,44 @@ export type {
   KnowledgeInfo,
   KnowledgeSource,
   LocalKnowledgeSource,
+  KnowledgeListEntry,
+  CommitHashRecord,
+  TokenUsage,
+  UsageGuard,
 } from "./knowledge.ts";
 export type { StatsCommitEntry, StatsRepoEntry, StatsResponse, StatsTotals } from "./stats.ts";
 export type { UsageDoc, ActivityDoc, UsageIncrement, ActivityInput } from "./usage.ts";
+export type { FileAnalysisSection, FileAnalysis, RawFileDoc } from "./analysis.ts";
+export type { DeleteKnowledgeResult, DbPingResult } from "./database.ts";
+export type {
+  NodeScope,
+  RepoSummaryPayload,
+  UpsertRepoNodeInput,
+  FolderSummaryPayload,
+  UpsertFolderNodeInput,
+  SnapshotFilesInput,
+  UpsertFileNodeInput,
+  GraphPingResult,
+  ConceptEdgeKind,
+  ContractEdgeKind,
+  UpsertConceptInput,
+  AttachFileToConceptInput,
+  UpsertContractInput,
+  AttachFileToContractInput,
+  UpsertGuidepostInput,
+  AttachGuidepostInput,
+  UpsertTestsEdgeInput,
+} from "./graph.ts";
+export { ConceptKind, ContractKind, GuidepostKind } from "./graph.ts";
+export { EnrichmentState } from "./knowledge.ts";
+export type { EnrichmentFailure, EnrichmentFailureReason } from "./knowledge.ts";
+export { IngestionStrategyType } from "./config.ts";
+export {
+  orgsRootFor,
+  commitBaseDirFor,
+  repositoryDirFor,
+  metaOutputRootFor,
+  bytebellPathsFor,
+  parseGithubOwnerRepo,
+} from "./path-layout.ts";
+export type { RepoLocation, MetaPathsLayout } from "./path-layout.ts";

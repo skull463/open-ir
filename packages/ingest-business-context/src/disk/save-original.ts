@@ -16,7 +16,7 @@ export async function saveOriginalText(
   sanitizedTitle: string,
   text: string,
 ): Promise<string> {
-  const dir = businessContextDir(knowledgeId, commitHash, sanitizedTitle);
+  const dir = await businessContextDir(knowledgeId, commitHash, sanitizedTitle);
   await mkdir(dir, { recursive: true, mode: DIR_MODE });
   const filePath = path.join(dir, "original.txt");
   await writeFile(filePath, text, { encoding: "utf-8", mode: 0o600 });

@@ -1,15 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { logger } from "@bb/logger";
-import {
-  deleteFileNodes,
-  ensureFlatFolderIndexes,
-  upsertFileNode,
-  upsertFolderNode,
-  upsertRepoNode,
-  type NodeScope,
-} from "@bb/neo4j";
-import { deleteRawFiles } from "@bb/mongo";
+import { filesGraph, foldersGraph, repoGraph, indexesGraph } from "@bb/graph-db";
+import { rawDb } from "@bb/db";
 import type { GithubIndexPayload } from "@bb/types";
+import type { NodeScope } from "@bb/graph-core";
 import type { MetaPaths } from "#src/types/meta-paths.ts";
 import type { CondensedFileAnalysis } from "#src/types/condensed-file-analysis.ts";
 import { throwIfCancelled } from "#src/pipeline/cancellation.ts";
@@ -50,7 +44,7 @@ export interface StorePullResult {
  */
 export async function storePullAnalysis(input: StorePullInput): Promise<StorePullResult> {
   throwIfCancelled(input.scope.knowledgeId);
-  await ensureFlatFolderIndexes();
+  await indexesGraph.ensureFlatFolderIndexes();
 
   let filesUpserted = 0;
   let filesDeleted = 0;
@@ -58,15 +52,15 @@ export async function storePullAnalysis(input: StorePullInput): Promise<StorePul
 
   const deletedPaths: string[] = [...input.diff.deleted, ...input.diff.renamed.map((r) => r.oldPath)];
   if (deletedPaths.length > 0) {
-    await deleteFileNodes(input.scope.knowledgeId, deletedPaths);
-    await deleteRawFiles(input.scope.knowledgeId, deletedPaths);
+    await filesGraph.deleteFileNodes(input.scope.knowledgeId, deletedPaths);
+    await rawDb.deleteRawFiles(input.scope.knowledgeId, deletedPaths);
     filesDeleted = deletedPaths.length;
   }
 
   const repoSummary = await readRepoSummary(input.metaPaths);
   let repoUpserted = false;
   if (repoSummary !== null) {
-    await upsertRepoNode({
+    await repoGraph.upsertRepoNode({
       scope: input.scope,
       repoUrl: input.payload.repoUrl,
       branch: input.branch,
@@ -91,7 +85,7 @@ export async function storePullAnalysis(input: StorePullInput): Promise<StorePul
     if (!input.affectedFolders.has(folder.folderPath)) {
       continue;
     }
-    await upsertFolderNode({
+    await foldersGraph.upsertFolderNode({
       scope: input.scope,
       folderPath: folder.folderPath,
       summary: shapeFolderPayload(folder),
@@ -121,7 +115,7 @@ export async function storePullAnalysis(input: StorePullInput): Promise<StorePul
 
     const folderPath = directFolderOf(relativePath);
     if (!folderPaths.has(folderPath)) {
-      await upsertFolderNode({
+      await foldersGraph.upsertFolderNode({
         scope: input.scope,
         folderPath,
         summary: emptyFolderPayload(),
@@ -145,7 +139,7 @@ async function upsertFileNodeFromCondensed(
   folderPath: string,
   file: CondensedFileAnalysis,
 ): Promise<void> {
-  await upsertFileNode({
+  await filesGraph.upsertFileNode({
     orgId: scope.orgId,
     knowledgeId: scope.knowledgeId,
     repoId: scope.repoId,

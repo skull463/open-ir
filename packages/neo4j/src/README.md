@@ -75,6 +75,29 @@ branch / repoName / state / createdAt / updatedAt` (createdAt only on
     `snapshotFilesToVersion` first (this only touches `:File`, never
     `:FileVersion`).
 
+- **[concepts.ts](concepts.ts)** — ConceptGraphStrategy enrichment writes
+  for the `:Concept` node and its file-attaching edges. `upsertConcept`
+  MERGEs by `(orgId, knowledgeId, slug)`; `kind`/`rationale`/`createdAt`
+  are set `ON CREATE` only so the first writer's rationale survives
+  subsequent enrichment passes. `attachFileToConcept(input)` dispatches
+  on `input.edgeKind` (`HAS_CONCEPT` / `PLAYS_ROLE` /
+  `BELONGS_TO_DOMAIN`) — Cypher cannot parameterise the relationship
+  type in MERGE, so each variant has its own static query.
+  `upsertTestsEdge` lives here too (file-to-file `:TESTS`) because it
+  is an enrichment-time discovery, not part of the canonical file write
+  in `files.ts`. Every node and edge carries `enrichmentRunId`.
+- **[contracts.ts](contracts.ts)** — `:Contract` node + file-attaching
+  edges (`DEFINES` / `CONSUMES`). Same merge policy and dispatch
+  pattern as `concepts.ts`.
+- **[guideposts.ts](guideposts.ts)** — `:Guidepost` node + polymorphic
+  `:ABOUT` edge. `attachGuidepost` rejects ambiguous input: exactly one
+  of `targetFileRelativePath` / `targetConceptSlug` /
+  `targetContractSlug` must be set.
+- **[conceptGraphIndexes.ts](conceptGraphIndexes.ts)** —
+  `ensureConceptGraphIndexes()` runs the uniqueness constraints +
+  fulltext indexes for `:Concept` / `:Contract` / `:Guidepost`.
+  Tolerant of pre-existing schema in the same way as
+  `ensureKnowledgeIndexes()` / `ensureFlatFolderIndexes()`.
 - **[fileVersions.ts](fileVersions.ts)** — `snapshotFilesToVersion`
   copies every live `:File` into a `:FileVersion(commitHash)` snapshot
   before a pull overwrites the live set. The SET clause must mirror

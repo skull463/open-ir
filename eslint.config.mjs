@@ -16,6 +16,8 @@ export default [
       "**/*.d.ts",
       ".husky/_/**",
       "docs/**",
+      "**/*.js",
+      "**/*.d.ts",
     ],
   },
 

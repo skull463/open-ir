@@ -1,7 +1,7 @@
 import type { Request, Response, Router } from "express";
 import express from "express";
-import { deleteKnowledge } from "@bb/mongo";
-import { deleteKnowledgeGraph } from "@bb/neo4j";
+import { knowledgeDb } from "@bb/db";
+import { knowledgeGraph } from "@bb/graph-db";
 import { removeKnowledgeJobs } from "@bb/queue";
 import { KnowledgeNotFoundError } from "@bb/errors";
 
@@ -17,21 +17,21 @@ export function buildDeleteRoute(): Router {
     const removedJobs = await removeKnowledgeJobs(knowledgeId).catch(() => ({ removed: 0 }));
 
     try {
-      await deleteKnowledgeGraph(knowledgeId);
+      await knowledgeGraph.deleteKnowledgeGraph(knowledgeId);
     } catch (cause: unknown) {
       res.status(500).json({ error: `neo4j delete failed: ${describe(cause)}`, step: "neo4j" });
       return;
     }
 
-    let mongoResult: Awaited<ReturnType<typeof deleteKnowledge>>;
+    let mongoResult: Awaited<ReturnType<typeof knowledgeDb.deleteKnowledge>>;
     try {
-      mongoResult = await deleteKnowledge(knowledgeId);
+      mongoResult = await knowledgeDb.deleteKnowledge(knowledgeId);
     } catch (cause: unknown) {
       if (cause instanceof KnowledgeNotFoundError) {
         res.status(404).json({ error: cause.message });
         return;
       }
-      res.status(500).json({ error: `mongo delete failed: ${describe(cause)}`, step: "mongo" });
+      res.status(500).json({ error: `database delete failed: ${describe(cause)}`, step: "database" });
       return;
     }
 

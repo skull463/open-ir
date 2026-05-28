@@ -11,8 +11,18 @@ Domain (sub-folder of `@bb/ingest-github`).
 
 ## Files
 
-- `paths.ts` — `reposRoot()`, `repoCloneDir(knowledgeId)`, `ensureReposRoot()`,
-  `metaPathsFor(knowledgeId)`, `ensureMetaDirs(metaPaths)`, plus
+- `paths.ts` — commit-scoped on-disk layout resolver. `pathsFor(loc:
+RepoLocation)` is the pure path builder (delegates to `bytebellPathsFor`
+  in `@bb/types`). Every per-commit artifact lives under
+  `~/.bytebell/orgs/<orgId>/<provider>/<knowledgeId>/<owner>/<repo>/<commit>/`
+  with the clone in `repository/` and meta in `meta-output/`. For local
+  knowledges the owner/repo segments collapse:
+  `orgs/<orgId>/local/<knowledgeId>/<syntheticCommit>/`. The
+  knowledgeId-keyed helpers (`metaRootFor`, `businessContextDir`,
+  `orgRegistryDir`) are async — they look up `KnowledgeDoc` from Mongo to
+  derive the active `RepoLocation` before resolving the path. The legacy
+  `repos/<id>/` + `repos/.meta/<id>/` layout is gone; `bytebell migrate
+paths` walks old data into the new tree. Also exports
   `encodeMetaPath`/`decodeMetaPath` (slash/backslash → `__SL__`/`__BS__` so
   paths flatten to one file on disk).
 - `source.ts` — `syncRepository({ repoUrl, branch, destinationDir, gitToken? })`.
@@ -82,7 +92,15 @@ deps.skipDecider.decide(input)` per file. Same semantics as before this
   runner emits `failed(message)` only when the strategy has not yet
   started — once `strategy.execute` is reached, the strategy owns
   terminal emission and the runner stays silent to avoid double-FAILED.
-- `pull.ts` — `runPull(msg, pullFactory?, progressContextFactory?)` orchestrates the pull job. Returns `Promise<PipelineSummary>` (was `Promise<void>`); the returned `tokenUsage` carries `inputTokens`, `outputTokens`, and `costUsd` summed across the pull phases for callers (e.g. the enterprise queue bridge) that need to mirror the run into a knowledge record.
+  When the caller supplies an `IngestRunnerInput.usageGuard` (optional),
+  the runner forwards it onto `StrategyInput.usageGuard` so the strategy
+  can call `onPhaseComplete` between phases; if the strategy raises
+  `UsageLimitExceededError`, the catch block invokes
+  `usageGuard.flushPartial(cumulative)` before `classifyFailure` runs and
+  `persistFailure` stamps category `usage_limit_exceeded`. With no guard
+  wired the catch path is identical to today.
+- `pull.ts` — `runPull(msg, pullFactory?, progressContextFactory?, usageGuard?)` orchestrates the pull job. Returns `Promise<PipelineSummary>` (was `Promise<void>`); the returned `tokenUsage` carries `inputTokens`, `outputTokens`, and `costUsd` summed across the pull phases for downstream callers that need to mirror the run into a knowledge record. Delegates the disk-fallback source/target resolution to `pull-source-resolver.ts` so the orchestrator stays under the file-size cap.
+- `pull-source-resolver.ts` — `resolvePullSourceFromDisk(input)` builds a `SourceReader` + `DiffResult` + `targetCommit` triple by cloning (or fetch+resetting), reading branch HEAD, materialising the shallow clone, asserting branch ancestry, computing the diff, and checking out the target. Returns `{ noOp: true }` when the resolved target matches the previously-indexed commit so the caller can short-circuit to `PROCESSED`. Used only when `runPull`'s caller did not supply a `PullFactory`.
   Reads `repoUrl` and `branch` directly off `knowledge.info.*` (loaded via
   `@bb/mongo.getKnowledge`). The `KnowledgeSource` discriminator (`kind`) is
   still read off `knowledge.source` along with `commitId`/`commitHashes`, but
@@ -102,7 +120,12 @@ archiveSink?}` and `runPull` skips `syncRepository` + `materialiseEndpoints`
     `file_analysis` / `folder_analysis` / `indexing` boundaries, threads
     the context into every phase that takes a `progressContext?` field,
     and finishes with `completed()` on success or `failed(message)` on a
-    non-`CancellationError` throw.
+    non-`CancellationError` throw. When an optional `usageGuard` is
+    supplied, `runPull` invokes `onPhaseComplete(phase, cumulative)` after
+    each token-consuming phase (`file_analysis_changed`,
+    `big_file_analysis`, `folder_analysis`, `repo_summary`) and, on a
+    raised `UsageLimitExceededError`, calls `flushPartial(cumulative)`
+    before persisting the FAILED state.
 - `stats.ts` — small shared helpers: `repoNameFromUrl` parses an owner/repo
   display name out of a GitHub URL with a graceful fallback, `localRepoName`
   derives a name from a local path, and `describe` flattens an `unknown`
@@ -114,14 +137,19 @@ archiveSink?}` and `runPull` skips `syncRepository` + `materialiseEndpoints`
   OpenRouter's `response.usage.cost`.
 - `failure-classifier.ts` — `classifyFailure(cause)` returns
   `{ reason, category, detail? }` for any thrown ingestion error.
-  `LlmConfigError` → `llm_config`. `LlmError` is subdivided by its
-  `status` field: `401`/`403` → `llm_auth`, `402` → `llm_quota`, `429` →
-  `llm_rate_limit`, `5xx`/no-status → `llm_unreachable`. Anything else →
-  `internal`. Each category produces a single short operator-readable
-  `reason` sentence; the raw provider response body lives in `detail`.
-  Used by `run.ts`/`pull.ts` catch blocks (Mongo persistence via
-  `markKnowledgeFailed`) and `strategies/flat-folder/index.ts` (SSE event
-  via `progressContext.failed`) so both paths share one classification.
+  `UsageLimitExceededError` → `usage_limit_exceeded` with the
+  operator-readable reason "LLM token limit reached. Partial indexing was
+  saved. Upgrade your plan to continue." and a `detail` carrying
+  `phase=<...> current=<...> max=<...> cumulativeTokens=<...>` for
+  triage. `LlmConfigError` → `llm_config`. `LlmError` is subdivided by
+  its `status` field: `401`/`403` → `llm_auth`, `402` → `llm_quota`,
+  `429` → `llm_rate_limit`, `5xx`/no-status → `llm_unreachable`. Anything
+  else → `internal`. Each category produces a single short
+  operator-readable `reason` sentence; the raw provider response body
+  lives in `detail`. Used by `run.ts`/`pull.ts` catch blocks (Mongo
+  persistence via `markKnowledgeFailed`) and
+  `strategies/flat-folder/index.ts` (SSE event via
+  `progressContext.failed`) so both paths share one classification.
 - `context.ts` — shared helpers to resolve pipeline organization IDs and parse
   optional LLM context parameter overrides from payload messages:
   `resolveOrgId(payload)` returns `payload.orgId ?? getConfigValue(Config.OrgId)`

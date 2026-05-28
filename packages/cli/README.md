@@ -180,6 +180,21 @@ will touch when implemented. Only the **bolded** entries ship in v0.
 | `bytebell infra up \| down \| status \| logs`    | Thin wrapper over `docker compose` for users who want explicit infra control                                         | If usage demands it post-v0                 |
 | `bytebell update`                                | Detect install method, run matching update, restart server                                                           | Release-engineering follow-up               |
 
+## Migrations
+
+- `bytebell migrate paths [--dry-run]` — one-shot move of the legacy
+  on-disk layout (`~/.bytebell/repos/<id>/` for clones,
+  `~/.bytebell/repos/.meta/<id>/...` for meta) into the commit-scoped tree
+  (`~/.bytebell/orgs/<orgId>/<provider>/<knowledgeId>/<owner>/<repo>/<commit>/...`).
+  The server boot guard refuses to start while `repos/.meta/` exists and is
+  non-empty, so this is the unblocking step after upgrading. `--dry-run`
+  prints the planned moves without touching disk. Reads `KnowledgeDoc` from
+  Mongo to derive each knowledge's `(orgId, owner, repo, commitId)`;
+  knowledges that predate commit tracking (no `source.commitId`) or have no
+  `info.repoUrl` are skipped with a per-id reason and need manual
+  `bytebell delete` + re-index. Local-source knowledges keep their original
+  `source.sourcePath` untouched; only their `meta-output` tree moves.
+
 ## What is intentionally out of scope (v0)
 
 - Every TUI surface in the table above except `set` and the help/version

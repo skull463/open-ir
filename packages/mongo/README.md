@@ -43,6 +43,17 @@ The package owns:
   `processing_stats` collection has been removed — per-commit token +
   cost data lives on the knowledge document's `source.commitHashes[]`
   instead.
+- Enrichment ledger for ConceptGraphStrategy (`enrichment.ts`):
+  `startEnrichmentRun(knowledgeId, runId)`,
+  `markFileEnriched(knowledgeId, path)`,
+  `recordEnrichmentFailure(knowledgeId, failure)`,
+  `completeEnrichmentRun(knowledgeId)`,
+  `failEnrichmentRun(knowledgeId)`. State lives on the existing
+  `KnowledgeDoc` (`enrichmentRunId`, `enrichmentState`,
+  `completedFiles[]`, `enrichmentFailures[]`) — no new collection.
+  `KnowledgeDoc.status.state` itself stays `PROCESSING` until enrichment
+  reports `Completed`; this ledger tracks the per-file resume state so
+  retries skip already-enriched files.
 
 The package does **not** own:
 

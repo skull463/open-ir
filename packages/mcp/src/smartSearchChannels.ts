@@ -1,4 +1,4 @@
-import { runCypher } from "@bb/neo4j";
+import { runCypher } from "@bb/graph-db";
 import { EXCLUSION_WHERE } from "./searchExclusions.ts";
 
 export interface ScoredHit {
@@ -9,6 +9,13 @@ export interface ScoredHit {
 
 export interface SearchParams extends Record<string, unknown> {
   knowledgeId: string | null;
+  /**
+   * Allowlist of knowledge IDs to constrain results to. When set, intersects
+   * with `knowledgeId` if that's also set. When both are null, the search is
+   * unscoped (cross-repo). Used by ConceptGraphStrategy enrichment to query
+   * its own in-flight knowledge plus any cross-repo neighbours.
+   */
+  knowledgeIds: string[] | null;
   pathPrefix: string | null;
   queryTerms: string[];
   fulltextQuery: string;
@@ -25,6 +32,7 @@ interface RowShape {
 
 const SHARED_FILE_FILTERS = `
   ($knowledgeId IS NULL OR f.knowledgeId = $knowledgeId)
+  AND ($knowledgeIds IS NULL OR f.knowledgeId IN $knowledgeIds)
   AND ($pathPrefix IS NULL OR f.relativePath STARTS WITH $pathPrefix)
 ${EXCLUSION_WHERE}`;
 
@@ -48,7 +56,7 @@ async function chPurpose(params: SearchParams): Promise<ScoredHit[]> {
     WITH f, score ORDER BY score DESC LIMIT $resultCap
     ${COLLECT_RETURN}
   `;
-  return toScoredHits(await runCypher<RowShape>(cypher, params));
+  return toScoredHits((await runCypher(cypher, params)) as RowShape[]);
 }
 
 async function chPaths(params: SearchParams): Promise<ScoredHit[]> {
@@ -72,7 +80,7 @@ async function chPaths(params: SearchParams): Promise<ScoredHit[]> {
       ORDER BY score DESC, f.relativePath LIMIT $resultCap
       ${COLLECT_RETURN}
     `;
-  return toScoredHits(await runCypher<RowShape>(cypher, params));
+  return toScoredHits((await runCypher(cypher, params)) as RowShape[]);
 }
 
 async function chKeywords(params: SearchParams): Promise<ScoredHit[]> {
@@ -85,7 +93,7 @@ async function chKeywords(params: SearchParams): Promise<ScoredHit[]> {
     ORDER BY score DESC LIMIT $resultCap
     ${COLLECT_RETURN}
   `;
-  return toScoredHits(await runCypher<RowShape>(cypher, params));
+  return toScoredHits((await runCypher(cypher, params)) as RowShape[]);
 }
 
 async function chClasses(params: SearchParams): Promise<ScoredHit[]> {
@@ -111,7 +119,7 @@ async function symbolChannel(
     ORDER BY score DESC LIMIT $resultCap
     ${COLLECT_RETURN}
   `;
-  return toScoredHits(await runCypher<RowShape>(cypher, params));
+  return toScoredHits((await runCypher(cypher, params)) as RowShape[]);
 }
 
 async function chImportsInternal(params: SearchParams): Promise<ScoredHit[]> {
@@ -135,7 +143,7 @@ async function importsChannel(
     ORDER BY f.relativePath LIMIT $resultCap
     ${COLLECT_RETURN}
   `;
-  return toScoredHits(await runCypher<RowShape>(cypher, params));
+  return toScoredHits((await runCypher(cypher, params)) as RowShape[]);
 }
 
 async function chBusinessContext(params: SearchParams): Promise<ScoredHit[]> {
@@ -146,7 +154,7 @@ async function chBusinessContext(params: SearchParams): Promise<ScoredHit[]> {
     WITH f, score ORDER BY score DESC LIMIT $resultCap
     ${COLLECT_RETURN}
   `;
-  return toScoredHits(await runCypher<RowShape>(cypher, params));
+  return toScoredHits((await runCypher(cypher, params)) as RowShape[]);
 }
 
 export type ChannelName =

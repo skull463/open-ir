@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@bb/config": "workspace:*",
+    "@bb/db": "workspace:*",
     "@bb/errors": "workspace:*",
     "@bb/mongo": "workspace:*",
     "@bb/redis": "workspace:*",

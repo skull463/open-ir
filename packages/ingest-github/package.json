@@ -11,14 +11,23 @@
   "imports": {
     "#src/*": "./src/*"
   },
+  "scripts": {
+    "test": "bun test"
+  },
   "dependencies": {
     "@bb/config": "workspace:*",
+    "@bb/db": "workspace:*",
     "@bb/errors": "workspace:*",
+    "@bb/graph-db": "workspace:*",
     "@bb/llm": "workspace:*",
     "@bb/logger": "workspace:*",
+    "@bb/mcp": "workspace:*",
     "@bb/mongo": "workspace:*",
+    "@bb/sqlite": "workspace:*",
     "@bb/neo4j": "workspace:*",
     "@bb/queue": "workspace:*",
+    "@bb/db-core": "workspace:*",
+    "@bb/graph-core": "workspace:*",
     "@bb/types": "workspace:*"
   }
 }

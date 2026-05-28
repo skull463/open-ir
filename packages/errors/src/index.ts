@@ -3,6 +3,14 @@ export { KnowledgeNotFoundError, MongoConfigError, MongoConnectError, MongoNotCo
 export { RedisConfigError, RedisConnectError, RedisNotConnectedError } from "./redis-errors.ts";
 export { QueueConnectError, QueueNotConnectedError } from "./queue-errors.ts";
 export { LlmConfigError, LlmError } from "./llm-errors.ts";
-export { CancellationError, GitCloneError, IngestError, IngestPathError } from "./ingest-errors.ts";
+export {
+  CancellationError,
+  GitCloneError,
+  IngestError,
+  IngestPathError,
+  UsageLimitExceededError,
+} from "./ingest-errors.ts";
+export type { UsageLimitExceededDetail } from "./ingest-errors.ts";
 export { ServerConfigError } from "./server-errors.ts";
 export { Neo4jConfigError, Neo4jConnectError, Neo4jNotConnectedError } from "./neo4j-errors.ts";
+export { LayoutMigrationRequiredError } from "./layout-errors.ts";

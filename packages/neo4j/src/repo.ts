@@ -1,4 +1,5 @@
 import { _runCypher } from "./client.ts";
+import { repoNameFromGithubUrl } from "./knowledge.ts";
 
 export interface NodeScope {
   orgId: string;
@@ -23,7 +24,21 @@ export interface UpsertRepoNodeInput {
   summary: RepoSummaryPayload;
 }
 
+// Dual-writes :Knowledge (snake_case) alongside :Repo so the chat-mcp
+// list_knowledge reader (which queries (:Knowledge {org_id})) finds every
+// ingested repo. The :Knowledge node also carries the camelCase knowledgeId
+// property so a later upsertKnowledgeNode() call MERGEs into the same node
+// rather than creating a duplicate.
 const UPSERT_REPO = `
+MERGE (k:Knowledge {knowledge_id: $knowledgeId})
+ON CREATE SET k.created_at = $updatedAt
+SET k.org_id = $orgId,
+    k.knowledgeId = $knowledgeId,
+    k.repository_name = $repoName,
+    k.repo_name = $repoName,
+    k.display_name = $repoName,
+    k.branch_name = $branch,
+    k.updated_at = $updatedAt
 MERGE (r:Repo {orgId: $orgId, knowledgeId: $knowledgeId, repoId: $repoId})
 SET r.repoUrl = $repoUrl,
     r.branch = $branch,
@@ -34,8 +49,6 @@ SET r.repoUrl = $repoUrl,
     r.majorSubsystems = $majorSubsystems,
     r.keyPatterns = $keyPatterns,
     r.updatedAt = $updatedAt
-WITH r
-MATCH (k:Knowledge {knowledgeId: $knowledgeId})
 MERGE (k)-[:HAS_REPO]->(r)
 `;
 
@@ -58,6 +71,7 @@ export async function upsertRepoNode(input: UpsertRepoNodeInput): Promise<void> 
     knowledgeId: scope.knowledgeId,
     repoId: scope.repoId,
     repoUrl: input.repoUrl,
+    repoName: repoNameFromGithubUrl(input.repoUrl),
     branch: input.branch,
     purpose: input.summary.purpose,
     summary: input.summary.summary,

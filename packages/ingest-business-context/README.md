@@ -50,5 +50,10 @@ The package consumes `JobType.BusinessContextProcessing` jobs. For each job it:
   same string will MERGE onto the same node — by design.
 - No outbound calls. No GitHub-API lookups. The strategy never clones or pulls — it operates on
   the meta-output already produced by `@bb/ingest-github` for the indexed commit.
-- All disk writes scoped under `metaRootFor(knowledgeId)/commits/<commitHash>/business-context/`
-  via the `@bb/ingest-github` path helpers — this package never invents its own layout.
+- All disk writes scoped under
+  `<orgs>/<orgId>/<provider>/<knowledgeId>/<owner>/<repo>/<commitHash>/meta-output/business-context/`
+  via the `@bb/ingest-github` path helpers (`businessContextDir(knowledgeId,
+commitHash, slug)`) — this package never invents its own layout. The
+  helper is **async**: it reads `KnowledgeDoc` from Mongo to derive
+  `(orgId, owner, repo)` from `info.repoUrl`, then resolves the
+  commit-scoped path. Every call site awaits.

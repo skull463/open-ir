@@ -37,7 +37,7 @@ if ! command -v docker &>/dev/null; then
   exit 1
 fi
 
-if ! docker info &>/dev/null 2>&1; then
+if ! timeout 5 docker info &>/dev/null 2>&1; then
   print_err "Docker is installed but not running. Start Docker Desktop and retry."
   exit 1
 fi

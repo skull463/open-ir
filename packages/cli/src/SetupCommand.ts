@@ -7,8 +7,9 @@ import { getBytebellHome, getConfigValue } from "@bb/config";
 import { InstallWizard, type InstallWizardResult } from "./InstallWizard.tsx";
 import { KEY_MAP } from "./keyMap.ts";
 import { ensureServerRunning, ServerStartTimeoutError } from "./serverSpawn.ts";
-import { getJson, postJson, HttpClientError } from "./httpClient.ts";
-import { success, error, info, createSpinner, createProgressBar, type ProgressBar } from "./output.ts";
+import { postJson, HttpClientError } from "./httpClient.ts";
+import { success, error, info, createSpinner } from "./output.ts";
+import { pollIndexToCompletion, type IndexResponse } from "./indexPoller.ts";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
@@ -35,9 +36,10 @@ async function runSetup(): Promise<void> {
     return;
   }
   if (result.indexUrl !== undefined) {
-    await kickIndex(result.indexUrl);
+    await startIndex(result.indexUrl);
   } else {
-    success("Connect Claude Code:\n  claude mcp add --transport http bytebell http://127.0.0.1:8080/mcp");
+    const port = getConfigValue(Config.ServerPort);
+    success(`Connect Claude Code:\n  claude mcp add --transport http bytebell http://127.0.0.1:${port}/mcp`);
   }
 }
 
@@ -142,8 +144,6 @@ async function stopRunningServer(): Promise<void> {
 async function boot(): Promise<boolean> {
   const spinner = createSpinner("Starting ByteBell server...");
   try {
-    // Always stop any running server so the freshly installed binary is used
-    // and the new config written by applyConfig is read from disk on startup.
     spinner.update("Stopping any running server...");
     await stopRunningServer();
     const ctx = await ensureServerRunning((line) => spinner.update(`Server: ${line}`));
@@ -163,20 +163,7 @@ async function boot(): Promise<boolean> {
   }
 }
 
-interface IndexResponse {
-  knowledgeId: string;
-  jobId: string;
-}
-
-interface RepoStatus {
-  state: string;
-  fileCount: number;
-  totalFiles?: number;
-  processedFiles?: number;
-  failure?: { reason: string; category: string; detail?: string } | null;
-}
-
-async function kickIndex(repoUrl: string): Promise<void> {
+async function startIndex(repoUrl: string): Promise<void> {
   let res: IndexResponse;
   try {
     res = await postJson<IndexResponse>("/api/v1/github/index", { repoUrl });
@@ -189,58 +176,8 @@ async function kickIndex(repoUrl: string): Promise<void> {
     return;
   }
 
-  const { knowledgeId } = res;
-  const spinner = createSpinner(`Indexing ${repoUrl}...`);
-  let bar: ProgressBar | null = null;
+  await pollIndexToCompletion(res.knowledgeId, res.jobId);
 
-  while (true) {
-    try {
-      const status = await getJson<RepoStatus>(`/api/v1/repos/${knowledgeId}`);
-
-      if (status.totalFiles !== undefined && status.totalFiles > 0) {
-        if (bar === null) {
-          spinner.stop(true, `Ingesting ${knowledgeId}`);
-          bar = createProgressBar(`Ingesting ${knowledgeId}`);
-        }
-        bar.update(status.processedFiles ?? 0, status.totalFiles, `Ingesting ${knowledgeId}`);
-      } else {
-        spinner.update(`Indexing: ${status.state}${status.fileCount > 0 ? ` (${status.fileCount} files)` : ""}`);
-      }
-
-      if (status.state === "PROCESSED") {
-        const msg = `Successfully indexed ${knowledgeId} (${status.fileCount} files)`;
-        if (bar !== null) {
-          bar.stop(true, msg);
-        } else {
-          spinner.stop(true, msg);
-        }
-        success(`Connect Claude Code:\n  claude mcp add --transport http bytebell http://127.0.0.1:8080/mcp`);
-        return;
-      }
-      if (status.state === "FAILED") {
-        const failMsg = status.failure?.reason ?? "unknown error";
-        if (bar !== null) {
-          bar.stop(false, `Indexing failed: ${failMsg}`);
-        } else {
-          spinner.stop(false, `Indexing failed: ${failMsg}`);
-        }
-        if (status.failure) {
-          error(`category: ${status.failure.category}`);
-          if (status.failure.detail) {
-            error(`detail:   ${status.failure.detail}`);
-          }
-        }
-        return;
-      }
-    } catch (cause: unknown) {
-      const msg = `Failed to poll status: ${cause instanceof Error ? cause.message : String(cause)}`;
-      if (bar !== null) {
-        bar.stop(false, msg);
-      } else {
-        spinner.stop(false, msg);
-      }
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-  }
+  const port = getConfigValue(Config.ServerPort);
+  success(`Connect Claude Code:\n  claude mcp add --transport http bytebell http://127.0.0.1:${port}/mcp`);
 }

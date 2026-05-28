@@ -20,9 +20,17 @@ The user-facing terminal UI for Bytebell. Arch-spec'd at
 mode, every invocation is interactive in spirit, with subcommands for
 indexing, configuration, server lifecycle, and inspection.
 
-**v0 surface:** `set`, `boot`, `shutdown`, `server start`, `index`,
+**v0 surface:** `setup`, `set`, `boot`, `shutdown`, `server start`, `index`,
 `ingest`, `ls`, `delete`, `stats`.
 
+- `bytebell setup` — interactive first-run wizard. Presents an Ink multi-stage
+  form: (1) pick LLM provider (`openrouter` | `ollama`), (2) enter credentials /
+  model, (3) optionally supply a GitHub repo URL to index after boot, (4) confirm.
+  On confirm: applies config via `KEY_MAP` setters (same path as `bytebell set`),
+  stops any running server, starts a fresh server, prints the MCP endpoint, and
+  if a repo URL was given kicks `POST /api/v1/github/index` then polls to
+  completion via the shared `pollIndexToCompletion()` helper. Requires an
+  interactive TTY; exits with an error otherwise.
 - `bytebell set <key> <value>` — headless write to
   `~/.bytebell/config.json` via `@bb/config.setConfigValue`. Type
   coercion + Zod validation + atomic `tmp → fsync → rename`. Sole
@@ -159,6 +167,7 @@ will touch when implemented. Only the **bolded** entries ship in v0.
 
 | Invocation                                       | Behavior                                                                                                             | When it lands                               |
 | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| **`bytebell setup`**                             | **First-run wizard: pick LLM provider, configure keys/model, boot server, optionally kick index. v0.**               | **Shipped**                                 |
 | **`bytebell set <key> <value>`**                 | **Headless write via `setConfigValue`. v0.**                                                                         | **Shipped**                                 |
 | **`bytebell set`**                               | **Ink setup form (6 infra fields). v0.**                                                                             | **Shipped**                                 |
 | **`bytebell boot`**                              | **Pre-flight + auto-fill infra keys + `docker compose up -d` + spawn server.**                                       | **Shipped**                                 |
@@ -208,6 +217,13 @@ will touch when implemented. Only the **bolded** entries ship in v0.
   `2` = uncaught crash)
 
 ## How to extend
+
+Key source files added in the `setup` command:
+
+- `src/SetupCommand.ts` — commander entry point for `bytebell setup`; orchestrates wizard → config apply → boot → optional index.
+- `src/InstallWizard.tsx` — Ink multi-stage wizard component (provider picker + stage routing).
+- `src/InstallWizardStages.tsx` — `FieldsStage`, `RepoStage`, `ConfirmStage` sub-components (split from `InstallWizard.tsx` to honour the 300-line rule).
+- `src/indexPoller.ts` — shared `pollIndexToCompletion()` used by both `IndexCommand.ts` and `SetupCommand.ts`; also exports the `IndexResponse` and `RepoStatus` types so neither command duplicates them.
 
 Adding a new subcommand:
 

@@ -2,17 +2,13 @@ import { Command } from "commander";
 import { Config } from "@bb/types";
 import { getConfigValue } from "@bb/config";
 import { ensureServerRunning, ServerStartTimeoutError } from "./serverSpawn.ts";
-import { getJson, HttpClientError, postJson } from "./httpClient.ts";
-import { createProgressBar, createSpinner, error, info, list, type ProgressBar } from "./output.ts";
+import { HttpClientError, postJson } from "./httpClient.ts";
+import { createSpinner, error, info, list } from "./output.ts";
 import { startLogTailer, type LogTailer } from "./logTailer.ts";
 import { promptForToken } from "./pullPrompts.ts";
 import { promptInitialBranch, promptFullBranchSelector } from "./branchPrompts.ts";
 import { parseGithubRepo } from "@bb/ingest-github";
-
-interface IndexResponse {
-  knowledgeId: string;
-  jobId: string;
-}
+import { pollIndexToCompletion, type IndexResponse } from "./indexPoller.ts";
 
 export function buildIndexCommand(): Command {
   const cmd = new Command("index");
@@ -67,84 +63,13 @@ async function runIndex(
       body["gitToken"] = activeToken;
     }
     const response = await postJson<IndexResponse>("/api/v1/github/index", body);
-    await pollJobStatus(response.knowledgeId, response.jobId);
+    await pollIndexToCompletion(response.knowledgeId, response.jobId);
   } catch (cause: unknown) {
     handleError(cause);
   } finally {
     if (tailer !== null) {
       await tailer.stop();
     }
-  }
-}
-
-interface RepoFailure {
-  reason: string;
-  category: string;
-  at: string;
-  detail?: string;
-}
-
-interface RepoStatus {
-  knowledgeId: string;
-  state: string;
-  fileCount: number;
-  totalFiles?: number;
-  processedFiles?: number;
-  failure?: RepoFailure | null;
-}
-
-async function pollJobStatus(knowledgeId: string, jobId: string): Promise<void> {
-  const spinner = createSpinner(`Indexing knowledge ${knowledgeId} (job ${jobId})...`);
-  let bar: ProgressBar | null = null;
-  const pollInterval = 1500;
-
-  while (true) {
-    try {
-      const status = await getJson<RepoStatus>(`/api/v1/repos/${knowledgeId}`);
-
-      if (status.totalFiles !== undefined && status.totalFiles > 0) {
-        if (bar === null) {
-          spinner.stop(true, `Starting ingestion for ${knowledgeId}`);
-          bar = createProgressBar(`Ingesting ${knowledgeId}`);
-        }
-        bar.update(status.processedFiles ?? 0, status.totalFiles, `Ingesting ${knowledgeId}`);
-      } else {
-        spinner.update(`Indexing: ${status.state}${status.fileCount > 0 ? ` (${status.fileCount} files)` : ""}`);
-      }
-
-      if (status.state === "PROCESSED") {
-        if (bar) {
-          bar.stop(true, `Successfully indexed ${knowledgeId} (${status.fileCount} files)`);
-        } else {
-          spinner.stop(true, `Successfully indexed ${knowledgeId} (${status.fileCount} files)`);
-        }
-        return;
-      }
-      if (status.state === "FAILED") {
-        const failMsg = status.failure?.reason ?? "unknown error";
-        if (bar) {
-          bar.stop(false, `Indexing failed: ${failMsg}`);
-        } else {
-          spinner.stop(false, `Indexing failed: ${failMsg}`);
-        }
-        if (status.failure) {
-          error(`category: ${status.failure.category}`);
-          if (status.failure.detail) {
-            error(`detail:   ${status.failure.detail}`);
-          }
-        }
-        return;
-      }
-    } catch (cause: unknown) {
-      const msg = `Failed to poll status: ${cause instanceof Error ? cause.message : String(cause)}`;
-      if (bar) {
-        bar.stop(false, msg);
-      } else {
-        spinner.stop(false, msg);
-      }
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, pollInterval));
   }
 }
 

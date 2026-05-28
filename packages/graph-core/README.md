@@ -13,9 +13,12 @@ Defines the contract that every graph database backend (Neo4j, etc.) must implem
 - `IGraphFileRepository` — file node upsert, delete, version snapshot
 - `IGraphFolderRepository` — folder node upsert
 - `IGraphRepoRepository` — repo node upsert
-- `IGraphIndexRepository` — index creation
+- `IGraphIndexRepository` — index creation (`ensureKnowledgeIndexes`, `ensureFlatFolderIndexes`, `ensureConceptGraphIndexes`)
+- `IGraphConceptRepository` — `:Concept` node + concept-attaching edges (`HAS_CONCEPT` / `PLAYS_ROLE` / `BELONGS_TO_DOMAIN`) + file-to-file `:TESTS` edge. Used by ConceptGraphStrategy enrichment.
+- `IGraphContractRepository` — `:Contract` node + `DEFINES` / `CONSUMES` edges
+- `IGraphGuidepostRepository` — `:Guidepost` node + polymorphic `ABOUT` edge
 - `GraphPingResult` — health probe result shape
-- Input types: `NodeScope`, `UpsertFileNodeInput`, `UpsertFolderNodeInput`, `UpsertRepoNodeInput`, `SnapshotFilesInput`, and summary payload types
+- Input types: `NodeScope`, `UpsertFileNodeInput`, `UpsertFolderNodeInput`, `UpsertRepoNodeInput`, `SnapshotFilesInput`, summary payload types, and concept-graph inputs (`UpsertConceptInput`, `AttachFileToConceptInput`, `UpsertContractInput`, `AttachFileToContractInput`, `UpsertGuidepostInput`, `AttachGuidepostInput`, `UpsertTestsEdgeInput`)
 
 ## Data Ownership
 

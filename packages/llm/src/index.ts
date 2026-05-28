@@ -4,3 +4,11 @@ export { askJsonLLM, askYesNoLLM, tryParseJson, stripJsonFence } from "./jsonCli
 export type { AskJsonLlmOptions, AskJsonLlmResult, AskYesNoLlmResult } from "./jsonClient.ts";
 export { tokenLen, encodeTokens, decodeTokens } from "./tokenizer.ts";
 export { UsageTracker } from "./usageTracker.ts";
+export { askLLMWithTools } from "./toolLoop.ts";
+export type {
+  AskLLMWithToolsOptions,
+  AskLLMWithToolsResult,
+  LoopTerminationReason,
+  ToolDefinition,
+  ToolInvocation,
+} from "./toolTypes.ts";

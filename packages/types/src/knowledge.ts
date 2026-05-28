@@ -48,6 +48,7 @@ export interface KnowledgeInfo {
  * - `llm_rate_limit` — 429, transient — could be retried later by operator
  * - `llm_unreachable` — 5xx / network / timeout (transient infra issue)
  * - `cancelled` — operator-initiated cancellation
+ * - `usage_limit_exceeded` — downstream subscription quota tripped mid-run; partial usage was charged
  * - `internal` — anything else (bug, infra, unexpected exception)
  */
 export type KnowledgeFailureCategory =
@@ -57,7 +58,37 @@ export type KnowledgeFailureCategory =
   | "llm_rate_limit"
   | "llm_unreachable"
   | "cancelled"
+  | "usage_limit_exceeded"
   | "internal";
+
+/**
+ * Cumulative token totals consumed by an ingestion run. Mirrors the shape
+ * returned by the per-phase analyzers (`StrategyResult.tokenUsage`) — the
+ * three fields are identical so a guard implementation can compare or
+ * persist them without further reshaping.
+ */
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+}
+
+/**
+ * Optional callback contract for enforcing downstream usage limits during a
+ * pipeline run. OSS itself never constructs an instance — the enterprise
+ * wrapper supplies one when wiring `runner.run(...)` / `runPull(...)`.
+ *
+ * The pipeline calls `onPhaseComplete` after every token-consuming phase
+ * with the cumulative tokens consumed by *this* job so far. If the guard
+ * decides the user is over budget it throws a typed error (OSS catches it
+ * by class, not by category), at which point the pipeline calls
+ * `flushPartial` with the same cumulative figure so the partial usage is
+ * persisted before the failure surfaces.
+ */
+export interface UsageGuard {
+  onPhaseComplete(phase: string, cumulative: TokenUsage): Promise<void>;
+  flushPartial(cumulative: TokenUsage): Promise<void>;
+}
 
 export interface KnowledgeFailure {
   /** Short, operator-readable sentence. UI can render this directly. */
@@ -66,6 +97,28 @@ export interface KnowledgeFailure {
   at: Date;
   /** Raw provider response or structured detail for debugging. May be long. */
   detail?: string;
+}
+
+/**
+ * State machine for the ConceptGraphStrategy enrichment phase. Independent
+ * of `KnowledgeState` — a knowledge stays in `PROCESSING` until enrichment
+ * reaches `Completed`, then transitions to `PROCESSED`.
+ */
+export enum EnrichmentState {
+  Pending = "pending",
+  Running = "running",
+  Completed = "completed",
+  Failed = "failed",
+}
+
+export type EnrichmentFailureReason = "cap-exceeded" | "validation-failed" | "provider-error";
+
+export interface EnrichmentFailure {
+  filePath: string;
+  reason: EnrichmentFailureReason;
+  attemptCount: number;
+  lastError: string;
+  lastAttemptAt: Date;
 }
 
 export interface KnowledgeDoc {
@@ -80,6 +133,19 @@ export interface KnowledgeDoc {
    * automatically on the next successful transition out of FAILED.
    */
   failure?: KnowledgeFailure;
+  /**
+   * Set when this knowledge is being / has been processed by
+   * ConceptGraphStrategy. Absent for legacy flat-folder knowledges. The
+   * worker writes a fresh UUID at the start of each enrichment attempt
+   * and threads it through every `:Concept` / `:Contract` / `:Guidepost`
+   * + edge it upserts so a single run is queryable end-to-end.
+   */
+  enrichmentRunId?: string;
+  enrichmentState?: EnrichmentState;
+  /** Relative paths of files that have completed enrichment in this run. */
+  completedFiles?: string[];
+  /** Per-file failure diagnostics. Cleared on a fresh enrichment run. */
+  enrichmentFailures?: EnrichmentFailure[];
 }
 
 export interface KnowledgeListEntry extends KnowledgeDoc {

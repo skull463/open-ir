@@ -53,6 +53,14 @@ The package owns:
   single file used to cost.
 - Folder-node CRUD (`upsertFolderNode`, `upsertFolderNodesBatch`) —
   same shape as file CRUD; batched variant for bulk indexing.
+- Concept-graph CRUD (ConceptGraphStrategy) — `upsertConcept`,
+  `attachFileToConcept` (dispatches HAS_CONCEPT / PLAYS_ROLE /
+  BELONGS_TO_DOMAIN), `upsertTestsEdge` (file-to-file `:TESTS`),
+  `upsertContract` + `attachFileToContract` (DEFINES / CONSUMES),
+  `upsertGuidepost` + `attachGuidepost` (polymorphic `:ABOUT` to file /
+  concept / contract). All canonical-keyed on `(orgId, knowledgeId, slug)`;
+  every node and edge carries `enrichmentRunId` for traceability.
+  Concept-graph schema is bootstrapped by `ensureConceptGraphIndexes()`.
 
 The package does **not** own:
 
@@ -135,6 +143,40 @@ search/lookup tools — never read inside this package):
 - `idx_file_business_context_ft` — `(File.businessContext)`
 - `idx_keyword_name_ft` — `(Keyword.name)`
 - `idx_symbol_signature_ft` — `(Class|Function).signature`
+
+### Concept-graph schema (ConceptGraphStrategy)
+
+Created by `ensureConceptGraphIndexes()`. Independent of the flat-folder
+schema — strategies can coexist on the same database.
+
+```
+(:File) -[:HAS_CONCEPT]->        (:Concept   {orgId, knowledgeId, slug, kind, name, rationale, enrichmentRunId, createdAt, updatedAt})
+(:File) -[:PLAYS_ROLE]->         (:Concept   {…})
+(:File) -[:BELONGS_TO_DOMAIN]->  (:Concept   {…})
+(:File) -[:TESTS]->              (:File)
+(:File) -[:DEFINES]->            (:Contract  {orgId, knowledgeId, slug, kind, name, enrichmentRunId, …})
+(:File) -[:CONSUMES]->           (:Contract  {…})
+(:Guidepost {orgId, knowledgeId, slug, kind, note, area, enrichmentRunId, …})
+        -[:ABOUT]-> (:File | :Concept | :Contract)
+```
+
+Constraints (uniqueness, `IF NOT EXISTS`):
+
+- `Concept(orgId, knowledgeId, slug)`
+- `Contract(orgId, knowledgeId, slug)`
+- `Guidepost(orgId, knowledgeId, slug)`
+
+Fulltext indexes:
+
+- `idx_concept_name_rationale_ft` — `(Concept.name, Concept.rationale)`
+- `idx_contract_name_ft` — `(Contract.name)`
+- `idx_guidepost_note_area_ft` — `(Guidepost.note, Guidepost.area)`
+
+Merge policy: `kind` + `rationale` (concepts only) + `createdAt` are
+first-write-wins (set `ON CREATE` only); `name`, `enrichmentRunId`, and
+`updatedAt` are last-write-wins (set `ON MATCH`). Multiple per-file
+enrichment writes converge on the same canonical node without
+clobbering original rationale.
 
 Entity nodes are global (shared across all knowledge entries) so
 cross-repo retrieval — "which files mention `auth` keyword across all

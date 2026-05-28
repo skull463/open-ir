@@ -20,9 +20,9 @@ Single home for shared types and enums that cross package boundaries:
   `@bb/queue` (publisher) and `@bb/ingest-*` packages (worker handlers).
   `PayloadLlmOverrides` is the optional `{ llmApiKey?, llmProvider?,
 llmModel?, llmKeyId? }` mixin that lets downstream consumers carry per-job
-  LLM credentials through the payload (the extension point used by the
-  enterprise wrapper to inject per-org credentials at the enqueue
-  boundary). `llmProvider` is intentionally typed as `string` rather than
+  LLM credentials through the payload — the extension point a downstream
+  consumer uses to inject per-org credentials at the enqueue boundary.
+  `llmProvider` is intentionally typed as `string` rather than
   a closed union — OSS standalone uses `"openrouter"`/`"ollama"`, but
   downstream consumers may carry richer taxonomies (`"anthropic"`,
   `"gemini"`, …) that OSS ignores at runtime. `llmKeyId` is opaque to OSS;
@@ -42,7 +42,40 @@ QUEUED → INGESTED → PROCESSING → PROCESSED ↘ FAILED`) referenced by
   pipeline reads on every run (URL and branch); it has an open shape so
   downstream consumers can attach extra fields without forcing schema
   changes here. The pull pipeline reads URL and branch off `KnowledgeInfo`
-  directly — there is no fallback chain to `KnowledgeSource`.
+  directly — there is no fallback chain to `KnowledgeSource`. The
+  ConceptGraphStrategy enrichment ledger lives on `KnowledgeDoc` too —
+  optional `enrichmentRunId`, `enrichmentState` (`EnrichmentState` enum:
+  `pending | running | completed | failed`), `completedFiles[]`,
+  `enrichmentFailures[]` (carrying `EnrichmentFailureReason` =
+  `cap-exceeded | validation-failed | provider-error`).
+- Concept-graph kernel types (`ConceptKind`, `ContractKind`,
+  `GuidepostKind` enums; `UpsertConceptInput`, `AttachFileToConceptInput`,
+  `UpsertContractInput`, `AttachFileToContractInput`,
+  `UpsertGuidepostInput`, `AttachGuidepostInput`, `UpsertTestsEdgeInput`
+  and the `ConceptEdgeKind` / `ContractEdgeKind` discriminators). Live
+  in `src/graph.ts`; consumed by `@bb/graph-core` (interfaces) and
+  `@bb/neo4j` (implementation).
+- `IngestionStrategyType` enum (`flat-folder | concept-graph`) — the
+  closed set of values for `Config.IngestionStrategy`. Lives in
+  `src/config.ts` alongside the other strategy-selection enums.
+- `KnowledgeFailureCategory` — closed union of structured failure
+  categories stamped on `KnowledgeDoc.failure` when a run ends in `FAILED`.
+  Drives operator triage and UI hints. Categories:
+  `llm_config | llm_auth | llm_quota | llm_rate_limit | llm_unreachable |
+cancelled | usage_limit_exceeded | internal`. `usage_limit_exceeded`
+  exists for downstream consumers that enforce a token quota outside the
+  LLM provider's own billing — OSS standalone never produces it.
+- `TokenUsage` — `{ inputTokens, outputTokens, costUsd }`. Mirrors the
+  per-phase token aggregate produced inside the strategy and re-used by
+  `UsageGuard` so a guard implementation can compare or persist cumulative
+  totals without further reshaping.
+- `UsageGuard` — optional interface for runtime token-quota enforcement.
+  Two async methods: `onPhaseComplete(phase, cumulative)` is invoked by
+  the pipeline after every token-consuming phase; an implementation may
+  throw to abort the run. `flushPartial(cumulative)` is invoked from the
+  pipeline's catch path with the cumulative usage at the abort point so
+  the partial spend can be recorded before the failure surfaces. OSS
+  standalone leaves this `undefined` and behavior is unchanged.
 
 Future inhabitants (added on need basis): full `Raw`, `Node`, `MCP*`
 document shapes — the cross-package domain types named in

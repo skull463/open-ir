@@ -5,6 +5,9 @@ import type {
   IGraphFolderRepository,
   IGraphRepoRepository,
   IGraphIndexRepository,
+  IGraphConceptRepository,
+  IGraphContractRepository,
+  IGraphGuidepostRepository,
   GraphPingResult,
 } from "@bb/graph-core";
 
@@ -64,6 +67,23 @@ export const repoGraph: IGraphRepoRepository = {
 export const indexesGraph: IGraphIndexRepository = {
   ensureKnowledgeIndexes: (...args) => getGraph().indexes.ensureKnowledgeIndexes(...args),
   ensureFlatFolderIndexes: (...args) => getGraph().indexes.ensureFlatFolderIndexes(...args),
+  ensureConceptGraphIndexes: (...args) => getGraph().indexes.ensureConceptGraphIndexes(...args),
+};
+
+export const conceptsGraph: IGraphConceptRepository = {
+  upsertConcept: (...args) => getGraph().concepts.upsertConcept(...args),
+  attachFileToConcept: (...args) => getGraph().concepts.attachFileToConcept(...args),
+  upsertTestsEdge: (...args) => getGraph().concepts.upsertTestsEdge(...args),
+};
+
+export const contractsGraph: IGraphContractRepository = {
+  upsertContract: (...args) => getGraph().contracts.upsertContract(...args),
+  attachFileToContract: (...args) => getGraph().contracts.attachFileToContract(...args),
+};
+
+export const guidepostsGraph: IGraphGuidepostRepository = {
+  upsertGuidepost: (...args) => getGraph().guideposts.upsertGuidepost(...args),
+  attachGuidepost: (...args) => getGraph().guideposts.attachGuidepost(...args),
 };
 
 export async function pingGraph(): Promise<GraphPingResult> {

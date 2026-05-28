@@ -9,6 +9,13 @@ import type {
   SnapshotFilesInput,
   UpsertFileNodeInput,
   GraphPingResult,
+  UpsertConceptInput,
+  AttachFileToConceptInput,
+  UpsertContractInput,
+  AttachFileToContractInput,
+  UpsertGuidepostInput,
+  AttachGuidepostInput,
+  UpsertTestsEdgeInput,
 } from "@bb/types";
 
 export type {
@@ -20,6 +27,13 @@ export type {
   SnapshotFilesInput,
   UpsertFileNodeInput,
   GraphPingResult,
+  UpsertConceptInput,
+  AttachFileToConceptInput,
+  UpsertContractInput,
+  AttachFileToContractInput,
+  UpsertGuidepostInput,
+  AttachGuidepostInput,
+  UpsertTestsEdgeInput,
 };
 
 export interface IGraphKnowledgeRepository {
@@ -48,6 +62,30 @@ export interface IGraphRepoRepository {
 export interface IGraphIndexRepository {
   ensureKnowledgeIndexes(): Promise<void>;
   ensureFlatFolderIndexes(): Promise<void>;
+  ensureConceptGraphIndexes(): Promise<void>;
+}
+
+/**
+ * Concept-graph hypergraph writes — `:Concept` nodes plus the file-to-concept
+ * edges (`HAS_CONCEPT` / `PLAYS_ROLE` / `BELONGS_TO_DOMAIN`) and the file-to-
+ * file `:TESTS` edge. All canonical keys are scoped by `(orgId, knowledgeId)`.
+ */
+export interface IGraphConceptRepository {
+  upsertConcept(input: UpsertConceptInput): Promise<void>;
+  attachFileToConcept(input: AttachFileToConceptInput): Promise<void>;
+  upsertTestsEdge(input: UpsertTestsEdgeInput): Promise<void>;
+}
+
+/** `:Contract` nodes + `DEFINES` / `CONSUMES` edges. */
+export interface IGraphContractRepository {
+  upsertContract(input: UpsertContractInput): Promise<void>;
+  attachFileToContract(input: AttachFileToContractInput): Promise<void>;
+}
+
+/** `:Guidepost` nodes + polymorphic `ABOUT` edges. */
+export interface IGraphGuidepostRepository {
+  upsertGuidepost(input: UpsertGuidepostInput): Promise<void>;
+  attachGuidepost(input: AttachGuidepostInput): Promise<void>;
 }
 
 export interface IGraphDatabaseProvider {
@@ -56,6 +94,9 @@ export interface IGraphDatabaseProvider {
   folders: IGraphFolderRepository;
   repo: IGraphRepoRepository;
   indexes: IGraphIndexRepository;
+  concepts: IGraphConceptRepository;
+  contracts: IGraphContractRepository;
+  guideposts: IGraphGuidepostRepository;
 
   connect(): Promise<void>;
   close(): Promise<void>;

@@ -1,74 +1,178 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import { getBytebellHome } from "@bb/config";
+import { getBytebellHome, getConfigValue } from "@bb/config";
+import {
+  bytebellPathsFor,
+  commitBaseDirFor,
+  Config,
+  metaOutputRootFor,
+  orgsRootFor,
+  parseGithubOwnerRepo,
+  repositoryDirFor,
+  type RepoLocation as KernelRepoLocation,
+} from "@bb/types";
+import { getKnowledge } from "@bb/mongo";
+import { KnowledgeNotFoundError } from "@bb/errors";
 import type { MetaPaths } from "#src/types/meta-paths.ts";
 
 const DIR_MODE = 0o700;
 
-export function reposRoot(): string {
-  return path.join(getBytebellHome(), "repos");
-}
+/** Re-export the kernel `RepoLocation` so existing callers needn't import from `@bb/types`. */
+export type RepoLocation = KernelRepoLocation;
 
-export function repoCloneDir(knowledgeId: string): string {
-  return path.join(reposRoot(), knowledgeId);
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// Commit-scoped on-disk layout. Every artifact for a single (orgId,
+// knowledge, repo, commit) tuple lives under one tree:
+//
+//   ~/.bytebell/orgs/<orgId>/<provider>/<knowledgeId>/<owner>/<repo>/<commit>/repository/
+//   ~/.bytebell/orgs/<orgId>/<provider>/<knowledgeId>/<owner>/<repo>/<commit>/meta-output/...
+//
+// For local sources (no owner/repo) the branch collapses to:
+//
+//   ~/.bytebell/orgs/<orgId>/local/<knowledgeId>/<syntheticCommit>/repository/
+//   ~/.bytebell/orgs/<orgId>/local/<knowledgeId>/<syntheticCommit>/meta-output/...
+//
+// Every commit gets its own self-contained snapshot — repository + analysis
+// + summaries together — rather than scattering meta-output across a
+// separate top-level .meta tree.
+// ─────────────────────────────────────────────────────────────────────────────
 
-export async function ensureReposRoot(): Promise<void> {
-  await mkdir(reposRoot(), { recursive: true, mode: DIR_MODE });
-}
-
-export function metaRootFor(knowledgeId: string): string {
-  return path.join(reposRoot(), ".meta", knowledgeId);
-}
-
-export function metaPathsFor(knowledgeId: string): MetaPaths {
-  const metaRoot = metaRootFor(knowledgeId);
-  return {
-    metaRoot,
-    fileAnalysisDir: path.join(metaRoot, "file-analysis"),
-    folderSummariesDir: path.join(metaRoot, "folder-summaries"),
-    bigFileAnalysisDir: path.join(metaRoot, "big-file-analysis"),
-    bigFileChunksDir: path.join(metaRoot, "big-file-analysis", "chunks"),
-    bigFilesJson: path.join(metaRoot, "bigFiles.json"),
-    scanManifestJson: path.join(metaRoot, "scan-manifest.json"),
-    repoSummaryJson: path.join(metaRoot, "repo-summary.json"),
-  };
+/** Root of the orgs tree. Single tenant in OSS, but the path still carries orgId. */
+export function orgsRoot(): string {
+  return orgsRootFor(getBytebellHome());
 }
 
 /**
- * Per-commit meta directory for content scoped to a specific indexed commit.
- * Sits under the knowledge's `metaRoot/commits/<commitHash>/` so it survives
- * subsequent pulls that overwrite the live `:File` set.
+ * The per-commit base directory. Everything for this `(orgId, provider,
+ * knowledgeId, owner?, repo?, commitHash)` tuple lives under this path.
  */
-export function commitMetaDir(knowledgeId: string, commitHash: string): string {
-  return path.join(metaRootFor(knowledgeId), "commits", commitHash);
+export function commitBaseDir(loc: RepoLocation): string {
+  return commitBaseDirFor(getBytebellHome(), loc);
+}
+
+/** Clone destination — the cloned source tree for this commit. */
+export function repositoryDir(loc: RepoLocation): string {
+  return repositoryDirFor(getBytebellHome(), loc);
+}
+
+/** Meta-output root — all analysis artifacts for this commit. */
+export function metaOutputRoot(loc: RepoLocation): string {
+  return metaOutputRootFor(getBytebellHome(), loc);
 }
 
 /**
- * Directory for business-context analyses authored against a specific commit.
- * Each business context lives at `business-context/<sanitizedTitle>/` and contains
- * `original.txt` (the raw user-authored text) and `analysis.json` (the LLM
- * analysis wrapped in its metadata envelope).
+ * Org-level registries (keyword aggregation across knowledges in the same org).
+ * Lives one level above the per-knowledge tree: `orgs/<orgId>/<provider>/`.
  */
-export function businessContextDir(knowledgeId: string, commitHash: string, sanitizedTitle: string): string {
-  return path.join(commitMetaDir(knowledgeId, commitHash), "business-context", sanitizedTitle);
+export function orgRegistryDirV2(loc: RepoLocation): string {
+  return path.join(orgsRoot(), loc.orgId, loc.provider);
 }
 
 /**
- * Org-level keyword registry directory. In single-tenant OSS this resolves to
- * `metaRoot/org/<orgId>/` (orgId defaults to `"local"`); downstream multi-tenant
- * deployments may aggregate registries across multiple knowledges into the same
- * directory. The business-context enrichment reader tolerates missing files.
+ * Build the full `MetaPaths` bundle for a `RepoLocation`. This is the single
+ * source of truth for every per-commit meta artifact path.
  */
-export function orgRegistryDir(knowledgeId: string, orgId: string): string {
-  return path.join(metaRootFor(knowledgeId), "org", orgId);
+export function pathsFor(loc: RepoLocation): MetaPaths {
+  return bytebellPathsFor(getBytebellHome(), loc);
 }
 
-export async function ensureMetaDirs(paths: MetaPaths): Promise<void> {
+/** Business-context directory for a specific titled context, under this commit's meta-output. */
+export function businessContextDirV2(loc: RepoLocation, sanitizedTitle: string): string {
+  return path.join(metaOutputRoot(loc), "business-context", sanitizedTitle);
+}
+
+export async function ensureCommitDirs(loc: RepoLocation): Promise<void> {
+  const paths = pathsFor(loc);
+  await mkdir(paths.repositoryDir, { recursive: true, mode: DIR_MODE });
   await mkdir(paths.fileAnalysisDir, { recursive: true, mode: DIR_MODE });
   await mkdir(paths.folderSummariesDir, { recursive: true, mode: DIR_MODE });
   await mkdir(paths.bigFileAnalysisDir, { recursive: true, mode: DIR_MODE });
   await mkdir(paths.bigFileChunksDir, { recursive: true, mode: DIR_MODE });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// knowledgeId-keyed resolvers. Now Mongo-aware: they look up `KnowledgeDoc`
+// to derive `(orgId, owner, repo, commitHash)` and delegate to the pure
+// `pathsFor` resolver above. Used by callers that hold only a knowledgeId
+// handle — primarily `@bb/ingest-business-context` and the migration
+// command. Async because the lookup is async; the old sync legacy
+// resolvers (`metaRootFor`, `metaPathsFor`, `repoCloneDir`, etc.) were
+// deleted in the kube-v2 cutover.
+//
+// `commitHash` may be passed explicitly (e.g. business-context referencing a
+// historical commit) or defaulted to the knowledge's current head via
+// `source.commitId`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function repoLocationFor(knowledgeId: string, commitHash?: string): Promise<RepoLocation> {
+  const kDoc = await getKnowledge(knowledgeId);
+  if (kDoc === null) {
+    throw new KnowledgeNotFoundError(knowledgeId);
+  }
+  const orgId = getConfigValue(Config.OrgId);
+  if (kDoc.source.kind === "local") {
+    return {
+      provider: "local",
+      orgId,
+      knowledgeId,
+      commitHash: commitHash ?? kDoc.source.sourcePath, // best-effort fallback when no commit
+    };
+  }
+  const repoUrl = kDoc.info.repoUrl;
+  if (repoUrl === undefined || repoUrl.length === 0) {
+    throw new Error(`paths: knowledge ${knowledgeId} has no info.repoUrl`);
+  }
+  const parsed = parseGithubOwnerRepo(repoUrl);
+  if (parsed === null) {
+    throw new Error(`paths: could not parse owner/repo from ${repoUrl}`);
+  }
+  const effectiveCommit = commitHash ?? kDoc.source.commitId;
+  if (effectiveCommit === undefined || effectiveCommit.length === 0) {
+    throw new Error(`paths: knowledge ${knowledgeId} has no commitId; pass commitHash explicitly`);
+  }
+  return {
+    provider: "github",
+    orgId,
+    knowledgeId,
+    owner: parsed.owner,
+    repo: parsed.repo,
+    commitHash: effectiveCommit,
+  };
+}
+
+/**
+ * Per-knowledge meta-output root, resolved through Mongo to the
+ * commit-scoped kube-v2 directory for the current head commit.
+ */
+export async function metaRootFor(knowledgeId: string): Promise<string> {
+  const loc = await repoLocationFor(knowledgeId);
+  return metaOutputRoot(loc);
+}
+
+/**
+ * Directory for business-context analyses authored against a specific commit.
+ * Each business context lives at
+ * `<meta-output>/business-context/<sanitizedTitle>/` and contains
+ * `original.txt` (the raw user-authored text) and `analysis.json` (the LLM
+ * analysis wrapped in its metadata envelope).
+ */
+export async function businessContextDir(
+  knowledgeId: string,
+  commitHash: string,
+  sanitizedTitle: string,
+): Promise<string> {
+  const loc = await repoLocationFor(knowledgeId, commitHash);
+  return businessContextDirV2(loc, sanitizedTitle);
+}
+
+/**
+ * Org-level keyword registry directory. Under the kube-v2 layout this is
+ * `orgs/<orgId>/<provider>/v2/` — one level above the per-knowledge tree,
+ * shared across every knowledge in the same org.
+ */
+export async function orgRegistryDir(knowledgeId: string, _orgId: string): Promise<string> {
+  const loc = await repoLocationFor(knowledgeId);
+  return orgRegistryDirV2(loc);
 }
 
 const SLASH_RE = /\//gu;

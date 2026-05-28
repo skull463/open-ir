@@ -38,9 +38,14 @@ export function buildLocalIndexRoute(): Router {
     }
 
     const knowledgeId = crypto.randomUUID();
-    const reposRoot = path.join(getBytebellHome(), "repos");
-    await mkdir(reposRoot, { recursive: true, mode: 0o700 });
-    const destDir = path.join(reposRoot, knowledgeId);
+    // Staging snapshot of the user-supplied source tree. Sits in its own
+    // top-level dir so it stays distinct from the kube-v2 `orgs/` tree where
+    // analysed knowledges live. The worker reads from this snapshot rather
+    // than the original `sourcePath` so a user moving / mutating their dir
+    // after submission doesn't affect the in-flight ingestion.
+    const snapshotsRoot = path.join(getBytebellHome(), "local-snapshots");
+    await mkdir(snapshotsRoot, { recursive: true, mode: 0o700 });
+    const destDir = path.join(snapshotsRoot, knowledgeId);
 
     await copyRepo(sourcePath, destDir);
 

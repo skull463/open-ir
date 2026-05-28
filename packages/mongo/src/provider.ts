@@ -12,6 +12,7 @@ class MongoDatabaseProvider implements IDocumentDatabaseProvider {
   knowledge = {
     setKnowledgeState: knowledgeRepo.setKnowledgeState,
     setKnowledgeCommit: knowledgeRepo.setKnowledgeCommit,
+    setKnowledgeCommitHead: knowledgeRepo.setKnowledgeCommitHead,
     setKnowledgeBranch: knowledgeRepo.setKnowledgeBranch,
     updateKnowledgeProgress: knowledgeRepo.updateKnowledgeProgress,
     upsertKnowledge: knowledgeRepo.upsertKnowledge,

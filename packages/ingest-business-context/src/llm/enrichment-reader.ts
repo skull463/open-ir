@@ -93,7 +93,7 @@ interface RepoSummaryShape {
 }
 
 async function readRepoSummary(knowledgeId: string, enrichment: EnrichmentData): Promise<void> {
-  const repoSummaryJson = path.join(metaRootFor(knowledgeId), "repo-summary.json");
+  const repoSummaryJson = path.join(await metaRootFor(knowledgeId), "repo-summary.json");
   const data = await readJsonSafe(repoSummaryJson);
   if (data === null || typeof data !== "object") {
     return;
@@ -126,7 +126,7 @@ async function readRepoSummary(knowledgeId: string, enrichment: EnrichmentData):
  */
 export async function collectEnrichmentData(knowledgeId: string, orgId: string): Promise<EnrichmentData> {
   const enrichment = emptyEnrichment();
-  const registryDir = orgRegistryDir(knowledgeId, orgId);
+  const registryDir = await orgRegistryDir(knowledgeId, orgId);
 
   enrichment.topKeywords = await readOrgRegistry(registryDir, "keywords.json");
   enrichment.topBusinessEntities = await readOrgRegistry(registryDir, "business-entities.json");

@@ -1,11 +1,18 @@
 import { useState, useMemo } from "react";
 import type { ReactElement } from "react";
 import { Box, Text, useApp, useInput } from "ink";
+import type { CommitHashRecord } from "@bb/types";
 
 export interface RepoEntry {
   knowledgeId: string;
   source:
-    | { kind: "github"; repoUrl: string; branch?: string; commitId?: string; commitHashes?: string[] }
+    | {
+        kind: "github";
+        repoUrl: string;
+        branch?: string;
+        commitId?: string;
+        commitHashes?: (string | CommitHashRecord)[];
+      }
     | { kind: "local"; sourcePath: string };
   state: string;
   createdAt: string;
@@ -204,13 +211,16 @@ export function LsInteractive({ repos, onDone }: LsInteractiveProps): ReactEleme
                   Indexed Commits ({s.commitHashes?.length ?? 0})
                 </Text>
               </Box>
-              {(s.commitHashes ?? []).map((h, i) => (
-                <Box key={h} marginLeft={2}>
-                  <Text dimColor>{i + 1}. </Text>
-                  <Text color="yellow">{h.slice(0, 8)}</Text>
-                  {h === s.commitId && <Text color="green"> (current head)</Text>}
-                </Box>
-              ))}
+              {(s.commitHashes ?? []).map((h, i) => {
+                const hash = typeof h === "string" ? h : (h as { hash: string }).hash;
+                return (
+                  <Box key={hash} marginLeft={2}>
+                    <Text dimColor>{i + 1}. </Text>
+                    <Text color="yellow">{hash.slice(0, 8)}</Text>
+                    {hash === s.commitId && <Text color="green"> (current head)</Text>}
+                  </Box>
+                );
+              })}
               {(!s.commitHashes || s.commitHashes.length === 0) && (
                 <Box marginLeft={2}>
                   <Text dimColor>No commit history recorded.</Text>

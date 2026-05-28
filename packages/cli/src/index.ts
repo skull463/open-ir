@@ -12,6 +12,7 @@ import { buildDeleteCommand } from "./DeleteCommand.ts";
 import { buildStatsCommand } from "./StatsCommand.ts";
 import { buildMcpCommand } from "./McpCommand.ts";
 import { buildSetupCommand } from "./SetupCommand.ts";
+import { buildMigrateCommand } from "./MigratePathsCommand.ts";
 import { error } from "./output.ts";
 
 const VERSION = "0.0.0";
@@ -31,6 +32,7 @@ async function main(): Promise<void> {
   program.addCommand(buildDeleteCommand());
   program.addCommand(buildStatsCommand());
   program.addCommand(buildMcpCommand());
+  program.addCommand(buildMigrateCommand());
   await program.parseAsync(process.argv);
 }
 

@@ -1,4 +1,4 @@
-import { LlmConfigError, LlmError } from "@bb/errors";
+import { LlmConfigError, LlmError, UsageLimitExceededError } from "@bb/errors";
 import type { KnowledgeFailureCategory } from "@bb/types";
 import { describe } from "./stats.ts";
 
@@ -21,10 +21,24 @@ export interface ClassifiedFailure {
  * sentence; the raw response body lands in `detail` for the disclosure UI.
  */
 export function classifyFailure(cause: unknown): ClassifiedFailure {
+  if (cause instanceof UsageLimitExceededError) {
+    return {
+      category: "usage_limit_exceeded",
+      reason: "LLM token limit reached. Partial indexing was saved. Upgrade your plan to continue.",
+      detail: `phase=${cause.phase} current=${cause.current} max=${cause.max} cumulativeTokens=${
+        cause.cumulative.inputTokens + cause.cumulative.outputTokens
+      }`,
+    };
+  }
   if (cause instanceof LlmConfigError) {
+    // The hint (carried via `cause.hint`) is the actionable bit — it spells
+    // out the exact `bytebell set …` / env-var the operator must populate.
+    // The flattened "set the API key" wording masked enrichment-model
+    // failures from concept-graph; surfacing the hint makes the two cases
+    // distinguishable in logs.
     return {
       category: "llm_config",
-      reason: "LLM provider is not configured. Set the API key and retry.",
+      reason: `LLM configuration missing. Run: ${cause.hint}`,
       detail: cause.message,
     };
   }

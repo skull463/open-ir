@@ -16,6 +16,12 @@ llmCallContext? }`; `llmCallContext` is the optional `AskLlmOptions`
   bag the runner builds from the job payload's LLM overrides and that
   each phase forwards into its `askJsonLLM` / `askYesNoLLM` calls. Absent
   in OSS standalone runs — calls fall back to `Config.OpenrouterApiKey`.
+  `StrategyInput` also carries an optional `usageGuard?: UsageGuard`
+  (from `@bb/types`): when present, the strategy invokes its
+  `onPhaseComplete(phase, cumulative)` hook after every token-consuming
+  phase so the implementation can throw `UsageLimitExceededError` to
+  abort the run. OSS standalone leaves this undefined and behavior is
+  unchanged.
 - `pipeline.ts` — `ScannedFile`, `OversizedFile`, `ScanEntry`, `FileAnalyzer`
   port, `AnalyzedFileResult`, `PipelineDeps`, `PipelineSummary`,
   `SkipDecider` / `SkipDeciderInput` / `SkipDecision` (the unknown-extension
@@ -46,7 +52,12 @@ llmCallContext? }`; `llmCallContext` is the optional `AskLlmOptions`
   factories are documented in `docs/extension-points.md`. The two are
   separate because pull additionally needs a `diff` and a resolved
   `targetCommit`, which index doesn't.
-- `meta-paths.ts` — `MetaPaths` shape (`~/.bytebell/repos/.meta/<knowledgeId>/...`).
+- `meta-paths.ts` — `MetaPaths` shape — the per-commit `repositoryDir` +
+  `metaOutputRoot` siblings under
+  `~/.bytebell/orgs/<orgId>/<provider>/<knowledgeId>/<owner>/<repo>/<commit>/`,
+  plus the named leaf paths (`fileAnalysisDir`, `folderSummariesDir`, …)
+  computed under `metaOutputRoot`. `metaRoot` is preserved as a
+  back-compat alias for `metaOutputRoot`.
 - `file-analysis.ts` — `FALLBACK_LANGUAGE = "unknown"` and `emptyFileAnalysis()`
   factory. Both consumed by the LLM adapter and the big-file condenser.
 - `condensed-file-analysis.ts` — `CondensedFileAnalysis` is the on-disk record
@@ -55,7 +66,7 @@ llmCallContext? }`; `llmCallContext` is the optional `AskLlmOptions`
 - `big-file.ts` — `BigFileEntry`, `BigFileReason`, `FileChunk`,
   `ChunkAnalysisResult`, `HugeFileManifest`. The shapes used by `bigFiles.json`
   and the chunk/manifest cache under `<metaPaths.bigFileAnalysisDir>`.
-- `ingest-runner.ts` — `IngestRunnerDeps` shape the orchestrator + handler share.
+- `ingest-runner.ts` — `IngestRunnerDeps` shape the orchestrator + handler share, plus `IngestRunnerInput` which carries the per-job `{ job, payload }` and an optional `usageGuard?: UsageGuard` (from `@bb/types`) forwarded into the strategy.
 - `index.ts` — barrel.
 
 ## Invariants

@@ -7,7 +7,7 @@
  * no-outbound-calls posture.
  */
 
-export type ProgressPhase = "clone" | "scan" | "file_analysis" | "folder_analysis" | "indexing";
+export type ProgressPhase = "clone" | "scan" | "file_analysis" | "folder_analysis" | "indexing" | "enrichment";
 
 export type ProgressTotalMode = { kind: "fixed"; total: number } | { kind: "growing"; initialTotal?: number };
 

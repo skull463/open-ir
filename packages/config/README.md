@@ -20,36 +20,6 @@ Single source of truth for runtime settings stored in
 
 This package does **not** read from `process.env` and never will.
 
-## Public exports
-
-```ts
-type LogLevel
-type LlmProvider
-const LOG_LEVELS: readonly LogLevel[]
-const LLM_PROVIDERS: readonly LlmProvider[]
-interface BytebellConfig
-type ConfigValue<K extends Config>
-type ConfigValueMap
-type ConfigCompletenessResult
-
-function loadConfig(): BytebellConfig
-function getConfigValue<K extends Config>(k: K): ConfigValue<K>
-function setConfigValue<K extends Config>(k: K, v: ConfigValue<K>): void
-function isConfigComplete(): ConfigCompletenessResult
-function getBytebellHome(): string
-function getConfigPath(): string
-function ensureBytebellHome(): void
-
-function seedConfig(value: unknown): BytebellConfig
-function __isSeeded(): boolean
-class ConfigSeededError extends Error
-
-function setBytebellHomeResolver(fn: (() => string | null) | null): void
-
-function __resetSeedForTests(): void                            // test-only
-function __setBytebellHomeForTests(home: string | null): void  // test-only
-```
-
 `setBytebellHomeResolver` registers an override function invoked on every
 `getBytebellHome()` call (no caching). The resolver returns the home directory
 to use for the current invocation, or `null` to fall through to the
@@ -76,6 +46,16 @@ Config keys (v0): `server_port`, `mongo_uri`, `neo4j_uri`, `neo4j_user`,
 default | `ollama`), `ollama_url` (default `http://localhost:11434`),
 `ollama_model` (free-form, empty default — user picks any model their
 local Ollama daemon has pulled).
+
+Ingestion-strategy keys (ConceptGraphStrategy): `ingestion.strategy`
+(`flat-folder` default | `concept-graph`), `enrichment.model` (empty
+default — strategy refuses to start if unset and `ingestion.strategy
+= concept-graph`), `enrichment.max.tool.calls.per.file` (15),
+`enrichment.max.iterations.per.file` (8),
+`enrichment.wall.time.ms.per.file` (400000),
+`enrichment.concurrency` (16),
+`enrichment.max.tool.result.chars` (20000 — truncation cap for MCP tool
+results passed back to the LLM).
 
 Anything not in this list is internal — do not import from subpaths.
 

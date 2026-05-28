@@ -1,8 +1,22 @@
 import path from "node:path";
 import { readFile } from "node:fs/promises";
-import { getBytebellHome } from "@bb/config";
+import { getBytebellHome, getConfigValue } from "@bb/config";
+import { getKnowledge } from "@bb/mongo";
+import { Config, parseGithubOwnerRepo, repositoryDirFor, type RepoLocation } from "@bb/types";
+import { IngestError, KnowledgeNotFoundError } from "@bb/errors";
 
-const REPOS_SUBDIR = "repos";
+// ─────────────────────────────────────────────────────────────────────────────
+// MCP file resolution. Under the commit-scoped layout, the cloned source tree
+// for a knowledge lives under
+// `~/.bytebell/orgs/<orgId>/github/<knowledgeId>/<owner>/<repo>/<commit>/repository/`,
+// so resolving the clone dir for a `knowledgeId` is no longer a pure-string
+// operation — it needs a Mongo lookup to find the active commit and the
+// repo coordinates. We do one `KnowledgeDoc` read per `retrieve_file` call.
+//
+// For local knowledges (`source.kind === "local"`) we point straight at
+// `source.sourcePath` since we don't copy local sources into the managed
+// `repository/` dir.
+// ─────────────────────────────────────────────────────────────────────────────
 
 export class PathTraversalError extends Error {
   constructor(relativePath: string) {
@@ -18,25 +32,70 @@ export class FileReadError extends Error {
   }
 }
 
-export function resolveCloneDir(knowledgeId: string): string {
-  return path.join(getBytebellHome(), REPOS_SUBDIR, knowledgeId);
+/**
+ * Resolves the active clone directory for `knowledgeId`. Reads
+ * `KnowledgeDoc.source` from Mongo to find the active commit; for github
+ * sources, parses `info.repoUrl` to get owner/repo; for local sources,
+ * returns `source.sourcePath` unchanged.
+ */
+export async function resolveCloneDir(knowledgeId: string): Promise<string> {
+  const kDoc = await getKnowledge(knowledgeId);
+  if (kDoc === null) {
+    throw new KnowledgeNotFoundError(knowledgeId);
+  }
+  if (kDoc.source.kind === "local") {
+    return kDoc.source.sourcePath;
+  }
+  // github
+  const commitId = kDoc.source.commitId;
+  if (commitId === undefined || commitId.length === 0) {
+    throw new IngestError(knowledgeId, "knowledge has no commitId; cannot resolve clone dir");
+  }
+  const repoUrl = kDoc.info.repoUrl;
+  if (repoUrl === undefined || repoUrl.length === 0) {
+    throw new IngestError(knowledgeId, "knowledge has no info.repoUrl; cannot resolve clone dir");
+  }
+  const parsed = parseGithubOwnerRepo(repoUrl);
+  if (parsed === null) {
+    throw new IngestError(knowledgeId, `could not parse owner/repo from ${repoUrl}`);
+  }
+  const orgId = getConfigValue(Config.OrgId);
+  const loc: RepoLocation = {
+    provider: "github",
+    orgId,
+    knowledgeId,
+    owner: parsed.owner,
+    repo: parsed.repo,
+    commitHash: commitId,
+  };
+  return repositoryDirFor(getBytebellHome(), loc);
 }
 
-export function resolveFilePath(knowledgeId: string, relativePath: string): string {
-  const normalized = relativePath.replace(/\\/gu, "/");
+export async function resolveFilePath(knowledgeId: string, relativePath: string): Promise<string> {
+  const normalized = relativePath.replace(/\\/gu, "/").replace(/^\.\/+/u, "");
   if (normalized.length === 0 || normalized.startsWith("/") || normalized.includes("..")) {
     throw new PathTraversalError(relativePath);
   }
-  const cloneDir = resolveCloneDir(knowledgeId);
+  // Canonicalize both sides via path.resolve so any non-canonical segments in
+  // cloneDir (trailing slash, `.`, embedded `//`) don't break the string-prefix
+  // containment check. Then verify containment with path.relative — if the
+  // resolved target lives inside cloneDir, the relative form is a non-`..`,
+  // non-absolute string.
+  const cloneDir = path.resolve(await resolveCloneDir(knowledgeId));
   const target = path.resolve(cloneDir, normalized);
-  if (!target.startsWith(`${cloneDir}${path.sep}`) && target !== cloneDir) {
+  const rel = path.relative(cloneDir, target);
+  if (rel.length === 0) {
+    // Asking for the clone dir itself — not a file, refuse.
+    throw new PathTraversalError(relativePath);
+  }
+  if (rel.startsWith("..") || path.isAbsolute(rel)) {
     throw new PathTraversalError(relativePath);
   }
   return target;
 }
 
 export async function readFileLines(knowledgeId: string, relativePath: string): Promise<string[]> {
-  const target = resolveFilePath(knowledgeId, relativePath);
+  const target = await resolveFilePath(knowledgeId, relativePath);
   let content: string;
   try {
     content = await readFile(target, "utf8");

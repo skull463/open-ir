@@ -1,4 +1,4 @@
-import { runCypher } from "@bb/neo4j";
+import { runCypher } from "@bb/graph-db";
 import { CommitNotIndexedError } from "#src/errors.ts";
 
 const CHECK_INDEXED = `
@@ -29,7 +29,10 @@ export interface CommitIndexStatus {
  * If both are zero, the commit (or knowledge) is not indexed.
  */
 export async function checkCommitIndexed(knowledgeId: string, commitHash: string): Promise<CommitIndexStatus> {
-  const rows = await runCypher<{ versions: number; files: number }>(CHECK_INDEXED, { knowledgeId, commitHash });
+  const rows = (await runCypher(CHECK_INDEXED, { knowledgeId, commitHash })) as Array<{
+    versions: number;
+    files: number;
+  }>;
   const row = rows[0] ?? { versions: 0, files: 0 };
   const fileVersions = Number(row.versions ?? 0);
   const liveFiles = Number(row.files ?? 0);

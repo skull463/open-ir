@@ -4,8 +4,8 @@ import { stat, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { KnowledgeState, type KnowledgeDoc } from "@bb/types";
 import { getBytebellHome } from "@bb/config";
-import { upsertKnowledge } from "@bb/mongo";
-import { upsertKnowledgeNode } from "@bb/neo4j";
+import { knowledgeDb } from "@bb/db";
+import { knowledgeGraph } from "@bb/graph-db";
 import { enqueueLocalIngest } from "@bb/queue";
 import { copyRepo } from "./copyRepo.ts";
 
@@ -38,9 +38,14 @@ export function buildLocalIndexRoute(): Router {
     }
 
     const knowledgeId = crypto.randomUUID();
-    const reposRoot = path.join(getBytebellHome(), "repos");
-    await mkdir(reposRoot, { recursive: true, mode: 0o700 });
-    const destDir = path.join(reposRoot, knowledgeId);
+    // Staging snapshot of the user-supplied source tree. Sits in its own
+    // top-level dir so it stays distinct from the kube-v2 `orgs/` tree where
+    // analysed knowledges live. The worker reads from this snapshot rather
+    // than the original `sourcePath` so a user moving / mutating their dir
+    // after submission doesn't affect the in-flight ingestion.
+    const snapshotsRoot = path.join(getBytebellHome(), "local-snapshots");
+    await mkdir(snapshotsRoot, { recursive: true, mode: 0o700 });
+    const destDir = path.join(snapshotsRoot, knowledgeId);
 
     await copyRepo(sourcePath, destDir);
 
@@ -53,8 +58,8 @@ export function buildLocalIndexRoute(): Router {
       createdAt: now,
       updatedAt: now,
     };
-    await upsertKnowledge(doc);
-    await upsertKnowledgeNode(doc);
+    await knowledgeDb.upsertKnowledge(doc);
+    await knowledgeGraph.upsertKnowledgeNode(doc);
     const jobId = await enqueueLocalIngest({ knowledgeId, rootDir: destDir });
     res.status(200).json({ knowledgeId, jobId });
   });

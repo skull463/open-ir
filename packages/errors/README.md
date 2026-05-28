@@ -35,13 +35,23 @@ Today the catalog covers:
 - **Ingest** — `GitCloneError` (git binary failed; redacts userinfo in
   the repo URL), `IngestError` (catch-all worker failure; carries
   `knowledgeId` and `cause`), `IngestPathError` (`bytebell ingest <path>`
-  pre-flight failure: missing path / not a directory).
+  pre-flight failure: missing path / not a directory),
+  `UsageLimitExceededError` (thrown by a runtime `UsageGuard`
+  implementation when a token quota would be exceeded mid-run; carries
+  `knowledgeId`, `phase`, `current`, `max`, and the cumulative
+  `UsageLimitExceededDetail`). OSS standalone never throws this; the
+  pipeline only catches it when an optional guard is wired in.
 - **Server** — `ServerConfigError` (missing required config at boot;
   carries `missing[]` + matching `bytebell set …` hints).
 - **Neo4j** — `Neo4jConfigError` (missing URI / user / password),
   `Neo4jConnectError` (driver `verifyConnectivity()` failed; redacts
   userinfo in URI), `Neo4jNotConnectedError` (`_getDriver()` called
   before `connectNeo4j()`).
+- **Layout** — `LayoutMigrationRequiredError` (the legacy on-disk layout
+  `repos/.meta/<knowledgeId>/` is present; the server refuses to boot
+  until the operator runs `bytebell migrate paths`). Carries the
+  detected legacy path in the message and the migration hint as a typed
+  `hint` field.
 
 New error classes land here as new packages are introduced.
 
@@ -63,10 +73,12 @@ class LlmError                 extends Error
 class GitCloneError            extends Error
 class IngestError              extends Error
 class IngestPathError          extends Error
+class UsageLimitExceededError  extends Error
 class ServerConfigError        extends Error
 class Neo4jConfigError         extends Error
 class Neo4jConnectError        extends Error
 class Neo4jNotConnectedError   extends Error
+class LayoutMigrationRequiredError extends Error
 ```
 
 ## Data ownership

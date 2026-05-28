@@ -35,4 +35,36 @@ export enum Config {
   SkipDecisionEnabled = "skip.decision.enabled",
   SkipDecisionMaxCharsForLlm = "skip.decision.max.chars.for.llm",
   SkipDecisionCachePath = "skip.decision.cache.path",
+  DbProvider = "db_provider",
+  GraphProvider = "graph_provider",
+  SqlitePath = "sqlite_path",
+  IngestionStrategy = "ingestion.strategy",
+  EnrichmentModel = "enrichment.model",
+  EnrichmentMaxToolCallsPerFile = "enrichment.max.tool.calls.per.file",
+  EnrichmentMaxIterationsPerFile = "enrichment.max.iterations.per.file",
+  EnrichmentWallTimeMsPerFile = "enrichment.wall.time.ms.per.file",
+  EnrichmentConcurrency = "enrichment.concurrency",
+  EnrichmentMaxToolResultChars = "enrichment.max.tool.result.chars",
+}
+
+export enum DbProviderType {
+  Sqlite = "sqlite",
+  Mongo = "mongo",
+}
+
+export enum GraphProviderType {
+  Neo4j = "neo4j",
+  Ladybug = "ladybug",
+}
+
+/**
+ * Active ingestion strategy. `flat-folder` is the historic default that
+ * produces `:Repo` + `:Folder` summaries via per-folder LLM passes.
+ * `concept-graph` drops folder/repo summaries and runs a per-file
+ * MCP-driven enrichment pass that emits `:Concept` / `:Contract` /
+ * `:Guidepost` nodes instead.
+ */
+export enum IngestionStrategyType {
+  FlatFolder = "flat-folder",
+  ConceptGraph = "concept-graph",
 }

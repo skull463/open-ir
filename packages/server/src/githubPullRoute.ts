@@ -1,6 +1,6 @@
 import type { Request, Response, Router } from "express";
 import express from "express";
-import { getKnowledge } from "@bb/mongo";
+import { knowledgeDb } from "@bb/db";
 import { enqueueGithubPull } from "@bb/queue";
 import { fetchLatestCommitHash } from "@bb/ingest-github";
 
@@ -54,7 +54,7 @@ export function buildGithubPullRoute(): Router {
       return;
     }
 
-    const knowledge = await getKnowledge(knowledgeId);
+    const knowledge = await knowledgeDb.getKnowledge(knowledgeId);
     if (knowledge === null) {
       res.status(404).json({ error: "knowledge not found" });
       return;

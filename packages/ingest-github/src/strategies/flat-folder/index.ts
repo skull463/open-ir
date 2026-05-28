@@ -9,6 +9,7 @@ import { withConcurrency } from "#src/pipeline/concurrency.ts";
 import { scanAndClassify } from "./phases/scan-and-classify.ts";
 import { analyseSmallFiles } from "./phases/analyse-small.ts";
 import { analyseBigFiles } from "./phases/analyse-big-files.ts";
+import { writeEligibleFiles } from "./eligible-files.ts";
 import { backfillMissingFields } from "./backfill/fields.ts";
 import { FileAnalysisCache } from "./file-analysis-cache.ts";
 import { runFolderSummaryPhase } from "./folder-summary.ts";
@@ -27,7 +28,7 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
   return {
     name: "flat-folder",
     async execute(input: StrategyInput): Promise<StrategyResult> {
-      const { context, source, archiveSink, metaPaths, payload, branch } = input;
+      const { context, source, archiveSink, metaPaths, payload, branch, usageGuard } = input;
       const { knowledgeId, orgId, repoId, llmCallContext } = context;
       const progressContext: ProgressContext = progressContextFactory(knowledgeId);
 
@@ -51,6 +52,22 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
           scanInput.llmCallContext = llmCallContext;
         }
         const { manifest } = await scanAndClassify(scanInput);
+
+        // Persist the canonical eligible-files list BEFORE any small- or
+        // big-file LLM call runs. Read back by `@bytebell/knowledge-validation`
+        // to verify every file the analyzer was asked to process landed in
+        // Neo4j. Must be the last step before analysis dispatch — if this
+        // fails, the knowledge is not validatable post-hoc and we'd rather
+        // fail the run than ship an un-checkable index.
+        const eligibleInput: Parameters<typeof writeEligibleFiles>[0] = {
+          knowledgeId,
+          manifest,
+          source,
+        };
+        if (archiveSink !== undefined) {
+          eligibleInput.archiveSink = archiveSink;
+        }
+        await writeEligibleFiles(eligibleInput);
 
         progressContext.phaseChanged("file_analysis");
         logger.info(
@@ -87,6 +104,11 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
         let totalInputTokens = smallResult.tokenUsage.inputTokens + bigResult.tokenUsage.inputTokens;
         let totalOutputTokens = smallResult.tokenUsage.outputTokens + bigResult.tokenUsage.outputTokens;
         let totalCostUsd = smallResult.tokenUsage.costUsd + bigResult.tokenUsage.costUsd;
+        await usageGuard?.onPhaseComplete("file_analysis", {
+          inputTokens: totalInputTokens,
+          outputTokens: totalOutputTokens,
+          costUsd: totalCostUsd,
+        });
 
         logger.info(`flat-folder: loading file-analysis cache`);
         throwIfCancelled(knowledgeId);
@@ -110,6 +132,11 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
         totalInputTokens += phase5.tokenUsage.inputTokens;
         totalOutputTokens += phase5.tokenUsage.outputTokens;
         totalCostUsd += phase5.tokenUsage.costUsd;
+        await usageGuard?.onPhaseComplete("folder_analysis", {
+          inputTokens: totalInputTokens,
+          outputTokens: totalOutputTokens,
+          costUsd: totalCostUsd,
+        });
 
         progressContext.phaseChanged("indexing");
         logger.info(`flat-folder: phase6 (repo summary) starting`);
@@ -122,6 +149,11 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
         totalInputTokens += repoUsage.inputTokens;
         totalOutputTokens += repoUsage.outputTokens;
         totalCostUsd += repoUsage.costUsd;
+        await usageGuard?.onPhaseComplete("repo_summary", {
+          inputTokens: totalInputTokens,
+          outputTokens: totalOutputTokens,
+          costUsd: totalCostUsd,
+        });
         let repoSummarised = false;
         if (repoSummary !== null) {
           await persistRepoSummary(metaPaths, makeRepoSummaryEnvelope(knowledgeId, orgId, repoSummary));

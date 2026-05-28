@@ -1,6 +1,6 @@
 import type { Request, Response, Router } from "express";
 import express from "express";
-import { getGlobalUsage, getMonthlyUsage } from "@bb/mongo";
+import { usageDb } from "@bb/db";
 
 export function buildMcpStatsRoute(): Router {
   const router = express.Router();
@@ -11,7 +11,10 @@ export function buildMcpStatsRoute(): Router {
       const year = now.getUTCFullYear();
       const month = now.getUTCMonth() + 1;
 
-      const [globalStats, monthlyStats] = await Promise.all([getGlobalUsage(), getMonthlyUsage(year, month)]);
+      const [globalStats, monthlyStats] = await Promise.all([
+        usageDb.getGlobalUsage(),
+        usageDb.getMonthlyUsage(year, month),
+      ]);
 
       res.status(200).json({
         global: globalStats[0] || {

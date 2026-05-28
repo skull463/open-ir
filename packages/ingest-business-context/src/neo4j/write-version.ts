@@ -1,4 +1,4 @@
-import { runCypher } from "@bb/neo4j";
+import { runCypher } from "@bb/graph-db";
 import type { BusinessContextAnalysis } from "#src/types.ts";
 
 export interface BusinessContextVersionIdentity {
@@ -41,14 +41,14 @@ export async function createBusinessContextVersionNode(
   analysis: BusinessContextAnalysis,
   sanitizedTitle: string,
 ): Promise<number> {
-  const rows = await runCypher<{ count: number }>(MERGE_VERSION, {
+  const rows = (await runCypher(MERGE_VERSION, {
     nodeId: sanitizedTitle,
     knowledgeId: identity.knowledgeId,
     orgId: identity.orgId,
     commitHash: identity.commitHash,
     analysisJson: JSON.stringify(analysis),
     updatedAt: new Date().toISOString(),
-  });
+  })) as Array<{ count: number }>;
   return rows.length > 0 ? Number(rows[0]?.count ?? 0) : 0;
 }
 
@@ -62,10 +62,10 @@ export async function linkVersionToFileVersions(
   identity: BusinessContextVersionIdentity,
   sanitizedTitle: string,
 ): Promise<number> {
-  const rows = await runCypher<{ count: number }>(LINK_TO_FILE_VERSIONS, {
+  const rows = (await runCypher(LINK_TO_FILE_VERSIONS, {
     nodeId: sanitizedTitle,
     knowledgeId: identity.knowledgeId,
     commitHash: identity.commitHash,
-  });
+  })) as Array<{ count: number }>;
   return rows.length > 0 ? Number(rows[0]?.count ?? 0) : 0;
 }

@@ -2,7 +2,8 @@
 node_modules/
 .pnp/
 .pnp.js
-
+*.js
+*.d.ts
 # Bun
 bun.lockb
 .bun/
@@ -16,6 +17,7 @@ dist/
 build/
 out/
 *.tsbuildinfo
+__tests__
 
 # TypeScript
 *.js.map

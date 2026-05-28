@@ -92,6 +92,22 @@ export async function setKnowledgeCommit(
 }
 
 /**
+ * Sets `source.commitId` only — no history append. Used early in the
+ * pipeline so MCP tools (`retrieve_file_content` etc.) called during
+ * enrichment can resolve the on-disk clone dir via the commit-scoped path
+ * layout. The history entry is written later by `setKnowledgeCommit` with
+ * the real token usage.
+ */
+export async function setKnowledgeCommitHead(knowledgeId: string, commitHash: string): Promise<void> {
+  const result = await _getDb()
+    .collection(Collections.Knowledge)
+    .updateOne({ knowledgeId }, { $set: { "source.commitId": commitHash, updatedAt: new Date() } });
+  if (result.matchedCount === 0) {
+    throw new KnowledgeNotFoundError(knowledgeId);
+  }
+}
+
+/**
  * Updates the branch name of a GitHub knowledge entry.
  */
 export async function setKnowledgeBranch(knowledgeId: string, branch: string): Promise<void> {

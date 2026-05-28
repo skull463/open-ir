@@ -1,4 +1,4 @@
-import { runCypher } from "@bb/neo4j";
+import { runCypher } from "@bb/graph-db";
 
 export interface FileMetadata {
   path: string;
@@ -48,7 +48,7 @@ export async function fetchMetadata(knowledgeId: string, relativePaths: readonly
       notFound: [],
     };
   }
-  const rows = await runCypher<RowShape>(
+  const rows = (await runCypher(
     `
     MATCH (f:File)
     WHERE f.knowledgeId = $knowledgeId AND f.relativePath IN $paths
@@ -70,7 +70,7 @@ export async function fetchMetadata(knowledgeId: string, relativePaths: readonly
            collect(DISTINCT me.name) AS importsExternal
     `,
     { knowledgeId, paths: relativePaths },
-  );
+  )) as RowShape[];
   const files = rows.map(rowToMetadata);
   const found = new Set(files.map((file) => file.path));
   const notFound = relativePaths.filter((p) => !found.has(p));

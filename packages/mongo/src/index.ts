@@ -1,3 +1,5 @@
+import "./provider.ts";
+
 export { connectMongo, closeMongo, pingMongo } from "./client.ts";
 export type { PingResult } from "./client.ts";
 
@@ -21,3 +23,12 @@ export { aggregateStats } from "./aggregateStats.ts";
 
 export { incrementUsage, getMonthlyUsage, getGlobalUsage } from "./usage.ts";
 export { recordActivity } from "./activity.ts";
+
+export {
+  startEnrichmentRun,
+  getCompletedEnrichmentFiles,
+  markFileEnriched,
+  recordEnrichmentFailure,
+  completeEnrichmentRun,
+  failEnrichmentRun,
+} from "./enrichment.ts";

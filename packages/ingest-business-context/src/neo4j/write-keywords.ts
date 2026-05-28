@@ -1,4 +1,4 @@
-import { runCypher } from "@bb/neo4j";
+import { runCypher } from "@bb/graph-db";
 import { BUSINESS_CONTEXT_KEYWORD_TYPES } from "#src/neo4j/relationship-types.ts";
 import type { BusinessContextAnalysis } from "#src/types.ts";
 
@@ -45,13 +45,13 @@ export async function createBusinessContextKeywords(
       continue;
     }
 
-    const rows = await runCypher<{ count: number }>(MERGE_KEYWORDS, {
+    const rows = (await runCypher(MERGE_KEYWORDS, {
       keywords: words.map((w) => ({ word: w })),
       relType,
       orgId: identity.orgId,
       nodeId: sanitizedTitle,
       knowledgeId: identity.knowledgeId,
-    });
+    })) as Array<{ count: number }>;
     if (rows.length > 0) {
       total += Number(rows[0]?.count ?? 0);
     }

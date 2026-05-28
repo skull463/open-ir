@@ -1,9 +1,12 @@
+import "./provider.ts";
+
 export { connectNeo4j, closeNeo4j, pingNeo4j } from "./client.ts";
 export { _runCypher as runCypher, toNeo4jInt } from "./client.ts";
 export type { PingResult } from "./client.ts";
 
 export { ensureKnowledgeIndexes } from "./indexes.ts";
 export { ensureFlatFolderIndexes } from "./flatFolderIndexes.ts";
+export { ensureConceptGraphIndexes } from "./conceptGraphIndexes.ts";
 
 export {
   upsertKnowledgeNode,
@@ -23,3 +26,7 @@ export type { FolderSummaryPayload, UpsertFolderNodeInput } from "./folder.ts";
 
 export { snapshotFilesToVersion } from "./fileVersions.ts";
 export type { SnapshotFilesInput } from "./fileVersions.ts";
+
+export { upsertConcept, attachFileToConcept, upsertTestsEdge } from "./concepts.ts";
+export { upsertContract, attachFileToContract } from "./contracts.ts";
+export { upsertGuidepost, attachGuidepost } from "./guideposts.ts";

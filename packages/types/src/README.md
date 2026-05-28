@@ -22,13 +22,13 @@ package-level contract; this file documents how the source tree is split.
   (publisher) and `@bb/ingest-*` packages (worker handlers). Ingest
   payloads carry an optional `orgId?: string` override; OSS callers omit
   it and the pipeline reads `Config.OrgId` from `~/.bytebell/config.json`
-  (locked to `"local"` in OSS builds; downstream enterprise builds set
+  (locked to `"local"` in OSS builds; downstream consumers may set
   `orgId` per-job). Both GitHub payloads also extend `PayloadLlmOverrides`
   which adds optional `llmApiKey?`, `llmProvider?: string`, `llmModel?`,
-  `llmKeyId?` — the extension point that lets downstream enterprise
-  builds resolve per-org LLM credentials at the enqueue boundary and
-  pass them through the payload. `llmProvider` is `string` (not a closed
-  union) so multi-provider enterprise consumers can carry `"anthropic"`,
+  `llmKeyId?` — the extension point that lets downstream consumers
+  resolve per-org LLM credentials at the enqueue boundary and pass them
+  through the payload. `llmProvider` is `string` (not a closed
+  union) so multi-provider consumers can carry `"anthropic"`,
   `"gemini"`, etc.; OSS narrows to `"openrouter"`/`"ollama"` at the LLM
   client boundary. `llmKeyId` is opaque audit metadata OSS ignores. OSS
   standalone leaves all four fields unset and the pipeline falls back to
@@ -65,14 +65,46 @@ package-level contract; this file documents how the source tree is split.
     `status.state === FAILED` and cleared automatically by the next
     `setKnowledgeState` call (the function `$unset`s it on transitions out
     of FAILED).
+  - `EnrichmentState` (`Pending | Running | Completed | Failed`) and
+    `EnrichmentFailure` (`{ filePath, reason, attemptCount, lastError,
+lastAttemptAt }`) plus `EnrichmentFailureReason` (`"cap-exceeded" |
+"validation-failed" | "provider-error"`) live here too. Optional
+    `enrichmentRunId`, `enrichmentState`, `completedFiles[]`,
+    `enrichmentFailures[]` fields hang off `KnowledgeDoc` for the
+    ConceptGraphStrategy ledger; absent on legacy flat-folder
+    knowledges.
+- **[graph.ts](graph.ts)** — kernel graph types: `NodeScope`,
+  per-summary payloads, `Upsert*Input` shapes. Also home of the
+  ConceptGraphStrategy schema kernel: `ConceptKind`, `ContractKind`,
+  `GuidepostKind` enums; `ConceptEdgeKind` / `ContractEdgeKind`
+  discriminators; `UpsertConceptInput`, `AttachFileToConceptInput`,
+  `UpsertContractInput`, `AttachFileToContractInput`,
+  `UpsertGuidepostInput`, `AttachGuidepostInput`, `UpsertTestsEdgeInput`.
+  Consumed by `@bb/graph-core` (interfaces) and `@bb/neo4j`
+  (implementation).
+- **[path-layout.ts](path-layout.ts)** — pure on-disk path resolver.
+  Defines the `RepoLocation` union (github / local) and pure functions
+  (`bytebellPathsFor`, `commitBaseDirFor`, `repositoryDirFor`,
+  `metaOutputRootFor`, `orgsRootFor`) that take a `home` string and
+  return the kube-style layout
+  `<home>/orgs/<orgId>/<provider>/<knowledgeId>/<owner>/<repo>/<commit>/`.
+  Also exports `parseGithubOwnerRepo(repoUrl)` — a pure GitHub URL
+  parser that mirrors the `parseGithubRepo` in
+  `@bb/ingest-github/githubUrl` (duplicated deliberately so kernel-tier
+  code never reaches up into Domain). The `MetaPathsLayout` interface
+  documents the leaf-path shape returned by `bytebellPathsFor`. Lives
+  here so `@bb/ingest-github` (writer) and `@bb/mcp` (reader) can
+  agree on the layout without one importing the other.
 
 ## Module dependency graph
 
 ```
-config.ts    → (leaf — no imports)
-job.ts       → (leaf — no imports)
-knowledge.ts → (leaf — no imports)
-index.ts     → re-exports all three
+config.ts      → (leaf — no imports)
+job.ts         → (leaf — no imports)
+knowledge.ts   → (leaf — no imports)
+graph.ts       → ./analysis.ts (type-only)
+path-layout.ts → node:path (kernel-permitted std lib only)
+index.ts       → re-exports all of the above
 ```
 
 Pure declarations, no cycles possible.

@@ -76,6 +76,7 @@ else
   git clone "$REPO_URL"
 fi
 cd bytebell-oss
+REPO_DIR="$(pwd)"
 print_ok "Repository ready"
 
 # ── 3. install dependencies ───────────────────
@@ -90,7 +91,6 @@ print_ok "Dependencies installed"
 #  A direct symlink to the workspace entry point is the reliable path.
 
 print_step "Wiring bytebell binary"
-REPO_DIR="$(pwd)"
 BUN_BIN_DIR="$(dirname "$(which bun)")"
 ENTRY="$REPO_DIR/packages/cli/src/index.ts"
 ln -sf "$ENTRY" "$BUN_BIN_DIR/bytebell"

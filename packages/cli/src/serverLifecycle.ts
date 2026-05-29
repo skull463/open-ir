@@ -6,6 +6,7 @@ import {
   ServerStartTimeoutError,
   ServerInfraDownError,
   ServerInfraUnreachableError,
+  ServerProcessExitedError,
   ensureServerRunning,
 } from "./serverSpawn.ts";
 import { createSpinner, error } from "./output.ts";
@@ -91,7 +92,12 @@ export async function startServer(): Promise<boolean> {
     return true;
   } catch (cause: unknown) {
     spinner.stop(false, "Server startup failed");
-    if (cause instanceof ServerInfraUnreachableError) {
+    if (cause instanceof ServerProcessExitedError) {
+      error(cause.message);
+      if (cause.logTail.length > 0) {
+        error(cause.logTail);
+      }
+    } else if (cause instanceof ServerInfraUnreachableError) {
       error(`Infra not reachable: ${cause.services.map((s) => `${s.name} (${s.uri})`).join(", ")}. Is Docker running?`);
     } else if (cause instanceof ServerInfraDownError) {
       error(`Infra not reachable: ${cause.services.join(", ")}. Is Docker running?`);

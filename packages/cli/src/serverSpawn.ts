@@ -1,4 +1,4 @@
-import { mkdir, open } from "node:fs/promises";
+import { mkdir, open, readFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import net from "node:net";
 import path from "node:path";
@@ -39,6 +39,16 @@ export class ServerInfraUnreachableError extends Error {
     const list = services.map((s) => `${s.name} (${s.uri})`).join(", ");
     super(`infra not reachable before server start: ${list}. Is Docker running?`);
     this.services = services;
+  }
+}
+
+export class ServerProcessExitedError extends Error {
+  override readonly name = "ServerProcessExitedError";
+  readonly logTail: string;
+
+  constructor(code: number | null, logTail: string) {
+    super(`server process exited immediately (code ${code ?? "null"})`);
+    this.logTail = logTail;
   }
 }
 
@@ -156,6 +166,9 @@ async function isHealthy(): Promise<boolean> {
   return false;
 }
 
+const EARLY_EXIT_WATCH_MS = 1500;
+const LOG_TAIL_LINES = 20;
+
 async function spawnDetached(): Promise<string> {
   const logsDir = getLogsDir();
   await mkdir(logsDir, { recursive: true, mode: 0o700 });
@@ -167,9 +180,32 @@ async function spawnDetached(): Promise<string> {
     stdio: ["ignore", fh.fd, fh.fd],
     detached: true,
   });
-  child.unref();
   await fh.close();
+
+  // Watch briefly for an immediate exit (e.g. boot guard, config error).
+  const exitCode = await Promise.race([
+    new Promise<number | null>((resolve) => child.once("exit", (code) => resolve(code))),
+    sleep(EARLY_EXIT_WATCH_MS).then(() => undefined),
+  ]);
+
+  if (exitCode !== undefined) {
+    // Process already exited — read the log tail and throw.
+    const logTail = await readLogTail(logPath);
+    throw new ServerProcessExitedError(exitCode, logTail);
+  }
+
+  child.unref();
   return logPath;
+}
+
+async function readLogTail(logPath: string): Promise<string> {
+  try {
+    const content = await readFile(logPath, "utf8");
+    const lines = content.trimEnd().split("\n");
+    return lines.slice(-LOG_TAIL_LINES).join("\n");
+  } catch {
+    return "";
+  }
 }
 
 function resolveServerEntry(): string {

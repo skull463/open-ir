@@ -2,7 +2,12 @@
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { getBytebellHome } from "@bb/config";
-import { ServerStartTimeoutError, ServerInfraDownError, ensureServerRunning } from "./serverSpawn.ts";
+import {
+  ServerStartTimeoutError,
+  ServerInfraDownError,
+  ServerInfraUnreachableError,
+  ensureServerRunning,
+} from "./serverSpawn.ts";
 import { createSpinner, error } from "./output.ts";
 
 const POLL_INTERVAL_MS = 500;
@@ -86,7 +91,9 @@ export async function startServer(): Promise<boolean> {
     return true;
   } catch (cause: unknown) {
     spinner.stop(false, "Server startup failed");
-    if (cause instanceof ServerInfraDownError) {
+    if (cause instanceof ServerInfraUnreachableError) {
+      error(`Infra not reachable: ${cause.services.map((s) => `${s.name} (${s.uri})`).join(", ")}. Is Docker running?`);
+    } else if (cause instanceof ServerInfraDownError) {
       error(`Infra not reachable: ${cause.services.join(", ")}. Is Docker running?`);
     } else if (cause instanceof ServerStartTimeoutError) {
       error(cause.message);

@@ -1,5 +1,6 @@
 import { mkdir, open } from "node:fs/promises";
 import { spawn } from "node:child_process";
+import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Config } from "@bb/types";
@@ -30,6 +31,71 @@ export class ServerInfraDownError extends Error {
   }
 }
 
+export class ServerInfraUnreachableError extends Error {
+  override readonly name = "ServerInfraUnreachableError";
+  readonly services: { name: string; uri: string }[];
+
+  constructor(services: { name: string; uri: string }[]) {
+    const list = services.map((s) => `${s.name} (${s.uri})`).join(", ");
+    super(`infra not reachable before server start: ${list}. Is Docker running?`);
+    this.services = services;
+  }
+}
+
+async function tcpReachable(host: string, port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const sock = net.connect({ host, port });
+    sock.once("connect", () => {
+      sock.destroy();
+      resolve(true);
+    });
+    sock.once("error", () => {
+      sock.destroy();
+      resolve(false);
+    });
+    sock.setTimeout(1000, () => {
+      sock.destroy();
+      resolve(false);
+    });
+  });
+}
+
+function parseHostPort(uri: string): { host: string; port: number } | null {
+  try {
+    const u = new URL(uri);
+    const defaultPort = u.protocol === "bolt:" ? 7687 : u.protocol === "redis:" ? 6379 : 27017;
+    const port = u.port !== "" ? Number.parseInt(u.port, 10) : defaultPort;
+    return { host: u.hostname || "127.0.0.1", port };
+  } catch {
+    return null;
+  }
+}
+
+async function checkInfraReachable(): Promise<void> {
+  const checks = [
+    { name: "mongo", uri: getConfigValue(Config.MongoUri) },
+    { name: "redis", uri: getConfigValue(Config.RedisUrl) },
+    { name: "neo4j", uri: getConfigValue(Config.Neo4jUri) },
+  ];
+  const down: { name: string; uri: string }[] = [];
+  for (const check of checks) {
+    if (check.uri.length === 0) {
+      continue;
+    }
+    const parsed = parseHostPort(check.uri);
+    if (parsed === null) {
+      continue;
+    }
+    const ok = await tcpReachable(parsed.host, parsed.port);
+    if (!ok) {
+      down.push({ name: check.name, uri: `${parsed.host}:${parsed.port}` });
+    }
+  }
+  if (down.length > 0) {
+    throw new ServerInfraUnreachableError(down);
+  }
+}
+
 export async function ensureServerRunning(onProgress?: (line: string) => void): Promise<{
   alreadyRunning: boolean;
   logPath?: string;
@@ -42,6 +108,7 @@ export async function ensureServerRunning(onProgress?: (line: string) => void): 
     // assume the running server picked up the toggle when it hasn't.
     return { alreadyRunning: true, devModeMismatch: isDevMode() };
   }
+  await checkInfraReachable();
   const logPath = await spawnDetached();
   for (let i = 0; i < SPAWN_MAX_POLLS; i++) {
     if (onProgress !== undefined) {

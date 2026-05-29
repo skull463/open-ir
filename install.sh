@@ -1,6 +1,10 @@
 #!/bin/bash
 set -e
 
+# Bun installs to ~/.bun/bin; make sure it's reachable even if the user's
+# shell hasn't exported it yet (covers "bun installed but not on PATH").
+export PATH="$HOME/.bun/bin:$PATH"
+
 # ─────────────────────────────────────────────
 #  Bytebell — one-command setup (V1 / git-clone path)
 #  Usage: curl -fsSL https://raw.githubusercontent.com/ByteBell/open-ir/main/install.sh | bash
@@ -14,6 +18,14 @@ print_step() { echo ""; echo "▶  $1"; }
 print_ok()   { echo "  ✓  $1"; }
 print_err()  { echo ""; echo "  ✗  ERROR: $1" >&2; }
 print_info() { echo "  •  $1"; }
+
+# ── what this will do ────────────────────────
+
+echo ""
+echo "This installer will:"
+echo "  • clone Bytebell into ./open-ir (the current directory)"
+echo "  • add a global 'bytebell' command"
+echo "  • install project dependencies"
 
 # ── 1. prerequisite checks ───────────────────
 
@@ -37,20 +49,16 @@ if ! command -v docker &>/dev/null; then
   exit 1
 fi
 
+# `docker info` can hang if the daemon is wedged or mid-start, so cap it.
+# Prefer GNU `timeout`/`gtimeout`; fall back to a plain call where neither exists.
 check_docker_running() {
-  docker info >/dev/null 2>&1 &
-  local pid=$!
-  local count=0
-  while kill -0 $pid 2>/dev/null; do
-    sleep 1
-    count=$((count + 1))
-    if [ $count -ge 5 ]; then
-      kill -9 $pid 2>/dev/null || true
-      return 1
-    fi
-  done
-  wait $pid
-  return $?
+  if command -v timeout &>/dev/null; then
+    timeout 10 docker info >/dev/null 2>&1
+  elif command -v gtimeout &>/dev/null; then
+    gtimeout 10 docker info >/dev/null 2>&1
+  else
+    docker info >/dev/null 2>&1
+  fi
 }
 
 if ! check_docker_running; then
@@ -69,9 +77,8 @@ print_ok "git $(git --version | awk '{print $3}')"
 
 print_step "Cloning Bytebell"
 
-if [ -d "open-ir" ]; then
-  print_info "open-ir/ already exists — pulling latest"
-  git -C open-ir pull --ff-only
+if [ -d "open-ir/.git" ]; then
+  print_info "existing install detected at open-ir/ — leaving it untouched (no git pull)"
 else
   git clone "$REPO_URL"
 fi
@@ -86,15 +93,27 @@ bun install --frozen-lockfile
 print_ok "Dependencies installed"
 
 # ── 4. wire the bytebell binary ──────────────
-#  bun link only registers the package name — it does not update the
-#  ~/.bun/bin symlink when a stale global install already exists.
-#  A direct symlink to the workspace entry point is the reliable path.
+#  Symlinking the .ts entry directly is fragile — it relies on the shebang,
+#  the executable bit, and bun's PATH resolution all lining up. A tiny wrapper
+#  that execs `bun run` against the absolute entry path is reliable from any cwd.
 
 print_step "Wiring bytebell binary"
-BUN_BIN_DIR="$(dirname "$(which bun)")"
+BUN_PATH="$(command -v bun)"
+BIN_DIR="$(dirname "$BUN_PATH")"
 ENTRY="$REPO_DIR/packages/cli/src/index.ts"
-ln -sf "$ENTRY" "$BUN_BIN_DIR/bytebell"
+cat > "$BIN_DIR/bytebell" <<EOF
+#!/bin/bash
+exec "$BUN_PATH" run "$ENTRY" "\$@"
+EOF
+chmod +x "$BIN_DIR/bytebell"
 print_ok "bytebell → $ENTRY"
+
+if command -v bytebell >/dev/null 2>&1; then
+  print_ok "bytebell command available"
+else
+  print_info "bytebell isn't on your PATH yet — add this line to your shell profile:"
+  echo "    export PATH=\"$BIN_DIR:\$PATH\""
+fi
 
 # ── 5. done ───────────────────────────────────
 

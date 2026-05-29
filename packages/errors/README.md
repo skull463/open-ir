@@ -42,7 +42,15 @@ Today the catalog covers:
   `UsageLimitExceededDetail`). OSS standalone never throws this; the
   pipeline only catches it when an optional guard is wired in.
 - **Server** — `ServerConfigError` (missing required config at boot;
-  carries `missing[]` + matching `bytebell set …` hints).
+  carries `missing[]` + matching `bytebell set …` hints),
+  `ServerStartTimeoutError` (spawned server never passed its health check;
+  carries `logPath`), `ServerInfraDownError` (server's `/health` reports an
+  infra dependency down; carries the `services[]` names),
+  `ServerInfraUnreachableError` (a configured infra URI is not TCP-reachable
+  before the server is spawned; carries `services[]` of `{name, uri}`),
+  `ServerProcessExitedError` (spawned server process exited immediately;
+  carries the captured `logTail`). The last four are thrown by the CLI's
+  server-spawn / lifecycle path.
 - **Neo4j** — `Neo4jConfigError` (missing URI / user / password),
   `Neo4jConnectError` (driver `verifyConnectivity()` failed; redacts
   userinfo in URI), `Neo4jNotConnectedError` (`_getDriver()` called
@@ -75,6 +83,10 @@ class IngestError              extends Error
 class IngestPathError          extends Error
 class UsageLimitExceededError  extends Error
 class ServerConfigError        extends Error
+class ServerStartTimeoutError  extends Error
+class ServerInfraDownError     extends Error
+class ServerInfraUnreachableError extends Error
+class ServerProcessExitedError extends Error
 class Neo4jConfigError         extends Error
 class Neo4jConnectError        extends Error
 class Neo4jNotConnectedError   extends Error

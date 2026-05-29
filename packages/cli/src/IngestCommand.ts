@@ -3,7 +3,8 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 import { Config } from "@bb/types";
 import { getConfigValue } from "@bb/config";
-import { ensureServerRunning, ServerStartTimeoutError } from "./serverSpawn.ts";
+import { ensureServerRunning } from "./serverSpawn.ts";
+import { ServerStartTimeoutError } from "@bb/errors";
 import { getJson, HttpClientError, postJson } from "./httpClient.ts";
 import { createProgressBar, createSpinner, error, type ProgressBar } from "./output.ts";
 

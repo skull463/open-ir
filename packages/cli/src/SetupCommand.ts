@@ -11,6 +11,8 @@ import { stopServer } from "./serverLifecycle.ts";
 import { postJson, HttpClientError } from "./httpClient.ts";
 import { success, error, info } from "./output.ts";
 import { pollIndexToCompletion, type IndexResponse } from "./indexPoller.ts";
+import { probeRepo } from "./repoProbe.ts";
+import { runMcpInstall } from "./mcpInstall.ts";
 
 export function buildSetupCommand(): Command {
   const cmd = new Command("setup");
@@ -42,10 +44,17 @@ async function runSetup(): Promise<void> {
   }
   if (result.indexUrl !== undefined) {
     await startIndex(result.indexUrl);
-  } else {
-    const port = getConfigValue(Config.ServerPort);
-    success(`Connect Claude Code:\n  claude mcp add --transport http bytebell http://127.0.0.1:${port}/mcp`);
   }
+  await connectMcp();
+}
+
+async function connectMcp(): Promise<void> {
+  const summary = await runMcpInstall().catch(() => null);
+  if (summary !== null && summary.configured > 0) {
+    return;
+  }
+  const port = getConfigValue(Config.ServerPort);
+  success(`Connect Claude Code:\n  claude mcp add --transport http bytebell http://127.0.0.1:${port}/mcp`);
 }
 
 function runWizard(): Promise<InstallWizardResult | null> {
@@ -125,9 +134,17 @@ async function boot(): Promise<boolean> {
 }
 
 async function startIndex(repoUrl: string): Promise<void> {
+  const probe = await probeRepo(repoUrl);
+  if (probe.branch === null) {
+    return;
+  }
+  const body: Record<string, string> = { repoUrl, branch: probe.branch };
+  if (probe.token !== undefined) {
+    body["gitToken"] = probe.token;
+  }
   let res: IndexResponse;
   try {
-    res = await postJson<IndexResponse>("/api/v1/github/index", { repoUrl });
+    res = await postJson<IndexResponse>("/api/v1/github/index", body);
   } catch (cause: unknown) {
     if (cause instanceof HttpClientError) {
       error(`Failed to start indexing: ${cause.message}`);
@@ -138,7 +155,4 @@ async function startIndex(repoUrl: string): Promise<void> {
   }
 
   await pollIndexToCompletion(res.knowledgeId, res.jobId);
-
-  const port = getConfigValue(Config.ServerPort);
-  success(`Connect Claude Code:\n  claude mcp add --transport http bytebell http://127.0.0.1:${port}/mcp`);
 }

@@ -3,10 +3,10 @@ set -e
 
 # ─────────────────────────────────────────────
 #  Bytebell — one-command setup (V1 / git-clone path)
-#  Usage: curl -fsSL https://raw.githubusercontent.com/kaushalya4s5s7/bytebell-oss/main/install.sh | bash
+#  Usage: curl -fsSL https://raw.githubusercontent.com/ByteBell/open-ir/main/install.sh | bash
 # ─────────────────────────────────────────────
 
-REPO_URL="https://github.com/kaushalya4s5s7/bytebell-oss"
+REPO_URL="https://github.com/ByteBell/open-ir"
 
 # ── helpers ──────────────────────────────────
 
@@ -69,13 +69,13 @@ print_ok "git $(git --version | awk '{print $3}')"
 
 print_step "Cloning Bytebell"
 
-if [ -d "bytebell-oss" ]; then
-  print_info "bytebell-oss/ already exists — pulling latest"
-  git -C bytebell-oss pull --ff-only
+if [ -d "open-ir" ]; then
+  print_info "open-ir/ already exists — pulling latest"
+  git -C open-ir pull --ff-only
 else
   git clone "$REPO_URL"
 fi
-cd bytebell-oss
+cd open-ir
 REPO_DIR="$(pwd)"
 print_ok "Repository ready"
 
@@ -107,9 +107,6 @@ echo ""
 echo "    bytebell setup"
 echo ""
 echo "  Commands reference:"
-echo "    https://github.com/kaushalya4s5s7/bytebell-oss/blob/main/commands.md"
-echo ""
-echo "  NOTE: the bytebell binary is a symlink into this directory."
-echo "  If you move bytebell-oss/, re-run this installer to fix the symlink."
+echo "    https://github.com/ByteBell/open-ir/blob/main/commands.md"
 echo "════════════════════════════════════════"
 echo ""

@@ -17,24 +17,35 @@ interface InstallResult {
   detail: string;
 }
 
-export async function runMcpInstall(): Promise<void> {
+export interface McpInstallSummary {
+  detected: number;
+  configured: number;
+  failed: number;
+}
+
+export async function runMcpInstall(): Promise<McpInstallSummary> {
   const port = getConfigValue(Config.ServerPort);
   const url = `http://127.0.0.1:${port}/mcp`;
 
   const detected = MCP_TARGETS.filter((t) => t.detect());
   if (detected.length === 0) {
     info("No supported coding tools detected (Claude Code, Cursor, Claude Desktop, Windsurf, VS Code).");
-    return;
+    return { detected: 0, configured: 0, failed: 0 };
   }
 
   const picked = await pickTargets(detected);
   if (picked === null || picked.length === 0) {
     info("Nothing selected — no changes made.");
-    return;
+    return { detected: detected.length, configured: 0, failed: 0 };
   }
 
   const results = picked.map((t) => applyTarget(t, url));
   printSummary(results, url);
+  return {
+    detected: detected.length,
+    configured: results.filter((r) => r.status === "configured").length,
+    failed: results.filter((r) => r.status === "failed").length,
+  };
 }
 
 // Merge the bytebell entry into one tool's config. Never clobbers: reads the

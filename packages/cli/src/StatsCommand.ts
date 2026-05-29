@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import type { StatsCommitEntry, StatsRepoEntry, StatsResponse } from "@bb/types";
-import { ensureServerRunning, ServerStartTimeoutError } from "./serverSpawn.ts";
+import { ensureServerRunning } from "./serverSpawn.ts";
+import { ServerStartTimeoutError } from "@bb/errors";
 import { getJson, HttpClientError } from "./httpClient.ts";
 import { error, table } from "./output.ts";
 

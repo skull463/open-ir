@@ -7,51 +7,16 @@ import { fileURLToPath } from "node:url";
 import { Config } from "@bb/types";
 import { getConfigValue, isDevMode } from "@bb/config";
 import { getLogsDir } from "@bb/logger";
+import {
+  ServerStartTimeoutError,
+  ServerInfraDownError,
+  ServerInfraUnreachableError,
+  ServerProcessExitedError,
+} from "@bb/errors";
 
 const HEALTH_TIMEOUT_MS = 500;
 const SPAWN_POLL_INTERVAL_MS = 200;
 const SPAWN_MAX_POLLS = 50;
-
-export class ServerStartTimeoutError extends Error {
-  override readonly name = "ServerStartTimeoutError";
-  readonly logPath: string;
-
-  constructor(logPath: string) {
-    super(`server didn't come up within ${(SPAWN_POLL_INTERVAL_MS * SPAWN_MAX_POLLS) / 1000}s. Check ${logPath}`);
-    this.logPath = logPath;
-  }
-}
-
-export class ServerInfraDownError extends Error {
-  override readonly name = "ServerInfraDownError";
-  readonly services: string[];
-
-  constructor(services: string[]) {
-    super(`server started but infra not reachable: ${services.join(", ")}. Make sure Docker is running.`);
-    this.services = services;
-  }
-}
-
-export class ServerInfraUnreachableError extends Error {
-  override readonly name = "ServerInfraUnreachableError";
-  readonly services: { name: string; uri: string }[];
-
-  constructor(services: { name: string; uri: string }[]) {
-    const list = services.map((s) => `${s.name} (${s.uri})`).join(", ");
-    super(`infra not reachable before server start: ${list}. Is Docker running?`);
-    this.services = services;
-  }
-}
-
-export class ServerProcessExitedError extends Error {
-  override readonly name = "ServerProcessExitedError";
-  readonly logTail: string;
-
-  constructor(code: number | null, logTail: string) {
-    super(`server process exited immediately (code ${code ?? "null"})`);
-    this.logTail = logTail;
-  }
-}
 
 async function tcpReachable(host: string, port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -130,7 +95,7 @@ export async function ensureServerRunning(onProgress?: (line: string) => void): 
       return { alreadyRunning: false, logPath };
     }
   }
-  throw new ServerStartTimeoutError(logPath);
+  throw new ServerStartTimeoutError(logPath, (SPAWN_POLL_INTERVAL_MS * SPAWN_MAX_POLLS) / 1000);
 }
 
 type HealthBody = { mongo?: { ok: boolean }; redis?: { ok: boolean }; neo4j?: { ok: boolean } };

@@ -7,8 +7,8 @@ import {
   ServerInfraDownError,
   ServerInfraUnreachableError,
   ServerProcessExitedError,
-  ensureServerRunning,
-} from "./serverSpawn.ts";
+} from "@bb/errors";
+import { ensureServerRunning } from "./serverSpawn.ts";
 import { createSpinner, error } from "./output.ts";
 
 const POLL_INTERVAL_MS = 500;

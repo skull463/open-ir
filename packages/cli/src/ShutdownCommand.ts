@@ -1,14 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only WITH non-commercial-clause
 import { Command } from "commander";
-import { readFile, stat } from "node:fs/promises";
-import path from "node:path";
-import { getBytebellHome } from "@bb/config";
 import { DockerComposeError, DockerNotFoundError, composeFilePath, down } from "./dockerInfra.ts";
-import { createSpinner, error, success } from "./output.ts";
+import { createSpinner, error } from "./output.ts";
 import { promptStopDocker } from "./shutdownPrompts.ts";
+import { stopServer } from "./serverLifecycle.ts";
 
-const POLL_INTERVAL_MS = 500;
-const POLL_TIMEOUT_MS = 30_000;
+const STOP_TIMEOUT_S = 30;
 
 interface ShutdownOptions {
   withDocker?: boolean;
@@ -32,41 +29,34 @@ async function runShutdown(opts: ShutdownOptions): Promise<void> {
     return;
   }
 
-  const pidFile = path.join(getBytebellHome(), "pid");
-  const pid = await readPid(pidFile);
-  if (pid === null) {
-    success("server is not running.");
-    process.stdout.write(dockerHint());
-    return;
-  }
-
   const spinner = createSpinner("Shutting down ByteBell server...");
+  let result: Awaited<ReturnType<typeof stopServer>>;
   try {
-    process.kill(pid, "SIGTERM");
+    result = await stopServer();
   } catch (cause: unknown) {
-    const code = (cause as { code?: string } | undefined)?.code;
-    if (code === "ESRCH") {
-      spinner.stop(true, "server pid file was stale; nothing to stop.");
-      process.stdout.write(dockerHint());
-      return;
-    }
     spinner.stop(false, "Failed to send SIGTERM");
     error(cause instanceof Error ? cause.message : String(cause));
     process.exitCode = 1;
     return;
   }
 
-  const drained = await waitForPidFileGone(pidFile);
-  if (!drained) {
+  if (!result.wasRunning) {
+    spinner.stop(true, "server is not running.");
+    process.stdout.write(dockerHint());
+    return;
+  }
+
+  if (result.timedOut) {
     spinner.stop(
       false,
-      `server (pid ${pid}) did not exit within ${POLL_TIMEOUT_MS / 1000}s; not escalating to SIGKILL.`,
+      `server (pid ${result.pid}) did not exit within ${STOP_TIMEOUT_S}s; not escalating to SIGKILL.`,
     );
     process.exitCode = 1;
     process.stdout.write(dockerHint());
     return;
   }
-  spinner.stop(true, `server (pid ${pid}) shut down gracefully.`);
+
+  spinner.stop(true, `server (pid ${result.pid}) shut down gracefully.`);
 
   const shouldStop = await decideStopDocker(opts);
   if (shouldStop) {
@@ -108,47 +98,6 @@ async function stopDocker(): Promise<void> {
   }
 }
 
-export async function readPid(pidFile: string): Promise<number | null> {
-  try {
-    const raw = await readFile(pidFile, "utf8");
-    const trimmed = raw.trim();
-    if (trimmed.length === 0) {
-      return null;
-    }
-    const parsed = Number.parseInt(trimmed, 10);
-    if (!Number.isInteger(parsed) || parsed <= 0) {
-      return null;
-    }
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-export async function waitForPidFileGone(pidFile: string): Promise<boolean> {
-  const start = Date.now();
-  while (Date.now() - start < POLL_TIMEOUT_MS) {
-    if (!(await pidFileExists(pidFile))) {
-      return true;
-    }
-    await sleep(POLL_INTERVAL_MS);
-  }
-  return !(await pidFileExists(pidFile));
-}
-
-async function pidFileExists(pidFile: string): Promise<boolean> {
-  try {
-    await stat(pidFile);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function dockerHint(): string {
   return `\nDocker infra is still running. To stop it:\n  docker compose -f ${composeFilePath()} down\n`;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

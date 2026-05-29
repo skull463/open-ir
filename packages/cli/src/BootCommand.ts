@@ -2,7 +2,9 @@
 import { Command } from "commander";
 import { Config } from "@bb/types";
 import { HINTS, getConfigValue, isDevMode } from "@bb/config";
-import { applyInfraDefaults, bringInfraUp, checkPreflight, startServer } from "./bootConfig.ts";
+import { applyInfraDefaults, checkPreflight } from "./bootConfig.ts";
+import { bringInfraUp } from "./dockerBoot.ts";
+import { startServer } from "./serverLifecycle.ts";
 import { error, info, success } from "./output.ts";
 
 export function buildBootCommand(): Command {

@@ -20,6 +20,16 @@ export class ServerStartTimeoutError extends Error {
   }
 }
 
+export class ServerInfraDownError extends Error {
+  override readonly name = "ServerInfraDownError";
+  readonly services: string[];
+
+  constructor(services: string[]) {
+    super(`server started but infra not reachable: ${services.join(", ")}. Make sure Docker is running.`);
+    this.services = services;
+  }
+}
+
 export async function ensureServerRunning(onProgress?: (line: string) => void): Promise<{
   alreadyRunning: boolean;
   logPath?: string;
@@ -45,16 +55,38 @@ export async function ensureServerRunning(onProgress?: (line: string) => void): 
   throw new ServerStartTimeoutError(logPath);
 }
 
+type HealthBody = { mongo?: { ok: boolean }; redis?: { ok: boolean }; neo4j?: { ok: boolean } };
+
 async function isHealthy(): Promise<boolean> {
   const port = getConfigValue(Config.ServerPort);
+  let res: Response;
   try {
-    const res = await fetch(`http://127.0.0.1:${port}/health`, {
+    res = await fetch(`http://127.0.0.1:${port}/health`, {
       signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
     });
-    return res.ok;
   } catch {
     return false;
   }
+  if (res.ok) {
+    return true;
+  }
+  if (res.status === 503) {
+    const body = (await res.json().catch(() => ({}))) as HealthBody;
+    const down: string[] = [];
+    if (body.mongo?.ok === false) {
+      down.push("mongo");
+    }
+    if (body.redis?.ok === false) {
+      down.push("redis");
+    }
+    if (body.neo4j?.ok === false) {
+      down.push("neo4j");
+    }
+    if (down.length > 0) {
+      throw new ServerInfraDownError(down);
+    }
+  }
+  return false;
 }
 
 async function spawnDetached(): Promise<string> {

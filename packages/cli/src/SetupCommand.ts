@@ -3,12 +3,12 @@ import React from "react";
 import { render } from "ink";
 import { Command } from "commander";
 import { Config } from "@bb/types";
-import { getBytebellHome, getConfigValue } from "@bb/config";
+import { getConfigValue } from "@bb/config";
 import { InstallWizard, type InstallWizardResult } from "./InstallWizard.tsx";
 import { KEY_MAP } from "./keyMap.ts";
-import { applyInfraDefaults, bringInfraUp, startServer } from "./bootConfig.ts";
-import { readPid, waitForPidFileGone } from "./ShutdownCommand.ts";
-import path from "node:path";
+import { applyInfraDefaults } from "./bootConfig.ts";
+import { bringInfraUp } from "./dockerBoot.ts";
+import { startServer, stopServer } from "./serverLifecycle.ts";
 import { postJson, HttpClientError } from "./httpClient.ts";
 import { success, error, info } from "./output.ts";
 import { pollIndexToCompletion, type IndexResponse } from "./indexPoller.ts";
@@ -118,16 +118,9 @@ function applyConfig(result: InstallWizardResult): void {
 }
 
 async function boot(): Promise<boolean> {
-  const pidFile = path.join(getBytebellHome(), "pid");
-  const pid = await readPid(pidFile);
-  if (pid !== null) {
-    info("Stopping any running server...");
-    try {
-      process.kill(pid, "SIGTERM");
-      await waitForPidFileGone(pidFile);
-    } catch {
-      // stale pid — nothing running
-    }
+  const result = await stopServer().catch(() => ({ wasRunning: false, timedOut: false, pid: null }));
+  if (result.wasRunning) {
+    info("Stopped running server.");
   }
 
   const defaults = applyInfraDefaults();

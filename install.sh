@@ -84,13 +84,17 @@ print_step "Installing dependencies"
 bun install --frozen-lockfile
 print_ok "Dependencies installed"
 
-# ── 4. link the bytebell binary ───────────────
+# ── 4. wire the bytebell binary ──────────────
+#  bun link only registers the package name — it does not update the
+#  ~/.bun/bin symlink when a stale global install already exists.
+#  A direct symlink to the workspace entry point is the reliable path.
 
-print_step "Linking bytebell binary"
-cd packages/cli
-bun link
-cd ../..
-print_ok "bytebell linked"
+print_step "Wiring bytebell binary"
+REPO_DIR="$(pwd)"
+BUN_BIN_DIR="$(dirname "$(which bun)")"
+ENTRY="$REPO_DIR/packages/cli/src/index.ts"
+ln -sf "$ENTRY" "$BUN_BIN_DIR/bytebell"
+print_ok "bytebell → $ENTRY"
 
 # ── 5. done ───────────────────────────────────
 

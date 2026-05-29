@@ -6,9 +6,8 @@ import { Config } from "@bb/types";
 import { getConfigValue } from "@bb/config";
 import { InstallWizard, type InstallWizardResult } from "./InstallWizard.tsx";
 import { KEY_MAP } from "./keyMap.ts";
-import { applyInfraDefaults } from "./bootConfig.ts";
-import { bringInfraUp } from "./dockerBoot.ts";
-import { startServer, stopServer } from "./serverLifecycle.ts";
+import { runBootSequence } from "./bootConfig.ts";
+import { stopServer } from "./serverLifecycle.ts";
 import { postJson, HttpClientError } from "./httpClient.ts";
 import { success, error, info } from "./output.ts";
 import { pollIndexToCompletion, type IndexResponse } from "./indexPoller.ts";
@@ -122,38 +121,7 @@ async function boot(): Promise<boolean> {
   if (result.wasRunning) {
     info("Stopped running server.");
   }
-
-  const defaults = applyInfraDefaults();
-  for (const entry of defaults.written) {
-    if (entry.redacted) {
-      success(`set ${entry.cliKey}=<redacted> (auto-generated)`);
-    } else {
-      success(`set ${entry.cliKey} (auto-filled with local-docker default)`);
-    }
-  }
-
-  if (defaults.neo4jPassword.length === 0) {
-    error("internal: neo4j password is empty after applyInfraDefaults — refusing to start docker.");
-    process.exitCode = 1;
-    return false;
-  }
-
-  const upResult = await bringInfraUp(defaults.neo4jPassword);
-  if (upResult === null) {
-    return false;
-  }
-  success(`mongo  → ${upResult.services.mongo}`);
-  success(`neo4j  → ${upResult.services.neo4j}`);
-  success(`redis  → ${upResult.services.redis}`);
-
-  const started = await startServer();
-  if (!started) {
-    return false;
-  }
-
-  const port = getConfigValue(Config.ServerPort);
-  success(`MCP endpoint: http://127.0.0.1:${port}/mcp`);
-  return true;
+  return runBootSequence();
 }
 
 async function startIndex(repoUrl: string): Promise<void> {

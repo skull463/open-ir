@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only WITH non-commercial-clause
 import { Command } from "commander";
 import { Config } from "@bb/types";
 import { getConfigValue } from "@bb/config";
@@ -7,7 +8,6 @@ import { createSpinner, error, info, list } from "./output.ts";
 import { startLogTailer, type LogTailer } from "./logTailer.ts";
 import { promptForToken } from "./pullPrompts.ts";
 import { promptInitialBranch, promptFullBranchSelector } from "./branchPrompts.ts";
-import { parseGithubRepo } from "@bb/ingest-github";
 import { pollIndexToCompletion, type IndexResponse } from "./indexPoller.ts";
 
 export function buildIndexCommand(): Command {
@@ -54,7 +54,6 @@ async function runIndex(
 
     const { branch: resolvedBranch, token: activeToken } = await probeRepo(gitUrl, options.branch, options.token);
     if (resolvedBranch === null) {
-      // User cancelled during token prompt
       return;
     }
 
@@ -73,11 +72,55 @@ async function runIndex(
   }
 }
 
+interface ParsedRepo {
+  owner: string;
+  repo: string;
+  branch?: string;
+}
+
+function parseGithubRepo(repoUrl: string): ParsedRepo | null {
+  if (!repoUrl) {
+    return null;
+  }
+  try {
+    const url = new URL(repoUrl);
+    if (!url.hostname.endsWith("github.com")) {
+      return null;
+    }
+    const segments = url.pathname.split("/").filter((s) => s.length > 0);
+    if (segments.length < 2) {
+      return null;
+    }
+    const owner = segments[0];
+    const repoRaw = segments[1];
+    if (owner === undefined || repoRaw === undefined) {
+      return null;
+    }
+    const repo = repoRaw.replace(/\.git$/u, "");
+    const out: ParsedRepo = { owner, repo };
+    if (segments[2] === "tree" && segments.length > 3) {
+      out.branch = segments.slice(3).join("/");
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 interface ProbeResponse {
   status: "ok" | "not_found" | "unauthorized" | "rate_limited" | "error" | "branch_not_found";
   defaultBranch?: string;
   branches?: string[];
   message?: string;
+}
+
+function isProbeResponse(value: unknown): value is ProbeResponse {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "status" in value &&
+    typeof (value as Record<string, unknown>)["status"] === "string"
+  );
 }
 
 async function probeRepo(
@@ -89,13 +132,14 @@ async function probeRepo(
   const parsed = parseGithubRepo(gitUrl);
   const repoLabel = parsed ? `${parsed.owner}/${parsed.repo}` : gitUrl;
 
-  // 1. Initial probe to find default branch and check access
   const callProbe = async (t?: string) => {
     try {
       return await postJson<ProbeResponse>("/api/v1/github/probe", { repoUrl: gitUrl, gitToken: t });
     } catch (cause) {
       if (cause instanceof HttpClientError && (cause.status === 401 || cause.status === 404)) {
-        return (cause.body as ProbeResponse) || { status: cause.status === 404 ? "not_found" : "unauthorized" };
+        const fallbackStatus = cause.status === 404 ? "not_found" : "unauthorized";
+        const body = isProbeResponse(cause.body) ? cause.body : { status: fallbackStatus as ProbeResponse["status"] };
+        return body;
       }
       throw cause;
     }
@@ -103,7 +147,6 @@ async function probeRepo(
 
   let probe = await callProbe(token);
 
-  // 2. Handle private repo if needed
   if (probe.status === "not_found" || probe.status === "unauthorized") {
     const promptMessage =
       probe.status === "unauthorized"
@@ -123,7 +166,6 @@ async function probeRepo(
     return { branch: null };
   }
 
-  // 3. If a branch was already supplied (via flag or URL), just verify it
   const branchFromUrl = parsed?.branch;
   const initialBranch = suppliedBranch ?? branchFromUrl;
   if (initialBranch !== undefined) {
@@ -141,7 +183,6 @@ async function probeRepo(
     return res;
   }
 
-  // 4. Interactive menu flow — skip when stdin is not a TTY (e.g. install script)
   if (process.stdin.isTTY !== true) {
     const defaultBranch = probe.defaultBranch ?? "main";
     const res: { branch: string | null; token?: string } = { branch: defaultBranch };
@@ -166,7 +207,6 @@ async function probeRepo(
     return res;
   }
 
-  // User selected "Other branch..."
   const fullSelection = await promptFullBranchSelector(probe.branches ?? []);
   if (fullSelection === null) {
     info("Cancelled.");

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only WITH non-commercial-clause
 import { mkdir, open, readFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import net from "node:net";

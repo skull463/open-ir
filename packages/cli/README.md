@@ -227,8 +227,10 @@ Key source files added in the `setup` command:
 
 Boot and shutdown logic reused by `setup`:
 
-- `src/bootConfig.ts` — owns all boot-phase utilities: `applyInfraDefaults()`, `checkPreflight()`, `bringInfraUp()` (Docker compose up with port-conflict handling), and `startServer()`. `BootCommand.ts` and `SetupCommand.ts` both delegate to this module — no duplication.
-- `src/serverSpawn.ts` — owns server process management: `ensureServerRunning()` and `stopServer()` (SIGTERM + pid-file poll). `ShutdownCommand.ts` and `SetupCommand.ts` both delegate here.
+- `src/bootConfig.ts` — owns `applyInfraDefaults()`, `checkPreflight()`, and `runBootSequence()` (the shared defaults → docker-up → server-start sequence). Both `BootCommand.ts` and `SetupCommand.ts` delegate to `runBootSequence()`.
+- `src/dockerBoot.ts` — owns `bringInfraUp()`: Docker Compose bring-up with port-conflict handling.
+- `src/serverLifecycle.ts` — owns `startServer()` and `stopServer()` (SIGTERM + pid-file poll). `ShutdownCommand.ts` and `SetupCommand.ts` both delegate here.
+- `src/serverSpawn.ts` — owns `ensureServerRunning()`: low-level server process spawn, health polling, TCP infra preflight, and early-exit detection with log tail.
 
 Adding a new subcommand:
 

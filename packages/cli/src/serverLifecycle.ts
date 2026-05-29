@@ -14,7 +14,7 @@ import { createSpinner, error } from "./output.ts";
 const POLL_INTERVAL_MS = 500;
 const POLL_TIMEOUT_MS = 30_000;
 
-export async function readPid(pidFile: string): Promise<number | null> {
+async function readPid(pidFile: string): Promise<number | null> {
   try {
     const raw = await readFile(pidFile, "utf8");
     const trimmed = raw.trim();
@@ -31,7 +31,7 @@ export async function readPid(pidFile: string): Promise<number | null> {
   }
 }
 
-export async function waitForPidFileGone(pidFile: string): Promise<boolean> {
+async function waitForPidFileGone(pidFile: string): Promise<boolean> {
   const start = Date.now();
   while (Date.now() - start < POLL_TIMEOUT_MS) {
     if (!(await pidFileExists(pidFile))) {
@@ -70,7 +70,13 @@ export async function stopServer(): Promise<StopServerResult> {
   try {
     process.kill(pid, "SIGTERM");
   } catch (cause: unknown) {
-    const code = (cause as { code?: string } | undefined)?.code;
+    const code =
+      cause !== null &&
+      typeof cause === "object" &&
+      "code" in cause &&
+      typeof (cause as Record<string, unknown>)["code"] === "string"
+        ? ((cause as Record<string, unknown>)["code"] as string)
+        : undefined;
     if (code === "ESRCH") {
       return { wasRunning: false, timedOut: false, pid };
     }

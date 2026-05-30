@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only WITH non-commercial-clause
 import { Command } from "commander";
-import { Config } from "@bb/types";
+import { Config, DbProviderType, GraphProviderType } from "@bb/types";
 import { HINTS, getConfigValue, isDevMode } from "@bb/config";
 import { applyInfraDefaults, checkPreflight } from "./bootConfig.ts";
 import {
@@ -53,7 +53,10 @@ async function runBoot(): Promise<void> {
     }
   }
 
-  if (defaults.neo4jPassword.length === 0) {
+  const dbProvider = getConfigValue(Config.DbProvider);
+  const graphProvider = getConfigValue(Config.GraphProvider);
+
+  if (graphProvider === GraphProviderType.Neo4j && defaults.neo4jPassword.length === 0) {
     error("internal: neo4j password is empty after applyInfraDefaults — refusing to start docker.");
     process.exitCode = 1;
     return;
@@ -63,8 +66,12 @@ async function runBoot(): Promise<void> {
   if (upResult === null) {
     return;
   }
-  success(`mongo  → ${upResult.services.mongo}`);
-  success(`neo4j  → ${upResult.services.neo4j}`);
+  if (dbProvider === DbProviderType.Mongo) {
+    success(`mongo  → ${upResult.services.mongo}`);
+  }
+  if (graphProvider === GraphProviderType.Neo4j) {
+    success(`neo4j  → ${upResult.services.neo4j}`);
+  }
   success(`redis  → ${upResult.services.redis}`);
 
   if (!(await startServer())) {
@@ -179,10 +186,19 @@ async function safeComposeDown(): Promise<void> {
 }
 
 function composeServicesToStart(skip: Set<"mongo" | "neo4j" | "redis">): readonly ("mongo" | "neo4j" | "redis")[] {
-  if (skip.size === 0) {
-    return ["mongo", "neo4j", "redis"];
+  const dbProvider = getConfigValue(Config.DbProvider);
+  const graphProvider = getConfigValue(Config.GraphProvider);
+
+  const needed = new Set<"mongo" | "neo4j" | "redis">();
+  if (dbProvider === DbProviderType.Mongo) {
+    needed.add("mongo");
   }
-  return (["mongo", "neo4j", "redis"] as const).filter((s) => !skip.has(s));
+  if (graphProvider === GraphProviderType.Neo4j) {
+    needed.add("neo4j");
+  }
+  needed.add("redis");
+
+  return (["mongo", "neo4j", "redis"] as const).filter((s) => needed.has(s) && !skip.has(s));
 }
 
 function composeServiceFor(service: InfraService): "mongo" | "neo4j" | "redis" {

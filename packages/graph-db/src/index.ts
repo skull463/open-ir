@@ -5,6 +5,7 @@ import type {
   IGraphFolderRepository,
   IGraphRepoRepository,
   IGraphIndexRepository,
+  IGraphSearchRepository,
   IGraphConceptRepository,
   IGraphContractRepository,
   IGraphGuidepostRepository,
@@ -114,6 +115,14 @@ export const contractsGraph: IGraphContractRepository = {
 export const guidepostsGraph: IGraphGuidepostRepository = {
   upsertGuidepost: (...args) => getGraph().guideposts.upsertGuidepost(...args),
   attachGuidepost: (...args) => getGraph().guideposts.attachGuidepost(...args),
+};
+
+export const searchGraph: IGraphSearchRepository = {
+  runSmartSearchChannel: (...args) => getGraph().search.runSmartSearchChannel(...args),
+  keywordLookup: (...args) => getGraph().search.keywordLookup(...args),
+  listKnowledgeBases: (...args) => getGraph().search.listKnowledgeBases(...args),
+  fetchFileMetadata: (...args) => getGraph().search.fetchFileMetadata(...args),
+  fetchRepoNames: (...args) => getGraph().search.fetchRepoNames(...args),
 };
 
 export async function pingGraph(): Promise<GraphPingResult> {

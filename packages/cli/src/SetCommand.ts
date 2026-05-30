@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import React from "react";
 import { render } from "ink";
-import { HINTS } from "@bb/config";
+import { HINTS, getConfigValue } from "@bb/config";
 import { KEY_MAP, validKeysList } from "./keyMap.ts";
 import { SetupForm } from "./SetupForm.tsx";
 import { error, list, success } from "./output.ts";
@@ -22,8 +22,8 @@ async function runSet(key?: string, value?: string): Promise<void> {
     await runInteractive();
     return;
   }
-  if (key === undefined || value === undefined) {
-    error(`"set" requires both <key> and <value>, or no args (interactive form)`);
+  if (key === undefined) {
+    error(`"set" requires a <key> (or no args for the interactive form)`);
     process.exitCode = 1;
     return;
   }
@@ -33,6 +33,26 @@ async function runSet(key?: string, value?: string): Promise<void> {
     error(`Invalid key: ${key}`);
     list("Valid keys:", Object.keys(KEY_MAP));
     process.exitCode = 1;
+    return;
+  }
+
+  // No value given: a toggle key flips to its other option; anything else errors.
+  if (value === undefined) {
+    if (mappedKey.toggleValues === undefined) {
+      error(`"set ${key}" requires a <value>`);
+      process.exitCode = 1;
+      return;
+    }
+    const [a, b] = mappedKey.toggleValues;
+    const current = String(getConfigValue(mappedKey.configKey));
+    const next = current === a ? b : a;
+    try {
+      mappedKey.setter(next);
+      success(`${key}: ${current.length > 0 ? current : "(unset)"} -> ${next}`);
+    } catch (err: unknown) {
+      error(`Failed to toggle ${key}: ${err instanceof Error ? err.message : String(err)}`);
+      process.exitCode = 1;
+    }
     return;
   }
 

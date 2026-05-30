@@ -1,5 +1,5 @@
 import { LLM_PROVIDERS, LOG_LEVELS, setConfigValue, type LlmProvider, type LogLevel } from "@bb/config";
-import { Config } from "@bb/types";
+import { Config, DbProviderType, GraphProviderType, IngestionStrategyType } from "@bb/types";
 
 type Setter = (raw: string) => void;
 
@@ -7,6 +7,11 @@ export interface KeyEntry {
   configKey: Config;
   redact: boolean;
   setter: Setter;
+  /**
+   * For two-value enum keys (e.g. provider toggles): the allowed pair. When
+   * `bytebell set <key>` is run with no value, the CLI flips to the other one.
+   */
+  toggleValues?: readonly [string, string];
 }
 
 function parsePositiveInt(raw: string, key: string): number {
@@ -43,6 +48,17 @@ function parseLlmProvider(raw: string): LlmProvider {
   }
   return raw as LlmProvider;
 }
+
+function parseEnum(raw: string, key: string, allowed: readonly string[]): string {
+  if (!allowed.includes(raw)) {
+    throw new Error(`Invalid value for "${key}": expected one of ${allowed.join(", ")}, got "${raw}"`);
+  }
+  return raw;
+}
+
+const DB_PROVIDERS: readonly string[] = Object.values(DbProviderType);
+const GRAPH_PROVIDERS: readonly string[] = Object.values(GraphProviderType);
+const INGESTION_STRATEGIES: readonly string[] = Object.values(IngestionStrategyType);
 
 function parseBoolean(raw: string, key: string): boolean {
   if (raw === "true") {
@@ -149,6 +165,38 @@ export const KEY_MAP: Record<string, KeyEntry> = {
     configKey: Config.OllamaModel,
     redact: false,
     setter: (s) => setConfigValue(Config.OllamaModel, s),
+  },
+  "db-provider": {
+    configKey: Config.DbProvider,
+    redact: false,
+    setter: (s) => setConfigValue(Config.DbProvider, parseEnum(s, "db-provider", DB_PROVIDERS)),
+    toggleValues: [DbProviderType.Mongo, DbProviderType.Sqlite],
+  },
+  "graph-provider": {
+    configKey: Config.GraphProvider,
+    redact: false,
+    setter: (s) => setConfigValue(Config.GraphProvider, parseEnum(s, "graph-provider", GRAPH_PROVIDERS)),
+    toggleValues: [GraphProviderType.Neo4j, GraphProviderType.Ladybug],
+  },
+  "ingestion-strategy": {
+    configKey: Config.IngestionStrategy,
+    redact: false,
+    setter: (s) =>
+      setConfigValue(
+        Config.IngestionStrategy,
+        parseEnum(s, "ingestion-strategy", INGESTION_STRATEGIES) as IngestionStrategyType,
+      ),
+    toggleValues: [IngestionStrategyType.FlatFolder, IngestionStrategyType.ConceptGraph],
+  },
+  "sqlite-path": {
+    configKey: Config.SqlitePath,
+    redact: false,
+    setter: (s) => setConfigValue(Config.SqlitePath, s),
+  },
+  "ladybug-path": {
+    configKey: Config.LadybugPath,
+    redact: false,
+    setter: (s) => setConfigValue(Config.LadybugPath, s),
   },
 };
 

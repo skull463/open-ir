@@ -1,10 +1,30 @@
 import { useState } from "react";
 import type { ReactElement } from "react";
 import { Box, Text, useApp, useInput } from "ink";
-import { Config } from "@bb/types";
+import { Config, DbProviderType, GraphProviderType } from "@bb/types";
 import { getConfigValue } from "@bb/config";
 import { KEY_MAP } from "./keyMap.ts";
 import { Field } from "./Field.tsx";
+import { ToggleField } from "./ToggleField.tsx";
+
+interface Toggle {
+  id: string;
+  label: string;
+  cliKey: string;
+  options: readonly [string, string];
+}
+
+const GRAPH_OPTIONS: readonly [string, string] = [GraphProviderType.Neo4j, GraphProviderType.Ladybug];
+const DB_OPTIONS: readonly [string, string] = [DbProviderType.Mongo, DbProviderType.Sqlite];
+
+const TOGGLES: Toggle[] = [
+  { id: "graph-provider", label: "Graph provider", cliKey: "graph-provider", options: GRAPH_OPTIONS },
+  { id: "db-provider", label: "Doc store", cliKey: "db-provider", options: DB_OPTIONS },
+];
+
+function pickToggle(current: string, options: readonly [string, string]): string {
+  return options.includes(current) ? current : options[0];
+}
 
 interface Row {
   id: string;
@@ -68,6 +88,8 @@ function loadInitial(): Record<string, string> {
     redis: getConfigValue(Config.RedisUrl),
     port: String(getConfigValue(Config.ServerPort)),
     "concurrency-github": String(getConfigValue(Config.ConcurrencyGithub)),
+    "graph-provider": pickToggle(getConfigValue(Config.GraphProvider), GRAPH_OPTIONS),
+    "db-provider": pickToggle(getConfigValue(Config.DbProvider), DB_OPTIONS),
   };
 }
 
@@ -101,6 +123,13 @@ export function SetupForm({ onDone }: SetupFormProps): ReactElement {
           }
           entry.setter(values[row.id] ?? "");
         }
+        for (const t of TOGGLES) {
+          const entry = KEY_MAP[t.cliKey];
+          if (entry === undefined) {
+            throw new Error(`No KEY_MAP entry for "${t.cliKey}"`);
+          }
+          entry.setter(values[t.id] ?? t.options[0]);
+        }
         exit();
         onDone({ saved: true });
       } catch (cause: unknown) {
@@ -125,8 +154,18 @@ export function SetupForm({ onDone }: SetupFormProps): ReactElement {
           {...(errors[row.id] !== null ? { error: errors[row.id] ?? "" } : {})}
         />
       ))}
+      {TOGGLES.map((t) => (
+        <ToggleField
+          key={t.id}
+          id={t.id}
+          label={t.label}
+          value={values[t.id] ?? t.options[0]}
+          options={t.options}
+          onChange={(next) => setValues((prev) => ({ ...prev, [t.id]: next }))}
+        />
+      ))}
       <Box marginTop={1}>
-        <Text dimColor>[Tab] next [Shift-Tab] back [Enter] save [Esc] quit</Text>
+        <Text dimColor>[Tab] next [Shift-Tab] back [←/→] switch [Enter] save [Esc] quit</Text>
       </Box>
       {submitError !== null && (
         <Box marginTop={1}>

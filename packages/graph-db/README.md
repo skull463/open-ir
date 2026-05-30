@@ -12,7 +12,8 @@ Maintains a map of named graph providers, exposes a single `getGraph()` accessor
 - `connectGraph(providerName)` — instantiate and connect a provider
 - `closeGraph()` — close the active provider
 - `getGraph()` — returns the active `IGraphDatabaseProvider`
-- `knowledge`, `files`, `folders`, `repo`, `indexes` — facade objects proxying to `getGraph()`
+- `knowledgeGraph`, `filesGraph`, `foldersGraph`, `repoGraph`, `indexesGraph` — facade objects proxying to `getGraph()`
+- `conceptsGraph`, `contractsGraph`, `guidepostsGraph` — concept-graph (ConceptGraphStrategy) facade objects for `:Concept` / `:Contract` / `:Guidepost` writes
 - `pingGraph()`, `runCypher()`, `toNeo4jInt()` — utility accessors
 
 ## Data Ownership

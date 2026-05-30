@@ -11,6 +11,9 @@
   "imports": {
     "#src/*": "./src/*"
   },
+  "scripts": {
+    "test": "bun test"
+  },
   "dependencies": {
     "@bb/config": "workspace:*",
     "@bb/db": "workspace:*",
@@ -18,6 +21,7 @@
     "@bb/graph-db": "workspace:*",
     "@bb/llm": "workspace:*",
     "@bb/logger": "workspace:*",
+    "@bb/mcp": "workspace:*",
     "@bb/mongo": "workspace:*",
     "@bb/sqlite": "workspace:*",
     "@bb/neo4j": "workspace:*",

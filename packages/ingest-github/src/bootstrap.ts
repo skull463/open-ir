@@ -2,7 +2,7 @@ import { seedConfig, getConfigValue } from "@bb/config";
 import { seedLoggerFactory, type LoggerFactory } from "@bb/logger";
 import { Config } from "@bb/types";
 import { connectDb } from "@bb/db";
-import { connectGraph } from "@bb/graph-db";
+import { connectGraph, indexesGraph } from "@bb/graph-db";
 import "@bb/mongo";
 import "@bb/sqlite";
 import "@bb/neo4j";
@@ -22,4 +22,9 @@ export async function bootstrapRuntime(opts: BootstrapRuntimeOptions): Promise<v
 
   const graphProvider = getConfigValue(Config.GraphProvider);
   await connectGraph(graphProvider);
+
+  // Fulltext indexes the MCP smart_search / keyword_lookup tools query against.
+  // Idempotent (MERGE-based) so duplicate calls across composition roots are safe.
+  await indexesGraph.ensureKnowledgeIndexes();
+  await indexesGraph.ensureConceptGraphIndexes();
 }

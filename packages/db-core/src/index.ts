@@ -16,6 +16,15 @@ export type { FileAnalysisSection, FileAnalysis, RawFileDoc, KnowledgeListEntry,
 
 export interface IKnowledgeRepository {
   setKnowledgeState(knowledgeId: string, state: KnowledgeState): Promise<void>;
+  /**
+   * Sets `source.commitId` on the knowledge doc without touching the
+   * `source.commitHashes` history array. Called early in the pipeline (after
+   * the clone resolves a SHA, before the strategy executes) so MCP tools
+   * invoked during enrichment can resolve the on-disk clone dir via the
+   * commit-scoped path layout. The history entry (with real token usage) is
+   * appended later by `setKnowledgeCommit`.
+   */
+  setKnowledgeCommitHead(knowledgeId: string, commitHash: string): Promise<void>;
   setKnowledgeCommit(
     knowledgeId: string,
     commitHash: string,

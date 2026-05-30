@@ -113,7 +113,7 @@ function deriveRepoName(doc: KnowledgeDoc): string {
   return repoNameFromGithubUrl(doc.info.repoUrl ?? "");
 }
 
-function repoNameFromGithubUrl(repoUrl: string): string {
+export function repoNameFromGithubUrl(repoUrl: string): string {
   let pathname: string;
   try {
     pathname = new URL(repoUrl).pathname;

@@ -6,6 +6,10 @@ import * as folderRepo from "./folder.ts";
 import * as repoRepo from "./repo.ts";
 import * as indexRepo from "./indexes.ts";
 import * as flatFolderIndexRepo from "./flatFolderIndexes.ts";
+import * as conceptGraphIndexRepo from "./conceptGraphIndexes.ts";
+import * as conceptsRepo from "./concepts.ts";
+import * as contractsRepo from "./contracts.ts";
+import * as guidepostsRepo from "./guideposts.ts";
 
 import { registerGraphProvider } from "@bb/graph-db";
 import type { IGraphDatabaseProvider } from "@bb/graph-core";
@@ -37,6 +41,23 @@ class Neo4jGraphProvider implements IGraphDatabaseProvider {
   indexes = {
     ensureKnowledgeIndexes: indexRepo.ensureKnowledgeIndexes,
     ensureFlatFolderIndexes: flatFolderIndexRepo.ensureFlatFolderIndexes,
+    ensureConceptGraphIndexes: conceptGraphIndexRepo.ensureConceptGraphIndexes,
+  };
+
+  concepts = {
+    upsertConcept: conceptsRepo.upsertConcept,
+    attachFileToConcept: conceptsRepo.attachFileToConcept,
+    upsertTestsEdge: conceptsRepo.upsertTestsEdge,
+  };
+
+  contracts = {
+    upsertContract: contractsRepo.upsertContract,
+    attachFileToContract: contractsRepo.attachFileToContract,
+  };
+
+  guideposts = {
+    upsertGuidepost: guidepostsRepo.upsertGuidepost,
+    attachGuidepost: guidepostsRepo.attachGuidepost,
   };
 
   async connect(): Promise<void> {

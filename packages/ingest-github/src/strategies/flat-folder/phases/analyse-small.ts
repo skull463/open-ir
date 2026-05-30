@@ -6,8 +6,9 @@ import type { MetaPaths } from "#src/types/meta-paths.ts";
 import type { ProgressContext } from "#src/progress/types.ts";
 import type { ConcurrencyLimiter } from "#src/pipeline/concurrency.ts";
 import { throwIfCancelled, CancellationError } from "#src/pipeline/cancellation.ts";
+import { MAX_LLM_ATTEMPTS, retryLlmCall } from "#src/pipeline/retry-llm.ts";
 import { analyseScannedFile, buildOversizedStub } from "#src/strategies/flat-folder/analyse-file.ts";
-import { saveCondensed } from "#src/strategies/flat-folder/big-file/storage.ts";
+import { readCondensed, saveCondensed } from "#src/strategies/flat-folder/big-file/storage.ts";
 import type { ScanManifest } from "#src/strategies/flat-folder/scan-manifest.ts";
 
 export interface AnalyseSmallInput {
@@ -74,6 +75,15 @@ export async function analyseSmallFiles(input: AnalyseSmallInput): Promise<Analy
         input.limiter(async () => {
           throwIfCancelled(input.knowledgeId);
           try {
+            // Resume guard: if a previous attempt already wrote the condensed
+            // JSON for this path, treat it as done. The on-disk file-analysis
+            // JSON is the per-file ledger; a retry must not re-burn the LLM.
+            const resumed = await readCondensed(input.metaPaths, entry.relativePath);
+            if (resumed !== null) {
+              smallFilesAnalysed += 1;
+              reporter?.increment(1, { fileName: entry.relativePath });
+              return;
+            }
             const content = await input.source.readFile(entry.relativePath);
             const scanned: ScannedFile = {
               kind: "file",
@@ -82,7 +92,10 @@ export async function analyseSmallFiles(input: AnalyseSmallInput): Promise<Analy
               sizeBytes: entry.sizeBytes,
               content,
             };
-            const condensed = await analyseScannedFile(input.analyzer, scanned, input.llmCallContext);
+            const condensed = await retryLlmCall(
+              () => analyseScannedFile(input.analyzer, scanned, input.llmCallContext),
+              { phase: "analyse-small", unit: entry.relativePath },
+            );
             await saveCondensed(input.metaPaths, condensed);
             if (input.archiveSink !== undefined) {
               await input.archiveSink.push({
@@ -102,7 +115,9 @@ export async function analyseSmallFiles(input: AnalyseSmallInput): Promise<Analy
             if (cause instanceof CancellationError) {
               throw cause;
             }
-            if (cause instanceof LlmConfigError || cause instanceof LlmError) {
+            if (cause instanceof LlmConfigError) {
+              // Config errors are not transient — fail the whole batch loudly
+              // instead of marking the file as a retryable failure.
               throw cause;
             }
             failed += 1;
@@ -120,6 +135,11 @@ export async function analyseSmallFiles(input: AnalyseSmallInput): Promise<Analy
   logger.info(
     `analyse-small done: smallFilesAnalysed=${smallFilesAnalysed} oversizedStubs=${oversizedStubs} failed=${failed}`,
   );
+  if (failed > 0) {
+    throw new LlmError(
+      `analyse-small: ${failed} file(s) failed after ${MAX_LLM_ATTEMPTS} attempts each — retry will resume from disk`,
+    );
+  }
   return {
     smallFilesAnalysed,
     oversizedStubs,

@@ -1,10 +1,15 @@
-import { JobType } from "@bb/types";
+import path from "node:path";
+import { Config, JobType } from "@bb/types";
+import { getBytebellHome, getConfigValue } from "@bb/config";
+import { logger } from "@bb/logger";
 import { registerWorker } from "@bb/queue";
 import { createPipelineRunner } from "./pipeline/run.ts";
-import { reposRoot } from "./pipeline/paths.ts";
+import { orgsRoot } from "./pipeline/paths.ts";
 import { runPull } from "./pipeline/pull.ts";
 import { createGithubIngestHandler, createLocalIngestHandler } from "./handlers/ingest-job.ts";
 import { createFlatFolderStrategy } from "./strategies/flat-folder/index.ts";
+import { createConceptGraphStrategy } from "./strategies/concept-graph/index.ts";
+import type { IngestStrategy } from "./types/strategy.ts";
 import { createLlmFileAnalyzer } from "./adapters/llm-file-analyzer.ts";
 import {
   COMBINED_CODE_ANALYSIS_SYSTEM_PROMPT,
@@ -34,9 +39,9 @@ function buildRunner(
     buildSystemPrompt: () => COMBINED_CODE_ANALYSIS_SYSTEM_PROMPT,
     buildUserPrompt: buildFileAnalysisUserPrompt,
   });
-  const strategy = createFlatFolderStrategy({ fileAnalyzer, progressContextFactory });
+  const strategy = pickStrategy({ fileAnalyzer, progressContextFactory });
   const runnerDeps: Parameters<typeof createPipelineRunner>[0] = {
-    reposRootDir: reposRoot(),
+    reposRootDir: orgsRoot(),
     strategy,
     progressContextFactory,
   };
@@ -44,6 +49,40 @@ function buildRunner(
     runnerDeps.sourceFactory = sourceFactory;
   }
   return createPipelineRunner(runnerDeps);
+}
+
+interface PickStrategyDeps {
+  fileAnalyzer: Parameters<typeof createFlatFolderStrategy>[0]["fileAnalyzer"];
+  progressContextFactory: ProgressContextFactory;
+}
+
+/**
+ * Resolves the active ingestion strategy from `Config.IngestionStrategy`.
+ * Defaults to flat-folder when the config value is unset or unrecognised
+ * (with a warning so the operator knows their typo silently fell back).
+ */
+export function pickStrategy(deps: PickStrategyDeps): IngestStrategy {
+  const selected = getConfigValue(Config.IngestionStrategy);
+  switch (selected) {
+    case "concept-graph":
+      logger.info("ingest-github: active strategy = concept-graph");
+      return createConceptGraphStrategy({
+        fileAnalyzer: deps.fileAnalyzer,
+        progressContextFactory: deps.progressContextFactory,
+      });
+    case "flat-folder":
+      logger.info("ingest-github: active strategy = flat-folder");
+      return createFlatFolderStrategy({
+        fileAnalyzer: deps.fileAnalyzer,
+        progressContextFactory: deps.progressContextFactory,
+      });
+    default:
+      logger.warn(`ingest-github: Config.IngestionStrategy="${selected}" unrecognised; falling back to flat-folder`);
+      return createFlatFolderStrategy({
+        fileAnalyzer: deps.fileAnalyzer,
+        progressContextFactory: deps.progressContextFactory,
+      });
+  }
 }
 
 export function registerGithubWorkers(deps: RegisterGithubWorkersDeps = {}): void {
@@ -73,6 +112,19 @@ export function registerLocalIngestWorker(): void {
 }
 
 export { createFlatFolderStrategy } from "./strategies/flat-folder/index.ts";
+export { createConceptGraphStrategy } from "./strategies/concept-graph/index.ts";
+
+/**
+ * Compatibility shim — the legacy `<bytebellHome>/repos/` directory still
+ * hosts the LLM-decision cache (`repos/llmdecisions/`) and the
+ * local-snapshots staging dir for `localIndexRoute`. Knowledge / ingest
+ * artifacts moved to the commit-scoped `orgs/` tree, but `reposRoot()` is
+ * preserved as a stable handle for downstream consumers that still need
+ * the root.
+ */
+export function reposRoot(): string {
+  return path.join(getBytebellHome(), "repos");
+}
 export { createLlmFileAnalyzer } from "./adapters/llm-file-analyzer.ts";
 export { createDiskSourceReader } from "./pipeline/disk-source-reader.ts";
 export { createPipelineRunner } from "./pipeline/run.ts";
@@ -80,15 +132,19 @@ export type { CreatePipelineRunnerDeps } from "./pipeline/run.ts";
 export { createGithubIngestHandler, createLocalIngestHandler } from "./handlers/ingest-job.ts";
 export type { IngestJobHandlerDeps } from "./handlers/ingest-job.ts";
 export { runPull } from "./pipeline/pull.ts";
+// kube-v2 path resolver entry points. `pathsFor(loc)` is the pure path
+// builder; the knowledgeId-keyed helpers (`metaRootFor`, `businessContextDir`,
+// `orgRegistryDir`) are async — they look up `KnowledgeDoc` from Mongo to
+// derive the `RepoLocation` before resolving the path.
 export {
-  reposRoot,
-  repoCloneDir,
+  pathsFor,
+  orgsRoot,
+  ensureCommitDirs,
   metaRootFor,
-  metaPathsFor,
-  commitMetaDir,
   businessContextDir,
   orgRegistryDir,
 } from "./pipeline/paths.ts";
+export type { RepoLocation } from "./pipeline/paths.ts";
 export type { IngestRunnerDeps, IngestRunnerInput } from "./types/ingest-runner.ts";
 export type { IngestStrategy, StrategyInput, StrategyResult, StrategyContext } from "./types/strategy.ts";
 export type {
@@ -107,6 +163,7 @@ export type {
   PullFactory,
   PullFactoryInput,
   PullFactoryResult,
+  PipelineSummary,
 } from "./types/pipeline.ts";
 export type { DiffResult, RenamedFile } from "./pipeline/git-diff.ts";
 export type { CondensedFileAnalysis } from "./types/condensed-file-analysis.ts";

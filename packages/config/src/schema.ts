@@ -9,6 +9,9 @@ export type LogLevel = (typeof LOG_LEVELS)[number];
 export const LLM_PROVIDERS = ["openrouter", "ollama"] as const;
 export type LlmProvider = (typeof LLM_PROVIDERS)[number];
 
+export const INGESTION_STRATEGIES = ["flat-folder", "concept-graph"] as const;
+export type IngestionStrategy = (typeof INGESTION_STRATEGIES)[number];
+
 const concurrencySchema = z
   .object({
     github: z.number().int().positive().default(2),
@@ -57,6 +60,13 @@ export const configSchema = z
     graph_provider: z.string().default("neo4j"),
     sqlite_path: z.string().default(""),
     ladybug_path: z.string().default(""),
+    "ingestion.strategy": z.enum(INGESTION_STRATEGIES).default("flat-folder"),
+    "enrichment.model": z.string().default(""),
+    "enrichment.max.tool.calls.per.file": z.number().int().positive().default(15),
+    "enrichment.max.iterations.per.file": z.number().int().positive().default(8),
+    "enrichment.wall.time.ms.per.file": z.number().int().positive().default(400000),
+    "enrichment.concurrency": z.number().int().positive().default(16),
+    "enrichment.max.tool.result.chars": z.number().int().positive().default(20000),
   })
   .strict();
 
@@ -105,6 +115,13 @@ export type ConfigValueMap = {
   [Config.GraphProvider]: string;
   [Config.SqlitePath]: string;
   [Config.LadybugPath]: string;
+  [Config.IngestionStrategy]: IngestionStrategy;
+  [Config.EnrichmentModel]: string;
+  [Config.EnrichmentMaxToolCallsPerFile]: number;
+  [Config.EnrichmentMaxIterationsPerFile]: number;
+  [Config.EnrichmentWallTimeMsPerFile]: number;
+  [Config.EnrichmentConcurrency]: number;
+  [Config.EnrichmentMaxToolResultChars]: number;
 };
 
 export type ConfigValue<K extends Config> = ConfigValueMap[K];
@@ -167,6 +184,13 @@ export const HINTS: Readonly<Record<Config, string>> = {
   [Config.GraphProvider]: "bytebell set graph-provider <neo4j|...>",
   [Config.SqlitePath]: "bytebell set sqlite-path <path>",
   [Config.LadybugPath]: "bytebell set ladybug-path <path>",
+  [Config.IngestionStrategy]: "bytebell set ingestion.strategy <flat-folder|concept-graph>",
+  [Config.EnrichmentModel]: "bytebell set enrichment.model <model-id>",
+  [Config.EnrichmentMaxToolCallsPerFile]: "bytebell set enrichment.max.tool.calls.per.file <n>",
+  [Config.EnrichmentMaxIterationsPerFile]: "bytebell set enrichment.max.iterations.per.file <n>",
+  [Config.EnrichmentWallTimeMsPerFile]: "bytebell set enrichment.wall.time.ms.per.file <ms>",
+  [Config.EnrichmentConcurrency]: "bytebell set enrichment.concurrency <n>",
+  [Config.EnrichmentMaxToolResultChars]: "bytebell set enrichment.max.tool.result.chars <n>",
 };
 
 export { readField, writeField } from "./schema-fields.ts";

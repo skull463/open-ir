@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { writeFile } from "node:fs/promises";
+import { readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import express from "express";
 import { Config, DbProviderType, type Config as ConfigEnum } from "@bb/types";
@@ -14,7 +14,7 @@ import "@bb/neo4j";
 import "@bb/ladybug";
 
 import { registerGithubWorkers, registerLocalIngestWorker } from "@bb/ingest-github";
-import { ServerConfigError } from "@bb/errors";
+import { LayoutMigrationRequiredError, ServerConfigError } from "@bb/errors";
 import { registerRoutes } from "./routes.ts";
 import { installShutdownHandlers } from "./shutdown.ts";
 
@@ -52,8 +52,36 @@ function checkRequiredConfig(): void {
   }
 }
 
+/**
+ * Refuses to boot if the legacy `repos/.meta/<knowledgeId>/` layout is on
+ * disk. The kube-v2 layout is the only path resolver this build understands;
+ * mixing the two would mean mid-flight code reading from one tree and writing
+ * to the other. Operators run `bytebell migrate paths` once after the
+ * upgrade — see `packages/cli/src/commands/MigratePathsCommand.ts`.
+ */
+async function assertLayoutMigrated(): Promise<void> {
+  const legacyMetaRoot = path.join(getBytebellHome(), "repos", ".meta");
+  try {
+    const entries = await readdir(legacyMetaRoot);
+    if (entries.length === 0) {
+      return; // empty dir — vestigial, ignore
+    }
+    throw new LayoutMigrationRequiredError(legacyMetaRoot);
+  } catch (cause: unknown) {
+    if (cause instanceof LayoutMigrationRequiredError) {
+      throw cause;
+    }
+    // ENOENT — legacy layout never existed on this machine; nothing to migrate.
+    if (cause instanceof Error && "code" in cause && (cause as { code?: unknown }).code === "ENOENT") {
+      return;
+    }
+    throw cause;
+  }
+}
+
 async function main(): Promise<void> {
   checkRequiredConfig();
+  await assertLayoutMigrated();
   const dbProvider = getConfigValue(Config.DbProvider);
   await connectDb(dbProvider);
 
@@ -62,6 +90,7 @@ async function main(): Promise<void> {
   const graphProvider = getConfigValue(Config.GraphProvider);
   await connectGraph(graphProvider);
   await indexesGraph.ensureKnowledgeIndexes();
+  await indexesGraph.ensureConceptGraphIndexes();
   await connectQueue();
   registerGithubWorkers();
   registerLocalIngestWorker();

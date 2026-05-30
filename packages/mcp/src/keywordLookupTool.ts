@@ -32,6 +32,10 @@ const schema = {
     .optional()
     .describe(`Entity to look up. Options: ${MATCH_MODES.join(", ")}. Default: keyword`),
   knowledgeId: z.string().optional().describe("Scope to a single repo. Omit for cross-repo."),
+  knowledgeIds: z
+    .array(z.string())
+    .optional()
+    .describe("Scope to this allowlist of repos. Intersects with knowledgeId when both set."),
   keywordLimit: z
     .number()
     .int()
@@ -49,10 +53,11 @@ const schema = {
   page: z.number().int().min(1).optional().describe("Page number (default 1)"),
 };
 
-interface KeywordLookupInput {
+export interface KeywordLookupInput {
   term: string;
   match?: MatchMode | undefined;
   knowledgeId?: string | undefined;
+  knowledgeIds?: string[] | undefined;
   keywordLimit?: number | undefined;
   filesPerKeyword?: number | undefined;
   page?: number | undefined;
@@ -72,7 +77,7 @@ interface MatchedEntity {
   files: MatchedFile[];
 }
 
-interface KeywordLookupResult {
+export interface KeywordLookupResult {
   query: string;
   match: MatchMode;
   cross_repo: boolean;
@@ -110,7 +115,12 @@ export function registerKeywordLookupTool(server: McpServer): void {
   });
 }
 
-async function runKeywordLookup(args: KeywordLookupInput): Promise<KeywordLookupResult> {
+/**
+ * In-process entry point for the keyword_lookup tool. Exported for the
+ * ConceptGraphStrategy enrichment phase — see the matching docblock on
+ * `runSmartSearch`.
+ */
+export async function runKeywordLookup(args: KeywordLookupInput): Promise<KeywordLookupResult> {
   const match: MatchMode = args.match ?? "keyword";
   const keywordLimit = args.keywordLimit ?? DEFAULT_KEYWORD_LIMIT;
   const filesPerKeyword = args.filesPerKeyword ?? DEFAULT_FILES_PER_KEYWORD;
@@ -120,6 +130,7 @@ async function runKeywordLookup(args: KeywordLookupInput): Promise<KeywordLookup
     match,
     term: args.term,
     knowledgeId: args.knowledgeId ?? null,
+    knowledgeIds: args.knowledgeIds !== undefined && args.knowledgeIds.length > 0 ? args.knowledgeIds : null,
     keywordLimit,
     filesPerKeyword,
   });
@@ -131,7 +142,7 @@ async function runKeywordLookup(args: KeywordLookupInput): Promise<KeywordLookup
   return {
     query: args.term,
     match,
-    cross_repo: args.knowledgeId === undefined,
+    cross_repo: args.knowledgeId === undefined && (args.knowledgeIds === undefined || args.knowledgeIds.length === 0),
     total_matched: totalMatched,
     matched: pageEntries,
     pagination: {
@@ -150,6 +161,7 @@ interface MatchQueryArgs {
   match: MatchMode;
   term: string;
   knowledgeId: string | null;
+  knowledgeIds: string[] | null;
   keywordLimit: number;
   filesPerKeyword: number;
 }
@@ -159,6 +171,7 @@ async function runMatchQuery(args: MatchQueryArgs): Promise<RowShape[]> {
   const cypher = cypherForMatch(args.match);
   const params: Record<string, unknown> = {
     knowledgeId: args.knowledgeId,
+    knowledgeIds: args.knowledgeIds,
     keywordLimit: toNeo4jInt(args.keywordLimit),
     filesPerKeyword: toNeo4jInt(args.filesPerKeyword),
   };
@@ -177,6 +190,7 @@ function cypherForMatch(match: MatchMode): string {
       WITH kw, score ORDER BY score DESC LIMIT $keywordLimit
       MATCH (f:File)-[:HAS_KEYWORD]->(kw)
       WHERE ($knowledgeId IS NULL OR f.knowledgeId = $knowledgeId)
+        AND ($knowledgeIds IS NULL OR f.knowledgeId IN $knowledgeIds)
       MATCH (k:Knowledge {knowledgeId: f.knowledgeId})
       WITH kw, f, k LIMIT $keywordLimit * $filesPerKeyword
       RETURN kw.name AS name,
@@ -193,6 +207,7 @@ function cypherForMatch(match: MatchMode): string {
       WITH m ORDER BY m.name LIMIT $keywordLimit
       MATCH (f:File)-[:HAS_IMPORT_INTERNAL|HAS_IMPORT_EXTERNAL]->(m)
       WHERE ($knowledgeId IS NULL OR f.knowledgeId = $knowledgeId)
+        AND ($knowledgeIds IS NULL OR f.knowledgeId IN $knowledgeIds)
       MATCH (k:Knowledge {knowledgeId: f.knowledgeId})
       WITH m, f, k LIMIT $keywordLimit * $filesPerKeyword
       RETURN m.name AS name,

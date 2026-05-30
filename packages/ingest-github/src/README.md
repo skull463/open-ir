@@ -19,13 +19,27 @@ Domain (composes infra: `@bb/config`, `@bb/llm`, `@bb/mongo`, `@bb/neo4j`,
     `createDiskSourceReader`, `createPipelineRunner` (the orchestrator),
     `createGithubIngestHandler` / `createLocalIngestHandler` (the BullMQ
     processor factories used internally by `registerGithubWorkers`).
-  - Direct runner: `runPull(msg, pullFactory?)` — the pull worker the
-    enterprise wrapper invokes directly from its own registry.
+  - Direct runner: `runPull(msg, pullFactory?, progressContextFactory?, usageGuard?)`
+    — the pull worker downstream consumers invoke directly from their
+    own registry.
   - Helper: `reposRoot()` — resolves `~/.bytebell/repos`.
+  - Path resolvers: `pathsFor(loc)`, `orgsRoot()`, `ensureCommitDirs(loc)`,
+    `metaRootFor(knowledgeId)`, `businessContextDir(...)`,
+    `orgRegistryDir(...)`, plus the `RepoLocation` type. `ensureCommitDirs`
+    is exported so downstream `SourceFactory` consumers (e.g.
+    `@bytebell/ingest-gitlab`) can pre-create the commit-scoped
+    `repository/` + `meta-output/` tree before cloning into it. The runner
+    also calls it inside the `sourceFactory !== undefined` branch so any
+    factory consumer is safe even without pre-creating dirs itself
+    (`writeScanManifest` would otherwise ENOENT on its first write).
   - Port types: `SourceReader` / `ScanEntry` / `ScannedFile` /
     `OversizedFile` / `ScanDeps` / `ArchiveSink` / `ArchiveSinkInput` /
     `SourceFactory` / `SourceFactoryInput` / `SourceFactoryResult` /
     `PullFactory` / `PullFactoryInput` / `PullFactoryResult` /
+    `PipelineSummary` (the index/pull return value carrying `commitHash`,
+    `tokenUsage: { inputTokens, outputTokens, costUsd }`, `filesAnalyzed`,
+    `foldersSummarised`, `repoSummarised`, `graphNodesWritten` —
+    downstream consumers use it to mirror telemetry into their own stores) /
     `DiffResult` / `RenamedFile` / `FileAnalyzer` / `AnalyzedFileResult`.
   - Runner types: `IngestRunnerDeps` / `IngestRunnerInput` /
     `IngestJobHandlerDeps` / `CreatePipelineRunnerDeps`.
@@ -40,13 +54,23 @@ Domain (composes infra: `@bb/config`, `@bb/llm`, `@bb/mongo`, `@bb/neo4j`,
     `JobType.GithubIndex` (full re-index, via `runner.run` + optional
     `sourceFactory`) and `JobType.GithubPull` (incremental diff-and-apply
     via `runPull` + optional `pullFactory`). Downstream consumers that
-    bring their own queue (e.g. the enterprise wrapper using `@bytebell/queue`)
-    skip `registerGithubWorkers` entirely and call `createPipelineRunner`,
-    `createGithubIngestHandler`, and `runPull` directly.
+    bring their own queue skip `registerGithubWorkers` entirely and call
+    `createPipelineRunner`, `createGithubIngestHandler`, and `runPull`
+    directly.
 - **[githubApi.ts](githubApi.ts)** — `parseGithubRepo(repoUrl)` and
   `fetchLatestCommitHash(owner, repo, branch, gitToken?)`. **Pull-only
   utility**; revisit in the pull plan. Kept in place rather than deleted so
   the pull route can be revived without code archaeology.
+  `parseGithubRepo` accepts both `github.com` and `gitlab.com` hostnames so
+  the runner can construct a kube-v2 `RepoLocation` for GitLab knowledges
+  that route through this pipeline via an injected `SourceFactory`. The
+  kernel `RepoLocation` only has a `github` provider variant today; gitlab
+  projects therefore share the github path segment on disk. Subgroup gitlab
+  URLs (`group/sub/project`) collapse to `{ owner: group, repo: sub }` here
+  — consumers that need the full namespace derive it themselves (the GitLab
+  source-factory does this when building its own `RepoLocation`). The same
+  loosening is mirrored in the kernel duplicate `parseGithubOwnerRepo` in
+  `@bb/types/src/path-layout.ts` so both implementations stay consistent.
 - **[README.md](README.md)** — this file.
 
 ## Subtrees

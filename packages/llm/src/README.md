@@ -15,19 +15,38 @@ package-level contract; this file documents how the source tree is split.
   `ollama.ts`. Consults the filesystem decision cache before issuing a
   request. Throws typed errors via `@bb/errors`.
 - **[openrouter.ts](openrouter.ts)** — `callOpenRouter` and
-  `resolveOpenRouterChain`. Reads the API key as `opts.apiKey
-?? getConfigValue(Config.OpenrouterApiKey)` (per-call override beats
-  config), reads the model chain (`opts.model`, `opts.fallbackModels`,
-  or `Config.OpenrouterModel` + four fallback slots), caps the chain at
-  3 entries (OpenRouter's hard limit), POSTs to the chat-completions
-  endpoint with an AbortController timeout, parses the typed
-  `OpenRouterResponse`, returns the first choice's content. The body
-  always carries `provider: { allow_fallbacks: false }` so OpenRouter
-  cannot silently route across upstream providers of the same model;
-  see `OpenRouterProviderRouting` in this file and invariant 4a in the
-  package README. `usage.model` reflects which model OpenRouter actually
-  routed to. Throws `LlmConfigError` if the API key resolves to empty,
-  `LlmError` on timeout / HTTP non-2xx / empty completion.
+  `resolveOpenRouterChain`. Resolves the API key (`opts.apiKey
+?? getConfigValue(Config.OpenrouterApiKey)`) and the model chain
+  (capped at 3 entries — OpenRouter's hard limit). Delegates the HTTP
+  request to `openRouterRawChat` in `openrouterChat.ts`. Returns the
+  first choice's content as a plain `{ content, usage }` pair. Throws
+  `LlmConfigError` if the key is empty and `LlmError` on timeout /
+  non-2xx / empty completion.
+- **[openrouterChat.ts](openrouterChat.ts)** — `openRouterRawChat`:
+  lower-level POST to the chat-completions endpoint that accepts
+  arbitrary `messages[]` (including `assistant` with `tool_calls` and
+  `tool` results) and an optional `tools[]` list. Returns the full
+  assistant message so callers can dispatch on `tool_calls`. Always
+  sends `provider: { allow_fallbacks: false }` (OpenRouter cannot
+  silently route across upstream providers) and `usage: { include: true }`
+  (authoritative billed cost in the response). Consumed by
+  `callOpenRouter` (single-shot wrapper) and `toolLoop.ts`.
+- **[toolLoop.ts](toolLoop.ts)** — `askLLMWithTools`: multi-turn
+  tool-use driver. Builds initial messages from `prompt` + optional
+  `systemPrompt`, calls `openRouterRawChat` with the caller's
+  `tools[]`, and loops on `tool_calls` until the model returns a
+  terminal text turn or a cap fires. Caps: `maxIterations`,
+  `maxToolCalls`, `wallTimeMs` (global) and `perRequestTimeoutMs`
+  (per request, capped at remaining wall-time). Per-result strings are
+  truncated to `maxToolResultChars` (default 20000) before being fed
+  back to the model. Provider scope is OpenRouter only — Ollama is
+  rejected at the entrypoint because OpenAI-tool-format support varies
+  across open models. Cumulative `usage` (input + output tokens, cost)
+  is summed across every iteration.
+- **[toolTypes.ts](toolTypes.ts)** — `ToolDefinition`, `ToolInvocation`,
+  `LoopTerminationReason` (`completed | max-iterations | max-tool-calls
+| wall-time-exceeded | empty-response`), `AskLLMWithToolsOptions`,
+  `AskLLMWithToolsResult`.
 - **[ollama.ts](ollama.ts)** — `callOllama` and `resolveOllamaChain`.
   Single-model per request (Ollama has no fan-out). Reads model from
   `opts.model ?? Config.OllamaModel`. Ignores `opts.apiKey` (Ollama is

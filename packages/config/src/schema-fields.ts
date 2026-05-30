@@ -1,7 +1,7 @@
 import type { BytebellConfig } from "./schema.ts";
 import { Config } from "@bb/types";
 import type { ConfigValue } from "./schema.ts";
-import type { LogLevel, LlmProvider } from "./schema.ts";
+import type { LogLevel, LlmProvider, IngestionStrategy } from "./schema.ts";
 
 export function readField<K extends Config>(cfg: BytebellConfig, key: K): ConfigValue<K> {
   switch (key) {
@@ -85,6 +85,20 @@ export function readField<K extends Config>(cfg: BytebellConfig, key: K): Config
       return cfg.sqlite_path as ConfigValue<K>;
     case Config.LadybugPath:
       return cfg.ladybug_path as ConfigValue<K>;
+    case Config.IngestionStrategy:
+      return cfg["ingestion.strategy"] as ConfigValue<K>;
+    case Config.EnrichmentModel:
+      return cfg["enrichment.model"] as ConfigValue<K>;
+    case Config.EnrichmentMaxToolCallsPerFile:
+      return cfg["enrichment.max.tool.calls.per.file"] as ConfigValue<K>;
+    case Config.EnrichmentMaxIterationsPerFile:
+      return cfg["enrichment.max.iterations.per.file"] as ConfigValue<K>;
+    case Config.EnrichmentWallTimeMsPerFile:
+      return cfg["enrichment.wall.time.ms.per.file"] as ConfigValue<K>;
+    case Config.EnrichmentConcurrency:
+      return cfg["enrichment.concurrency"] as ConfigValue<K>;
+    case Config.EnrichmentMaxToolResultChars:
+      return cfg["enrichment.max.tool.result.chars"] as ConfigValue<K>;
     default:
       throw new Error(`Unknown config key: ${key}`);
   }
@@ -172,6 +186,20 @@ export function writeField<K extends Config>(cfg: BytebellConfig, key: K, value:
       return { ...cfg, sqlite_path: value as string };
     case Config.LadybugPath:
       return { ...cfg, ladybug_path: value as string };
+    case Config.IngestionStrategy:
+      return { ...cfg, "ingestion.strategy": value as IngestionStrategy };
+    case Config.EnrichmentModel:
+      return { ...cfg, "enrichment.model": value as string };
+    case Config.EnrichmentMaxToolCallsPerFile:
+      return { ...cfg, "enrichment.max.tool.calls.per.file": value as number };
+    case Config.EnrichmentMaxIterationsPerFile:
+      return { ...cfg, "enrichment.max.iterations.per.file": value as number };
+    case Config.EnrichmentWallTimeMsPerFile:
+      return { ...cfg, "enrichment.wall.time.ms.per.file": value as number };
+    case Config.EnrichmentConcurrency:
+      return { ...cfg, "enrichment.concurrency": value as number };
+    case Config.EnrichmentMaxToolResultChars:
+      return { ...cfg, "enrichment.max.tool.result.chars": value as number };
     default:
       throw new Error(`Unknown config key: ${key}`);
   }

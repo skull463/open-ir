@@ -160,3 +160,15 @@ The strategy emits progress through the `ProgressContext` port defined in
   the same option object through to `askJsonLLM` so the per-call override
   reaches `@bb/llm` unchanged. When `llmCallContext` is undefined the call
   falls back to `Config.OpenrouterApiKey` + `Config.LlmProvider`.
+- **Optional usage-guard hook.** `StrategyInput.usageGuard` (from
+  `@bb/types`) is destructured at the top of `execute`. When present, the
+  orchestrator awaits `usageGuard.onPhaseComplete(phase, cumulative)` after
+  every token-consuming phase — `file_analysis` (post small + big),
+  `folder_analysis` (post phase 5), and `repo_summary` (post phase 6) —
+  with the cumulative `{ inputTokens, outputTokens, costUsd }` aggregated
+  so far. The guard may throw `UsageLimitExceededError` to abort the run;
+  the throw bubbles up to `pipeline/run.ts`, where the catch path calls
+  `flushPartial(cumulative)` once and persists FAILED with category
+  `usage_limit_exceeded`. When `usageGuard` is undefined (OSS default)
+  every call short-circuits via `await usageGuard?.…` and the strategy
+  runs identically to today.

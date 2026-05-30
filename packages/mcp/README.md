@@ -68,12 +68,12 @@ POST   /sse/messages?sessionId=…    SSE — client-to-server messages
 
 ## Tools
 
-| Name             | Inputs                                                                                           | Output shape                                                                                                                                 |
-| ---------------- | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `list_knowledge` | `page?`                                                                                          | `{knowledgeBases: [{knowledgeId, repoName, sourceKind, sourceUrl, branch, state, fileCount, createdAt, updatedAt}], totalItems, pagination}` |
-| `smart_search`   | `query`, `knowledgeId?`, `path?`, `exclude?`, `page?`, `pageSize?`                               | `{query, channels_used, total_matches, repos_matched[], top_results[], clusters[]}`                                                          |
-| `keyword_lookup` | `term`, `match? (default keyword)`, `knowledgeId?`, `keywordLimit?`, `filesPerKeyword?`, `page?` | `{query, match, cross_repo, total_matched, matched[], pagination}`                                                                           |
-| `retrieve_file`  | `operation? (default content)`, `knowledgeId`, op-specific params                                | `{operation, …}` — varies by op                                                                                                              |
+| Name             | Inputs                                                                                                            | Output shape                                                                                                                                 |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_knowledge` | `page?`                                                                                                           | `{knowledgeBases: [{knowledgeId, repoName, sourceKind, sourceUrl, branch, state, fileCount, createdAt, updatedAt}], totalItems, pagination}` |
+| `smart_search`   | `query`, `knowledgeId?`, `knowledgeIds?`, `path?`, `exclude?`, `page?`, `pageSize?`                               | `{query, channels_used, total_matches, repos_matched[], top_results[], clusters[], concept_clusters?[]}`                                     |
+| `keyword_lookup` | `term`, `match? (default keyword)`, `knowledgeId?`, `knowledgeIds?`, `keywordLimit?`, `filesPerKeyword?`, `page?` | `{query, match, cross_repo, total_matched, matched[], pagination}`                                                                           |
+| `retrieve_file`  | `operation? (default content)`, `knowledgeId`, op-specific params                                                 | `{operation, …}` — varies by op                                                                                                              |
 
 `list_knowledge` is the session-start tool. One Cypher over
 `(:Knowledge)` with an `OPTIONAL MATCH (:HAS_FILE)->(:File)` aggregate
@@ -92,6 +92,20 @@ keywords 0.20, classes 0.15, functions 0.10, imports 0.05), dedupes by
 post-fusion Cypher, and computes folder clusters in JS (top-two-segments
 grouping — no `FolderNode` dependency).
 
+Both `smart_search` and `keyword_lookup` accept `knowledgeIds?:
+string[]` for multi-repo scoping. When provided, it intersects with the
+older single-value `knowledgeId?` and the result set is constrained to
+files whose `knowledgeId` is in the allowlist. Used by ConceptGraphStrategy
+enrichment to query its own in-flight knowledge plus opted-in cross-repo
+neighbours.
+
+`smart_search` returns an optional `concept_clusters?: ConceptCluster[]`
+field when files in the result set carry `:Concept` attachments of
+kinds `role` / `pattern` / `domain` (ConceptGraphStrategy hypergraph).
+Each cluster lists `{slug, kind, name, file_count, sample_files[]}`;
+the field is omitted entirely when no qualifying concepts exist (e.g.
+all knowledges in the result were indexed by `flat-folder`).
+
 `keyword_lookup` is a reverse lookup. For `match: keyword | class |
 function` it uses the appropriate fulltext index; for `match: module`
 it uses a plain `CONTAINS` over `Module.name`. Pagination packs
@@ -104,10 +118,12 @@ hit.
   `File` to its outgoing edges, returning per-file `{purpose, summary,
 classes[], functions[], imports[], keywords[], language, sizeBytes}`.
 - `content` — single `relativePath` + optional `fromLine`/`toLine` /
-  `search` / `contextLines` / `maxTokens`. Reads from
-  `~/.bytebell/repos/{knowledgeId}/{relativePath}` via `repoFs.ts`,
+  `search` / `contextLines` / `maxTokens`. Resolves the active commit's
+  clone via `repoFs.ts` (one `KnowledgeDoc` lookup per call to derive
+  `(orgId, owner, repo, commitId)`), reads from
+  `~/.bytebell/orgs/<orgId>/github/<knowledgeId>/<owner>/<repo>/<commit>/repository/{relativePath}`,
   slices in process, prepends line numbers, trims to the token char
-  budget.
+  budget. Local knowledges read straight from `source.sourcePath`.
 - `bulk_search` — `paths[]` (≤ 50) + required `search` + optional
   `contextLines` / `matchOnly`. Parallel disk scan; returns matched +
   noMatch + errored.

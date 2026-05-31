@@ -1,7 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { UsageTracker } from "@bb/llm";
-import { runCypher } from "@bb/graph-db";
+import { searchGraph } from "@bb/graph-db";
+import type { KnowledgeListRow } from "@bb/graph-core";
 
 const MAX_PAGE_CHARS = 20_000;
 
@@ -27,20 +28,8 @@ interface ListKnowledgeInput {
   page?: number | undefined;
 }
 
-interface KnowledgeRow {
-  knowledgeId: string;
-  repoName: string;
-  sourceKind: string;
-  sourceUrl: string;
-  branch: string | null;
-  state: string;
-  createdAt: string;
-  updatedAt: string;
-  fileCount: number;
-}
-
 interface ListKnowledgeResult {
-  knowledgeBases: KnowledgeRow[];
+  knowledgeBases: KnowledgeListRow[];
   totalItems: number;
   pagination: {
     page: number;
@@ -49,18 +38,6 @@ interface ListKnowledgeResult {
     hasPrevPage: boolean;
     hint?: string;
   };
-}
-
-interface RawRow {
-  knowledgeId: string | null;
-  repoName: string | null;
-  sourceKind: string | null;
-  sourceUrl: string | null;
-  branch: string | null;
-  state: string | null;
-  createdAt: string | null;
-  updatedAt: string | null;
-  fileCount: number | { toNumber: () => number } | null;
 }
 
 export function registerListKnowledgeTool(server: McpServer): void {
@@ -79,7 +56,7 @@ export function registerListKnowledgeTool(server: McpServer): void {
 
 async function runListKnowledge(args: ListKnowledgeInput): Promise<ListKnowledgeResult> {
   const page = args.page ?? 1;
-  const rows = await fetchAllRows();
+  const rows = await searchGraph.listKnowledgeBases();
   const totalItems = rows.length;
   const { pageRows, totalPages, safePage } = paginate(rows, page);
 
@@ -100,57 +77,13 @@ async function runListKnowledge(args: ListKnowledgeInput): Promise<ListKnowledge
   };
 }
 
-async function fetchAllRows(): Promise<KnowledgeRow[]> {
-  const cypher = `
-    MATCH (k:Knowledge)
-    OPTIONAL MATCH (k)-[:HAS_FILE]->(f:File)
-    WITH k, count(f) AS fileCount
-    RETURN k.knowledgeId AS knowledgeId,
-           k.repoName    AS repoName,
-           k.sourceKind  AS sourceKind,
-           k.sourceUrl   AS sourceUrl,
-           k.branch      AS branch,
-           k.state       AS state,
-           k.createdAt   AS createdAt,
-           k.updatedAt   AS updatedAt,
-           fileCount
-    ORDER BY k.updatedAt DESC
-  `;
-  const raw = (await runCypher(cypher, {})) as RawRow[];
-  return raw.map(coerceRow);
-}
-
-function coerceRow(row: RawRow): KnowledgeRow {
-  return {
-    knowledgeId: row.knowledgeId ?? "",
-    repoName: row.repoName ?? "",
-    sourceKind: row.sourceKind ?? "",
-    sourceUrl: row.sourceUrl ?? "",
-    branch: row.branch,
-    state: row.state ?? "",
-    createdAt: row.createdAt ?? "",
-    updatedAt: row.updatedAt ?? "",
-    fileCount: toNumber(row.fileCount),
-  };
-}
-
-function toNumber(value: RawRow["fileCount"]): number {
-  if (value === null) {
-    return 0;
-  }
-  if (typeof value === "number") {
-    return value;
-  }
-  return value.toNumber();
-}
-
 interface PageSlice {
-  pageRows: KnowledgeRow[];
+  pageRows: KnowledgeListRow[];
   totalPages: number;
   safePage: number;
 }
 
-function paginate(rows: KnowledgeRow[], page: number): PageSlice {
+function paginate(rows: KnowledgeListRow[], page: number): PageSlice {
   if (rows.length === 0) {
     return { pageRows: [], totalPages: 1, safePage: 1 };
   }

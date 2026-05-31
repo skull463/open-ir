@@ -26,8 +26,10 @@ package-level contract; this file documents how the source tree is split.
   headlessly today, including `openrouter-api-key` (`redact: true`)
   and `openrouter-model` (plain text).
 - **[BootCommand.ts](BootCommand.ts)** — the `boot` subcommand.
-  Sequence: `checkPreflight` (errors out with `HINTS` if openrouter
-  api-key/model are blank) → `applyInfraDefaults` (auto-fills the
+  Sequence: `ensurePreflight` (if openrouter api-key/model are blank,
+  renders `<SetupForm />` when stdin+stdout are a TTY so the user can
+  fill them in-place; falls back to the legacy print-`HINTS`-and-exit
+  path on non-TTY for CI) → `applyInfraDefaults` (auto-fills the
   blank infra keys, generates a random Neo4j password if needed) →
   `dockerInfra.up` (writes `.env`, runs compose, polls health) →
   `ensureServerRunning` (existing helper that lazy-spawns the server
@@ -95,14 +97,18 @@ package-level contract; this file documents how the source tree is split.
   view shows `•••…` for masked rows. Renders an inline red error line
   underneath when the field's `validate` returns a non-null string.
 - **[SetupForm.tsx](SetupForm.tsx)** — the Ink form rendered by
-  `bytebell set` no-args. Six rows declared in a `ROWS` constant: Mongo
-  URI / Neo4j URI / Neo4j user / Neo4j password (masked) / Redis URL /
-  Server port. Each row carries its own format-only `validate` regex.
-  State: a single `useState<Record<string,string>>` keyed by row id and
-  seeded from `loadConfig()` so users see and edit existing settings.
-  Navigation via Ink's built-in `useFocusManager` (Tab / Shift-Tab). On
-  Enter when all rows pass validation, iterates the dispatch table in
-  row order calling `entry.setter(value)`. On Esc, exits without saving.
+  `bytebell set` no-args **and** by `bytebell boot` when openrouter
+  keys are missing on an interactive TTY. Nine rows declared in a
+  `ROWS` constant: Mongo URI / Neo4j URI / Neo4j user / Neo4j password
+  (masked) / Redis URL / Server port / GitHub Concurrency / OpenRouter
+  API key (masked) / OpenRouter model. Each row carries its own
+  format-only `validate` regex (or non-empty check for the openrouter
+  rows). State: a single `useState<Record<string,string>>` keyed by
+  row id and seeded from `loadInitial()` so users see and edit
+  existing settings. Navigation via Ink's built-in `useFocusManager`
+  (Tab / Shift-Tab). On Enter when all rows pass validation, iterates
+  the dispatch table in row order calling `entry.setter(value)`. On
+  Esc, exits without saving.
 
 ## Module dependency graph
 
@@ -119,8 +125,9 @@ SetCommand.ts      → commander, react, ink (render), @bb/config (HINTS),
 bootConfig.ts      → node:crypto, @bb/types (Config), @bb/config (getConfigValue),
                      keyMap.ts (KEY_MAP)
 dockerInfra.ts     → node:child_process, node:fs/promises, node:path, node:url
-BootCommand.ts     → commander, @bb/types (Config), @bb/config (HINTS, getConfigValue),
-                     bootConfig.ts, dockerInfra.ts, serverSpawn.ts, output.ts
+BootCommand.ts     → commander, react, ink (render), @bb/types (Config),
+                     @bb/config (HINTS, getConfigValue), bootConfig.ts, dockerInfra.ts,
+                     serverSpawn.ts, SetupForm.tsx (SetupForm), output.ts
 ShutdownCommand.ts → commander, node:fs/promises, node:path, @bb/config (getBytebellHome),
                      dockerInfra.ts (composeFilePath), output.ts
 

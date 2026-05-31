@@ -33,7 +33,11 @@ export interface ApplyDefaultsResult {
 
 export function applyInfraDefaults(): ApplyDefaultsResult {
   const written: { cliKey: string; redacted: boolean }[] = [];
+  const usingHonker = readString(Config.QueueProvider) === QueueProviderType.Honker;
   for (const entry of DEFAULTS) {
+    if (entry.configKey === Config.RedisUrl && usingHonker) {
+      continue;
+    }
     const current = readString(entry.configKey);
     if (current.length > 0) {
       continue;

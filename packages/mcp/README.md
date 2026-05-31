@@ -2,10 +2,13 @@
 
 ## Tier
 
-Domain. Imports `@bb/neo4j` (read primitive `runCypher`), `@bb/config`
-(`getBytebellHome`), `@bb/types` for shared shapes, and `zod` +
-`@modelcontextprotocol/sdk`. Does not import from sibling domain
-packages or from binaries (`@bb/server`, `@bb/cli`).
+Domain. Imports `@bb/graph-db` (the `searchGraph` facade) and
+`@bb/graph-core` (read-side types like `ScoredHit`,
+`KnowledgeListRow`), `@bb/config` (`getBytebellHome`), `@bb/types` for
+shared shapes, and `zod` + `@modelcontextprotocol/sdk`. Does not import
+from sibling domain packages, from binaries (`@bb/server`, `@bb/cli`),
+or from any concrete graph provider (`@bb/neo4j` / `@bb/ladybug`) —
+the provider is resolved at runtime through `searchGraph`.
 
 ## Responsibility
 
@@ -75,22 +78,27 @@ POST   /sse/messages?sessionId=…    SSE — client-to-server messages
 | `keyword_lookup` | `term`, `match? (default keyword)`, `knowledgeId?`, `knowledgeIds?`, `keywordLimit?`, `filesPerKeyword?`, `page?` | `{query, match, cross_repo, total_matched, matched[], pagination}`                                                                           |
 | `retrieve_file`  | `operation? (default content)`, `knowledgeId`, op-specific params                                                 | `{operation, …}` — varies by op                                                                                                              |
 
-`list_knowledge` is the session-start tool. One Cypher over
-`(:Knowledge)` with an `OPTIONAL MATCH (:HAS_FILE)->(:File)` aggregate
-returns one row per indexed repo, ordered by `Knowledge.updatedAt` desc.
-Pagination packs rows into pages until a ~5000-token char budget is hit
-(same shape as `keyword_lookup`'s pager). The `state` field flows
-`CREATED → QUEUED → INGESTED → PROCESSING → PROCESSED | FAILED`; the
-LLM should treat any state other than `PROCESSED` as not-yet-queryable.
+All four tools issue their graph reads through `searchGraph`
+(`IGraphSearchRepository`). MCP never builds Cypher strings or
+provider-specific value types — each backend (Neo4j today, Ladybug when
+ready) owns its own query dialect.
 
-`smart_search` runs the six channels in parallel via
-`smartSearchChannels.ts` (purpose, paths, keywords, classes, functions,
-imports). `smartSearchFusion.ts` normalizes per-channel scores against
-the channel max, applies fixed weights (purpose 0.30, paths 0.20,
-keywords 0.20, classes 0.15, functions 0.10, imports 0.05), dedupes by
-`(knowledgeId, path)`, attaches `repoName` from `Knowledge` in one
-post-fusion Cypher, and computes folder clusters in JS (top-two-segments
-grouping — no `FolderNode` dependency).
+`list_knowledge` is the session-start tool. Calls
+`searchGraph.listKnowledgeBases()` which the active provider implements
+against its knowledge / file node store, ordered by `updatedAt` desc.
+Pagination packs rows into pages until a ~5000-token char budget is
+hit. The `state` field flows `CREATED → QUEUED → INGESTED → PROCESSING
+→ PROCESSED | FAILED`; the LLM should treat any state other than
+`PROCESSED` as not-yet-queryable.
+
+`smart_search` dispatches the eight channels (purpose, businessContext,
+paths, keywords, classes, functions, importsInternal, importsExternal)
+in parallel via `searchGraph.runSmartSearchChannel(channel, params)`.
+`smartSearchFusion.ts` normalizes per-channel scores against the
+channel max, applies fixed weights (see `CHANNEL_WEIGHTS`), dedupes by
+`(knowledgeId, path)`, hydrates `repoName` via
+`searchGraph.fetchRepoNames(ids)`, and computes folder clusters in JS
+(top-two-segments grouping — no `FolderNode` dependency).
 
 Both `smart_search` and `keyword_lookup` accept `knowledgeIds?:
 string[]` for multi-repo scoping. When provided, it intersects with the
@@ -106,17 +114,18 @@ Each cluster lists `{slug, kind, name, file_count, sample_files[]}`;
 the field is omitted entirely when no qualifying concepts exist (e.g.
 all knowledges in the result were indexed by `flat-folder`).
 
-`keyword_lookup` is a reverse lookup. For `match: keyword | class |
-function` it uses the appropriate fulltext index; for `match: module`
-it uses a plain `CONTAINS` over `Module.name`. Pagination packs
-matched-entity entries into pages until a ~5000-token char budget is
-hit.
+`keyword_lookup` is a reverse lookup. Calls
+`searchGraph.keywordLookup({match, term, ...})` — the provider chooses
+fulltext vs. substring matching based on `match` (keyword / class /
+function use the appropriate fulltext index; module uses a plain
+`CONTAINS` over `Module.name`). Pagination packs matched-entity entries
+into pages until a ~5000-token char budget is hit.
 
 `retrieve_file` has three operations:
 
-- `metadata` — `relativePaths[]` (≤ 10) → single Cypher that joins
-  `File` to its outgoing edges, returning per-file `{purpose, summary,
-classes[], functions[], imports[], keywords[], language, sizeBytes}`.
+- `metadata` — `relativePaths[]` (≤ 10) → `searchGraph.fetchFileMetadata`
+  which returns per-file `{purpose, summary, classes[], functions[],
+imports[], keywords[], language, sizeBytes}` from the active provider.
 - `content` — single `relativePath` + optional `fromLine`/`toLine` /
   `search` / `contextLines` / `maxTokens`. Resolves the active commit's
   clone via `repoFs.ts` (one `KnowledgeDoc` lookup per call to derive
@@ -147,7 +156,8 @@ and from a built output. `skills/bytebell/SKILL.md` and
 - Transient: per-session transport objects in two module-scoped `Map`s
   (one per transport flavour). Cleared on `transport.onclose` /
   `res.on("close")`, or by `closeAllMcpSessions`.
-- Read-only access to the graph through `@bb/neo4j`'s `runCypher` and
+- Read-only access to the graph through `@bb/graph-db`'s `searchGraph`
+  facade (which proxies to the active `IGraphSearchRepository`) and
   to the local clone directory through `@bb/config`'s
   `getBytebellHome()`. No writes.
 
@@ -178,7 +188,8 @@ and from a built output. `skills/bytebell/SKILL.md` and
 - `@modelcontextprotocol/sdk@^1.23.0` — official TypeScript SDK
 - `zod@^4.3.6` — input schemas for `registerTool`
 - `@types/express` (dev) — types only; no express runtime dep
-- `@bb/neo4j` (workspace) — `runCypher` for all read queries
+- `@bb/graph-db` (workspace) — `searchGraph` facade for all read queries
+- `@bb/graph-core` (workspace) — read-side row/input types
 - `@bb/config` (workspace) — `getBytebellHome` for the clone directory
 - `@bb/types` (workspace) — shared shapes (no direct usage in v1, kept
   for upcoming tier integrations)

@@ -81,8 +81,14 @@ export function readField<K extends Config>(cfg: BytebellConfig, key: K): Config
       return cfg.db_provider as ConfigValue<K>;
     case Config.GraphProvider:
       return cfg.graph_provider as ConfigValue<K>;
+    case Config.QueueProvider:
+      return cfg.queue_provider as ConfigValue<K>;
+    case Config.QueueDbPath:
+      return cfg.queue_db_path as ConfigValue<K>;
     case Config.SqlitePath:
       return cfg.sqlite_path as ConfigValue<K>;
+    case Config.LadybugPath:
+      return cfg.ladybug_path as ConfigValue<K>;
     case Config.IngestionStrategy:
       return cfg["ingestion.strategy"] as ConfigValue<K>;
     case Config.EnrichmentModel:
@@ -180,8 +186,14 @@ export function writeField<K extends Config>(cfg: BytebellConfig, key: K, value:
       return { ...cfg, db_provider: value as string };
     case Config.GraphProvider:
       return { ...cfg, graph_provider: value as string };
+    case Config.QueueProvider:
+      return { ...cfg, queue_provider: value as string };
+    case Config.QueueDbPath:
+      return { ...cfg, queue_db_path: value as string };
     case Config.SqlitePath:
       return { ...cfg, sqlite_path: value as string };
+    case Config.LadybugPath:
+      return { ...cfg, ladybug_path: value as string };
     case Config.IngestionStrategy:
       return { ...cfg, "ingestion.strategy": value as IngestionStrategy };
     case Config.EnrichmentModel:

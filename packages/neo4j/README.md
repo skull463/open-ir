@@ -53,6 +53,13 @@ The package owns:
   single file used to cost.
 - Folder-node CRUD (`upsertFolderNode`, `upsertFolderNodesBatch`) —
   same shape as file CRUD; batched variant for bulk indexing.
+- Read-side search queries (`src/search/`) implementing
+  `IGraphSearchRepository`: `runSmartSearchChannel` (8 channels over
+  fulltext indexes), `keywordLookup` (keyword / class / function / module
+  reverse lookup), `listKnowledgeBases`, `fetchFileMetadata`,
+  `fetchRepoNames`. All Cypher that `@bb/mcp` previously embedded inline
+  lives here now. Composed onto `Neo4jGraphProvider.search` and exposed
+  to MCP via `searchGraph` in `@bb/graph-db`.
 - Repo-node CRUD (`upsertRepoNode`) — writes a `:Repo` carrying the
   per-repo summary payload (purpose, dataFlow, keyPatterns, etc.) and
   in the same transaction MERGEs a snake_case `:Knowledge` mirror plus
@@ -125,8 +132,7 @@ commit_hash}]->(:FileNode | :FileVersion)` edge per (keyword, type)
 
 The package does **not** own:
 
-- Read queries — defer to a future `@bb/graph` once `@bb/mcp` retrieval
-  has a use case
+- Document-DB reads — those go through `@bb/db`
 - Telemetry — driver defaults apply.
 - Migration tooling — the `IF NOT EXISTS` constraint creates handle
   schema drift; richer migrations land later

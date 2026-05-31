@@ -6,10 +6,9 @@ import React from "react";
 import { render } from "ink";
 import { Config, DbProviderType, GraphProviderType } from "@bb/types";
 import { HINTS, getBytebellHome, getConfigValue, isDevMode } from "@bb/config";
-import { applyInfraDefaults, checkPreflight, runBootSequence} from "./bootConfig.ts";
+import { applyInfraDefaults, checkPreflight } from "./bootConfig.ts";
 import { SetupForm } from "./SetupForm.tsx";
-import { ServerStartTimeoutError, ensureServerRunning } from "./serverSpawn.ts";
-import { createSpinner, error, info, success } from "./output.ts";
+import { error, info, success } from "./output.ts";
 import { bringInfraUp, usingHonker } from "./bootInfra.ts";
 
 export function buildBootCommand(): Command {
@@ -81,33 +80,6 @@ async function runBoot(): Promise<void> {
   success(`redis  → ${upResult.services.redis}`);
 
   process.stdout.write("\nNext: bytebell index <git-url>  or  bytebell ingest [path]\n");
-}
-
-async function startServer(): Promise<boolean> {
-  const spinner = createSpinner("Starting ByteBell server...");
-  try {
-    const ctx = await ensureServerRunning((line) => spinner.update(`Server: ${line}`));
-    if (ctx.alreadyRunning) {
-      spinner.stop(true, "Server already running");
-      if (ctx.devModeMismatch === true) {
-        info(
-          "BYTEBELL_DEV=1 set but server is already running. Run `bytebell shutdown && BYTEBELL_DEV=1 bytebell boot` to apply.",
-        );
-      }
-    } else {
-      spinner.stop(true, `Server started (logs: ${ctx.logPath ?? "n/a"})`);
-    }
-    return true;
-  } catch (cause: unknown) {
-    spinner.stop(false, "Server startup failed");
-    if (cause instanceof ServerStartTimeoutError) {
-      error(cause.message);
-    } else {
-      error(cause instanceof Error ? cause.message : String(cause));
-    }
-    process.exitCode = 1;
-    return false;
-  }
 }
 
 async function ensurePreflight(): Promise<boolean> {

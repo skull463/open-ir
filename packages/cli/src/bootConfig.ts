@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only WITH non-commercial-clause
 import { randomBytes } from "node:crypto";
-import { Config } from "@bb/types";
+import { Config, QueueProviderType } from "@bb/types";
 import { getConfigValue, requiredKeysFor } from "@bb/config";
 import { bringInfraUp } from "./dockerBoot.ts";
 import { KEY_MAP } from "./keyMap.ts";

@@ -28,9 +28,11 @@ indexing, configuration, server lifecycle, and inspection.
   coercion + Zod validation + atomic `tmp → fsync → rename`. Sole
   sanctioned write path per [docs/arch.md:140](../../docs/arch.md#L140).
 - `bytebell set` (no args) — Ink setup form. Walks Mongo / Neo4j /
-  Neo4j-user / Neo4j-password / Redis / Port with field-level format
-  validation. On submit, applies all six values atomically through the
-  same `setConfigValue` path. Esc cancels.
+  Neo4j-user / Neo4j-password / Redis / Port / GitHub-concurrency text
+  fields with field-level format validation, then the provider toggles
+  (Graph provider `neo4j|ladybug`, Doc store `mongo|sqlite`, Queue
+  `bullmq|honker`). On submit, applies every value atomically through
+  the same `setConfigValue` path. Esc cancels.
 - `bytebell boot` — one-command bring-up. Refuses to proceed if
   `openrouter_api_key` or `openrouter_model` is blank (with the
   matching `bytebell set …` hint). Auto-fills blank infra config keys
@@ -186,14 +188,18 @@ will touch when implemented. Only the **bolded** entries ship in v0.
   on-disk layout (`~/.bytebell/repos/<id>/` for clones,
   `~/.bytebell/repos/.meta/<id>/...` for meta) into the commit-scoped tree
   (`~/.bytebell/orgs/<orgId>/<provider>/<knowledgeId>/<owner>/<repo>/<commit>/...`).
-  The server boot guard refuses to start while `repos/.meta/` exists and is
-  non-empty, so this is the unblocking step after upgrading. `--dry-run`
-  prints the planned moves without touching disk. Reads `KnowledgeDoc` from
-  Mongo to derive each knowledge's `(orgId, owner, repo, commitId)`;
-  knowledges that predate commit tracking (no `source.commitId`) or have no
-  `info.repoUrl` are skipped with a per-id reason and need manual
-  `bytebell delete` + re-index. Local-source knowledges keep their original
-  `source.sourcePath` untouched; only their `meta-output` tree moves.
+  The disk work lives in `@bb/path-migration`; this command supplies the
+  Mongo knowledge list and renders the summary. The **same reconciliation runs
+  automatically at server boot** (see `@bb/server`), so this command is for
+  running it ahead of time or with `--dry-run` to preview. `--dry-run` prints
+  the plan (including would-be-deleted orphans) without touching disk. Reads
+  `KnowledgeDoc` from Mongo to derive each knowledge's
+  `(orgId, owner, repo, commitId)`; knowledges that predate commit tracking
+  (no `source.commitId`) or have no `info.repoUrl` are skipped with a per-id
+  reason and need manual `bytebell delete` + re-index. Legacy dirs with **no**
+  backing `KnowledgeDoc` are unrecoverable — they are deleted and reported as
+  `abandoned`. Local-source knowledges keep their original `source.sourcePath`
+  untouched; only their `meta-output` tree moves.
 
 ## What is intentionally out of scope (v0)
 

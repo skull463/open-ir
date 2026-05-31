@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { Config } from "@bb/types";
+import { Config, QueueProviderType } from "@bb/types";
 import { getConfigValue } from "@bb/config";
 import { KEY_MAP } from "./keyMap.ts";
 
@@ -29,7 +29,11 @@ export interface ApplyDefaultsResult {
 
 export function applyInfraDefaults(): ApplyDefaultsResult {
   const written: { cliKey: string; redacted: boolean }[] = [];
+  const usingHonker = readString(Config.QueueProvider) === QueueProviderType.Honker;
   for (const entry of DEFAULTS) {
+    if (entry.configKey === Config.RedisUrl && usingHonker) {
+      continue;
+    }
     const current = readString(entry.configKey);
     if (current.length > 0) {
       continue;

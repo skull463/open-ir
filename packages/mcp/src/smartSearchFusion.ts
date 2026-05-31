@@ -1,12 +1,12 @@
-import { runCypher, toNeo4jInt } from "@bb/graph-db";
-import type { ChannelName, ScoredHit } from "./smartSearchChannels.ts";
+import { searchGraph, runCypher, toNeo4jInt } from "@bb/graph-db";
+import type { ScoredHit, SmartSearchChannel } from "@bb/graph-core";
 
 export interface FusedResult {
   path: string;
   knowledge_id: string;
   repo_name: string;
   score: number;
-  matched_channels: ChannelName[];
+  matched_channels: SmartSearchChannel[];
   source_type: "code";
 }
 
@@ -34,7 +34,7 @@ export interface ConceptCluster {
 
 export interface SmartSearchResult {
   query: string;
-  channels_used: ChannelName[];
+  channels_used: SmartSearchChannel[];
   total_matches: number;
   repos_matched: string[];
   top_results: FusedResult[];
@@ -42,7 +42,7 @@ export interface SmartSearchResult {
   concept_clusters?: ConceptCluster[];
 }
 
-const CHANNEL_WEIGHTS: Record<ChannelName, number> = {
+const CHANNEL_WEIGHTS: Record<SmartSearchChannel, number> = {
   purpose: 0.25,
   businessContext: 0.05,
   paths: 0.2,
@@ -53,9 +53,9 @@ const CHANNEL_WEIGHTS: Record<ChannelName, number> = {
   importsExternal: 0.025,
 };
 
-export function fuseHits(perChannel: Record<ChannelName, ScoredHit[]>): Map<string, FusedResult> {
+export function fuseHits(perChannel: Record<SmartSearchChannel, ScoredHit[]>): Map<string, FusedResult> {
   const fused = new Map<string, FusedResult>();
-  for (const channel of Object.keys(perChannel) as ChannelName[]) {
+  for (const channel of Object.keys(perChannel) as SmartSearchChannel[]) {
     const hits = perChannel[channel];
     if (hits.length === 0) {
       continue;
@@ -94,11 +94,7 @@ export async function attachRepoNames(results: FusedResult[]): Promise<void> {
   if (ids.length === 0) {
     return;
   }
-  const rows = (await runCypher(
-    `MATCH (k:Knowledge) WHERE k.knowledgeId IN $ids
-     RETURN k.knowledgeId AS knowledgeId, k.repoName AS repoName`,
-    { ids },
-  )) as Array<{ knowledgeId: string; repoName: string | null }>;
+  const rows = await searchGraph.fetchRepoNames(ids);
   const lookup = new Map(rows.map((row) => [row.knowledgeId, row.repoName ?? ""]));
   for (const result of results) {
     result.repo_name = lookup.get(result.knowledge_id) ?? "";

@@ -36,10 +36,14 @@ The package owns:
   edits made during the worker run don't bleed into ingestion. MCP
   retrieval for local knowledges reads through `source.sourcePath` on
   the `KnowledgeDoc`, not the snapshot.
-- **Boot-time layout guard** — refuses to start when the legacy
-  `~/.bytebell/repos/.meta/` tree is detected on disk and non-empty.
-  Throws `LayoutMigrationRequiredError` pointing at `bytebell migrate
-paths`. One `readdir` call; ENOENT is the happy path.
+- **Boot-time layout reconciliation** (`reconcileLegacyLayout`, [src/legacyLayout.ts](src/legacyLayout.ts)) —
+  runs after `connectDb` (it needs the knowledge list). Delegates to
+  `@bb/path-migration`: migrates every knowledge with a DB record into the
+  commit-scoped layout, and **deletes legacy dirs that have no DB record**
+  (logged to stderr as `legacy-layout abandoned …`) so a DB reset can't
+  permanently block boot. Only throws `LayoutMigrationRequiredError` if legacy
+  dirs remain that back a live knowledge but can't be migrated (missing
+  `commitId` / `repoUrl`) — those carry data the server won't silently destroy.
 - Graceful shutdown — SIGTERM/SIGINT → drain MCP sessions
   (`closeAllMcpSessions`) → close queue → close redis → close neo4j →
   close mongo → unlink `~/.bytebell/pid` → exit. MCP sessions drain
@@ -120,11 +124,14 @@ POST /sse/messages?sessionId=…             legacy SSE messages — owned by @b
    worker sees. MCP retrieval for local knowledges reads from
    `KnowledgeDoc.source.sourcePath` (the original, unfrozen path) —
    the snapshot exists purely to give the worker a stable input.
-   4a. **Layout migration is required before boot when legacy `repos/.meta/`
-   exists.** Server reads `~/.bytebell/repos/.meta/` once at boot; if
-   populated, throws `LayoutMigrationRequiredError` and exits non-zero.
-   Operator runs `bytebell migrate paths` (see `@bb/cli`) to move
-   artifacts under the commit-scoped `orgs/` tree.
+   4a. **Legacy layout is reconciled automatically at boot.** After `connectDb`,
+   the server runs `reconcileLegacyLayout` (`@bb/path-migration`): legacy
+   `repos/.meta/` + `repos/<id>/` dirs with a DB record are migrated to the
+   commit-scoped `orgs/` tree; dirs with no DB record are deleted and logged as
+   abandoned. Boot only throws `LayoutMigrationRequiredError` (non-zero exit)
+   when legacy dirs remain that back a live knowledge but can't be migrated
+   (missing `commitId` / `repoUrl`); `bytebell migrate paths` runs the same
+   reconciliation ahead of time or with `--dry-run`.
 5. **Filtered copy uses the same SKIP lists as `scan.ts`.** Lists are
    duplicated (small, stable) rather than imported across the
    infra/domain boundary.

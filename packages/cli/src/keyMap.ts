@@ -1,5 +1,5 @@
 import { LLM_PROVIDERS, LOG_LEVELS, setConfigValue, type LlmProvider, type LogLevel } from "@bb/config";
-import { Config, DbProviderType, GraphProviderType, IngestionStrategyType } from "@bb/types";
+import { Config, DbProviderType, GraphProviderType, IngestionStrategyType, QueueProviderType } from "@bb/types";
 
 type Setter = (raw: string) => void;
 
@@ -59,6 +59,7 @@ function parseEnum(raw: string, key: string, allowed: readonly string[]): string
 const DB_PROVIDERS: readonly string[] = Object.values(DbProviderType);
 const GRAPH_PROVIDERS: readonly string[] = Object.values(GraphProviderType);
 const INGESTION_STRATEGIES: readonly string[] = Object.values(IngestionStrategyType);
+const QUEUE_PROVIDERS: readonly string[] = Object.values(QueueProviderType);
 
 function parseBoolean(raw: string, key: string): boolean {
   if (raw === "true") {
@@ -187,6 +188,17 @@ export const KEY_MAP: Record<string, KeyEntry> = {
         parseEnum(s, "ingestion-strategy", INGESTION_STRATEGIES) as IngestionStrategyType,
       ),
     toggleValues: [IngestionStrategyType.FlatFolder, IngestionStrategyType.ConceptGraph],
+  },
+  "queue-provider": {
+    configKey: Config.QueueProvider,
+    redact: false,
+    setter: (s) => setConfigValue(Config.QueueProvider, parseEnum(s, "queue-provider", QUEUE_PROVIDERS)),
+    toggleValues: [QueueProviderType.Bullmq, QueueProviderType.Honker],
+  },
+  "queue-db-path": {
+    configKey: Config.QueueDbPath,
+    redact: false,
+    setter: (s) => setConfigValue(Config.QueueDbPath, s),
   },
   "sqlite-path": {
     configKey: Config.SqlitePath,

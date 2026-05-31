@@ -28,9 +28,11 @@ indexing, configuration, server lifecycle, and inspection.
   coercion + Zod validation + atomic `tmp → fsync → rename`. Sole
   sanctioned write path per [docs/arch.md:140](../../docs/arch.md#L140).
 - `bytebell set` (no args) — Ink setup form. Walks Mongo / Neo4j /
-  Neo4j-user / Neo4j-password / Redis / Port with field-level format
-  validation. On submit, applies all six values atomically through the
-  same `setConfigValue` path. Esc cancels.
+  Neo4j-user / Neo4j-password / Redis / Port / GitHub-concurrency text
+  fields with field-level format validation, then the provider toggles
+  (Graph provider `neo4j|ladybug`, Doc store `mongo|sqlite`, Queue
+  `bullmq|honker`). On submit, applies every value atomically through
+  the same `setConfigValue` path. Esc cancels.
 - `bytebell boot` — one-command bring-up. Refuses to proceed if
   `openrouter_api_key` or `openrouter_model` is blank (with the
   matching `bytebell set …` hint). Auto-fills blank infra config keys

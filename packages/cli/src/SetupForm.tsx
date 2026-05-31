@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { ReactElement } from "react";
 import { Box, Text, useApp, useInput } from "ink";
-import { Config, DbProviderType, GraphProviderType } from "@bb/types";
+import { Config, DbProviderType, GraphProviderType, QueueProviderType } from "@bb/types";
 import { getConfigValue } from "@bb/config";
 import { KEY_MAP } from "./keyMap.ts";
 import { Field } from "./Field.tsx";
@@ -16,10 +16,12 @@ interface Toggle {
 
 const GRAPH_OPTIONS: readonly [string, string] = [GraphProviderType.Neo4j, GraphProviderType.Ladybug];
 const DB_OPTIONS: readonly [string, string] = [DbProviderType.Mongo, DbProviderType.Sqlite];
+const QUEUE_OPTIONS: readonly [string, string] = [QueueProviderType.Bullmq, QueueProviderType.Honker];
 
 const TOGGLES: Toggle[] = [
   { id: "graph-provider", label: "Graph provider", cliKey: "graph-provider", options: GRAPH_OPTIONS },
   { id: "db-provider", label: "Doc store", cliKey: "db-provider", options: DB_OPTIONS },
+  { id: "queue-provider", label: "Queue", cliKey: "queue-provider", options: QUEUE_OPTIONS },
 ];
 
 function pickToggle(current: string, options: readonly [string, string]): string {
@@ -90,6 +92,7 @@ function loadInitial(): Record<string, string> {
     "concurrency-github": String(getConfigValue(Config.ConcurrencyGithub)),
     "graph-provider": pickToggle(getConfigValue(Config.GraphProvider), GRAPH_OPTIONS),
     "db-provider": pickToggle(getConfigValue(Config.DbProvider), DB_OPTIONS),
+    "queue-provider": pickToggle(getConfigValue(Config.QueueProvider), QUEUE_OPTIONS),
   };
 }
 

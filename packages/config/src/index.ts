@@ -1,4 +1,4 @@
-export { LOG_LEVELS, LLM_PROVIDERS, HINTS } from "./schema.ts";
+export { LOG_LEVELS, LLM_PROVIDERS, HINTS, requiredKeysFor } from "./schema.ts";
 export type { BytebellConfig, ConfigValue, ConfigValueMap, LogLevel, LlmProvider } from "./schema.ts";
 
 export { loadConfig, getConfigValue, isConfigComplete, seedConfig, __isSeeded, __resetSeedForTests } from "./loader.ts";

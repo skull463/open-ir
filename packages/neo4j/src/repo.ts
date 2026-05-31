@@ -24,6 +24,11 @@ export interface UpsertRepoNodeInput {
   summary: RepoSummaryPayload;
 }
 
+// Dual-writes :Knowledge (snake_case) alongside :Repo so the chat-mcp
+// list_knowledge reader (which queries (:Knowledge {org_id})) finds every
+// ingested repo. The :Knowledge node also carries the camelCase knowledgeId
+// property so a later upsertKnowledgeNode() call MERGEs into the same node
+// rather than creating a duplicate.
 // Dual-writes :Knowledge (snake_case) + :RepoSummary (snake_case) alongside
 // :Repo so the chat-mcp legacy-schema reader (which queries
 // (:Knowledge {org_id}) and (:Knowledge)-[:HAS_REPO_SUMMARY]->(:RepoSummary))

@@ -8,11 +8,27 @@
 
 - [Bun](https://bun.sh) ≥ 1.1 — runtime + workspace manager.
 - [Docker](https://www.docker.com/) — for the local Mongo + Neo4j + Redis stack `bytebell boot` brings up.
-- An [OpenRouter](https://openrouter.ai) API key — every per-file analysis call goes through OpenRouter.
+- An LLM backend — either an [OpenRouter](https://openrouter.ai) API key (default) or a local [Ollama](https://ollama.com) model. Every per-file analysis call goes through the one you pick.
 
 ### Install
 
-See [commands.md](commands.md) for install steps. Once installed, verify with `bytebell --help`.
+One command — checks prerequisites, clones the repo, installs dependencies, and links the `bytebell` binary:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ByteBell/open-ir/main/install.sh | bash
+```
+
+Verify with `bytebell --help`. (Manual install steps are in [commands.md](commands.md).)
+
+### Fastest path: `bytebell setup`
+
+```bash
+bytebell setup
+```
+
+One interactive command does everything the manual steps below automate: picks your LLM provider, auto-fills and boots the local stack, optionally indexes a repo (handling private-repo tokens and branch selection), and **auto-wires the MCP endpoint into your editor**. See [SETUP.md](SETUP.md) for the full walkthrough.
+
+The sections below are the manual, step-by-step equivalent — useful if you want to configure each piece yourself or bring your own infrastructure.
 
 ### Configure
 
@@ -55,12 +71,15 @@ When the row reads `PROCESSED`, the graph is fully populated and the MCP tools w
 
 ### Connect an MCP client
 
-| Client         | Setup                                                                |
-| -------------- | -------------------------------------------------------------------- |
-| Claude Code    | `claude mcp add --transport http bytebell http://127.0.0.1:8080/mcp` |
-| Claude Desktop | Add the JSON snippet below to your MCP config file                   |
-| Cursor         | Same JSON snippet in `~/.cursor/mcp.json`                            |
-| Continue       | Same JSON snippet in `~/.continue/config.json`                       |
+Easiest: **`bytebell mcp install`** auto-detects your installed tools — Claude Code, Cursor, Claude Desktop, Windsurf, VS Code — and writes the correct MCP entry into each one's config (the JSON shape differs per tool; the command handles that and backs up the file first). `bytebell setup` runs this for you on first boot.
+
+To wire Claude Code by hand:
+
+```bash
+claude mcp add --transport http bytebell http://127.0.0.1:8080/mcp
+```
+
+Or add this under the `mcpServers` key of Claude Desktop's config (or Cursor's `~/.cursor/mcp.json`):
 
 ```json
 {
@@ -176,8 +195,10 @@ Most well-formed code questions resolve in 2–4 tool calls. No re-clone, no ful
 
 | Command                                                       | Purpose                                                                            |
 | ------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `bytebell setup`                                              | Interactive first-run wizard: provider, boot, optional index, MCP auto-install.    |
 | `bytebell ls`                                                 | List indexed knowledge entries with state.                                         |
 | `bytebell stats`                                              | Ingestion totals, per-repo breakdown, per-commit token usage.                      |
+| `bytebell mcp install`                                        | Auto-detect installed editors and register the MCP endpoint in their config.       |
 | `bytebell mcp stats`                                          | MCP usage: input/output tokens, monthly breakdown.                                 |
 | `bytebell pull`                                               | Re-index a previously-added GitHub repo at branch HEAD (diff-aware).               |
 | `bytebell delete`                                             | Picker; cancels jobs, drops the Knowledge subgraph from Neo4j, removes Mongo rows. |

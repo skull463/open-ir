@@ -1,7 +1,8 @@
 import { Command } from "commander";
 import { Config } from "@bb/types";
 import { getConfigValue } from "@bb/config";
-import { ensureServerRunning, ServerStartTimeoutError } from "./serverSpawn.ts";
+import { ensureServerRunning } from "./serverSpawn.ts";
+import { ServerStartTimeoutError } from "@bb/errors";
 import { getJson, HttpClientError } from "./httpClient.ts";
 import { createSpinner, error } from "./output.ts";
 import { promptLsInteractive } from "./lsInteractivePrompt.ts";

@@ -6,7 +6,7 @@ import React from "react";
 import { render } from "ink";
 import { Config, DbProviderType, GraphProviderType } from "@bb/types";
 import { HINTS, getBytebellHome, getConfigValue, isDevMode } from "@bb/config";
-import { applyInfraDefaults, checkPreflight } from "./bootConfig.ts";
+import { applyInfraDefaults, checkPreflight, runBootSequence} from "./bootConfig.ts";
 import { SetupForm } from "./SetupForm.tsx";
 import { ServerStartTimeoutError, ensureServerRunning } from "./serverSpawn.ts";
 import { createSpinner, error, info, success } from "./output.ts";
@@ -80,12 +80,6 @@ async function runBoot(): Promise<void> {
   }
   success(`redis  → ${upResult.services.redis}`);
 
-  if (!(await startServer())) {
-    return;
-  }
-
-  const port = getConfigValue(Config.ServerPort);
-  success(`MCP endpoint: http://127.0.0.1:${port}/mcp`);
   process.stdout.write("\nNext: bytebell index <git-url>  or  bytebell ingest [path]\n");
 }
 

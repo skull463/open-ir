@@ -58,7 +58,7 @@ async function runSet(key?: string, value?: string): Promise<void> {
 
   try {
     mappedKey.setter(value);
-    success(`Set ${key} to ${value}`);
+    success(`Set ${key} to ${mappedKey.redact ? "<redacted>" : value}`);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     error(`Failed to set ${key}: ${message}`);

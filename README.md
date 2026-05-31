@@ -16,12 +16,14 @@ See [commands.md](commands.md) for install steps. Once installed, verify with `b
 
 ### Configure
 
-Two values to set yourself — everything else is auto-provisioned on first boot:
+Two values Bytebell needs — your OpenRouter API key and model. Set them headlessly:
 
 ```bash
 bytebell set openrouter-api-key sk-or-…
 bytebell set openrouter-model anthropic/claude-sonnet-4.6
 ```
+
+Or skip this step and run `bytebell boot` straight away — on an interactive terminal it opens a setup form to collect these on first run. Running `bytebell set` with no arguments opens the same form at any time.
 
 There is no `.env` file anywhere. `~/.bytebell/config.json` (mode `0600`) is the single source of truth, and `bytebell set` is the only sanctioned way to write to it. If you already run Mongo / Neo4j / Redis and don't want the Docker stack, see [Bring your own infrastructure](#bring-your-own-infrastructure) below.
 
@@ -33,7 +35,7 @@ bytebell boot
 
 What happens, in order:
 
-1. **Pre-flight check** — refuses to start if either OpenRouter key is blank.
+1. **Pre-flight check** — verifies both OpenRouter keys are set. If either is blank and you're in an interactive terminal, Bytebell opens a setup form so you can enter them on the spot, then continues. In a non-interactive context (CI, piped input) it prints the exact `bytebell set …` commands and exits.
 2. **Auto-fill** — fills any missing infra config keys with local-Docker defaults; generates a Neo4j password if one isn't set.
 3. **Stack up** — `docker compose up -d` brings up `bytebell-mongo`, `bytebell-neo4j`, `bytebell-redis` (named volumes — data persists across reboots).
 4. **Health gate** — polls `docker compose ps` until all three services report `healthy`.
@@ -223,7 +225,7 @@ Settings live in `~/.bytebell/config.json` and are written exclusively by `byteb
 | `log-level`          | Winston log level                        | `info`                               |
 | `log-retention-days` | Daily log retention                      | `14`                                 |
 
-If a piece of infra is missing, the server prints the exact `bytebell set …` command you need and refuses to boot — it never silently reads `process.env`.
+If a required setting is missing, Bytebell either opens the setup form (interactive terminal) or prints the exact `bytebell set …` command and refuses to boot (non-interactive). It never silently reads `process.env`.
 
 ## Why this design — research grounding
 

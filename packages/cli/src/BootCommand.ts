@@ -2,9 +2,12 @@
 import path from "node:path";
 import { homedir } from "node:os";
 import { Command } from "commander";
+import React from "react";
+import { render } from "ink";
 import { Config, DbProviderType, GraphProviderType } from "@bb/types";
 import { HINTS, getBytebellHome, getConfigValue, isDevMode } from "@bb/config";
 import { applyInfraDefaults, checkPreflight } from "./bootConfig.ts";
+import { SetupForm } from "./SetupForm.tsx";
 import { ServerStartTimeoutError, ensureServerRunning } from "./serverSpawn.ts";
 import { createSpinner, error, info, success } from "./output.ts";
 import { bringInfraUp, usingHonker } from "./bootInfra.ts";
@@ -30,7 +33,7 @@ function expandTilde(p: string): string {
 }
 
 async function runBoot(): Promise<void> {
-  if (!enforcePreflight()) {
+  if (!(await ensurePreflight())) {
     process.exitCode = 1;
     return;
   }
@@ -113,13 +116,38 @@ async function startServer(): Promise<boolean> {
   }
 }
 
-function enforcePreflight(): boolean {
-  const result = checkPreflight();
-  if (result.ok) {
+async function ensurePreflight(): Promise<boolean> {
+  const initial = checkPreflight();
+  if (initial.ok) {
     return true;
   }
-  for (const entry of result.missing) {
+  if (process.stdin.isTTY !== true || process.stdout.isTTY !== true) {
+    reportMissing(initial.missing);
+    return false;
+  }
+  info("Bytebell needs a few settings before first boot — opening setup form…");
+  const saved = await renderSetupForm();
+  if (!saved) {
+    return false;
+  }
+  const after = checkPreflight();
+  if (after.ok) {
+    return true;
+  }
+  reportMissing(after.missing);
+  return false;
+}
+
+function reportMissing(missing: ReturnType<typeof checkPreflight>["missing"]): void {
+  for (const entry of missing) {
     error(`${entry.hintKey} is not set`, HINTS[entry.configKey]);
   }
-  return false;
+}
+
+async function renderSetupForm(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const onDone = (result: { saved: boolean }): void => resolve(result.saved);
+    const { waitUntilExit } = render(React.createElement(SetupForm, { onDone }));
+    waitUntilExit().catch(() => resolve(false));
+  });
 }

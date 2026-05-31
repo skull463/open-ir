@@ -79,6 +79,19 @@ const ROWS: Row[] = [
     cliKey: "concurrency.github",
     validate: (s) => (/^\d+$/u.test(s) && Number(s) > 0 ? null : "expected positive integer"),
   },
+  {
+    id: "openrouter-api-key",
+    label: "OpenRouter API key",
+    cliKey: "openrouter-api-key",
+    mask: true,
+    validate: (s) => (s.length > 0 ? null : "required — get one at openrouter.ai/keys"),
+  },
+  {
+    id: "openrouter-model",
+    label: "OpenRouter model",
+    cliKey: "openrouter-model",
+    validate: (s) => (s.length > 0 ? null : "required — e.g. deepseek/deepseek-v4-flash"),
+  },
 ];
 
 function loadInitial(): Record<string, string> {
@@ -90,6 +103,8 @@ function loadInitial(): Record<string, string> {
     redis: getConfigValue(Config.RedisUrl),
     port: String(getConfigValue(Config.ServerPort)),
     "concurrency-github": String(getConfigValue(Config.ConcurrencyGithub)),
+    "openrouter-api-key": getConfigValue(Config.OpenrouterApiKey),
+    "openrouter-model": getConfigValue(Config.OpenrouterModel),
     "graph-provider": pickToggle(getConfigValue(Config.GraphProvider), GRAPH_OPTIONS),
     "db-provider": pickToggle(getConfigValue(Config.DbProvider), DB_OPTIONS),
     "queue-provider": pickToggle(getConfigValue(Config.QueueProvider), QUEUE_OPTIONS),

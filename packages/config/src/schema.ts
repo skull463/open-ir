@@ -61,6 +61,7 @@ export const configSchema = z
     queue_provider: z.string().default("bullmq"),
     queue_db_path: z.string().default(""),
     sqlite_path: z.string().default(""),
+    ladybug_path: z.string().default(""),
     "ingestion.strategy": z.enum(INGESTION_STRATEGIES).default("flat-folder"),
     "enrichment.model": z.string().default(""),
     "enrichment.max.tool.calls.per.file": z.number().int().positive().default(15),
@@ -117,6 +118,7 @@ export type ConfigValueMap = {
   [Config.QueueProvider]: string;
   [Config.QueueDbPath]: string;
   [Config.SqlitePath]: string;
+  [Config.LadybugPath]: string;
   [Config.IngestionStrategy]: IngestionStrategy;
   [Config.EnrichmentModel]: string;
   [Config.EnrichmentMaxToolCallsPerFile]: number;
@@ -187,6 +189,7 @@ export const HINTS: Readonly<Record<Config, string>> = {
   [Config.QueueProvider]: "bytebell set queue-provider <bullmq|honker>",
   [Config.QueueDbPath]: "bytebell set queue-db-path <path>",
   [Config.SqlitePath]: "bytebell set sqlite-path <path>",
+  [Config.LadybugPath]: "bytebell set ladybug-path <path>",
   [Config.IngestionStrategy]: "bytebell set ingestion.strategy <flat-folder|concept-graph>",
   [Config.EnrichmentModel]: "bytebell set enrichment.model <model-id>",
   [Config.EnrichmentMaxToolCallsPerFile]: "bytebell set enrichment.max.tool.calls.per.file <n>",

@@ -1,8 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { runCypher, toNeo4jInt } from "@bb/graph-db";
+import { searchGraph } from "@bb/graph-db";
+import type { KeywordLookupRow } from "@bb/graph-core";
 import { UsageTracker } from "@bb/llm";
-import { buildFulltextQuery, escapeLucene } from "./smartSearchChannels.ts";
 
 const MATCH_MODES = ["keyword", "class", "function", "module"] as const;
 type MatchMode = (typeof MATCH_MODES)[number];
@@ -92,15 +92,6 @@ export interface KeywordLookupResult {
   };
 }
 
-interface RowShape {
-  name: string;
-  path: string | null;
-  purpose: string | null;
-  summary: string | null;
-  repoName: string | null;
-  knowledgeId: string | null;
-}
-
 export function registerKeywordLookupTool(server: McpServer): void {
   server.registerTool("keyword_lookup", { description, inputSchema: schema }, async (args: KeywordLookupInput) => {
     const startTime = Date.now();
@@ -126,7 +117,7 @@ export async function runKeywordLookup(args: KeywordLookupInput): Promise<Keywor
   const filesPerKeyword = args.filesPerKeyword ?? DEFAULT_FILES_PER_KEYWORD;
   const page = args.page ?? 1;
 
-  const rows = await runMatchQuery({
+  const rows = await searchGraph.keywordLookup({
     match,
     term: args.term,
     knowledgeId: args.knowledgeId ?? null,
@@ -157,87 +148,7 @@ export async function runKeywordLookup(args: KeywordLookupInput): Promise<Keywor
   };
 }
 
-interface MatchQueryArgs {
-  match: MatchMode;
-  term: string;
-  knowledgeId: string | null;
-  knowledgeIds: string[] | null;
-  keywordLimit: number;
-  filesPerKeyword: number;
-}
-
-async function runMatchQuery(args: MatchQueryArgs): Promise<RowShape[]> {
-  const lower = args.term.toLowerCase();
-  const cypher = cypherForMatch(args.match);
-  const params: Record<string, unknown> = {
-    knowledgeId: args.knowledgeId,
-    knowledgeIds: args.knowledgeIds,
-    keywordLimit: toNeo4jInt(args.keywordLimit),
-    filesPerKeyword: toNeo4jInt(args.filesPerKeyword),
-  };
-  if (args.match === "module") {
-    params["term"] = lower;
-  } else {
-    params["fulltextQuery"] = buildFulltextQuery([escapeLucene(lower)]);
-  }
-  return (await runCypher(cypher, params)) as RowShape[];
-}
-
-function cypherForMatch(match: MatchMode): string {
-  if (match === "keyword") {
-    return `
-      CALL db.index.fulltext.queryNodes('idx_keyword_name_ft', $fulltextQuery) YIELD node AS kw, score
-      WITH kw, score ORDER BY score DESC LIMIT $keywordLimit
-      MATCH (f:File)-[:HAS_KEYWORD]->(kw)
-      WHERE ($knowledgeId IS NULL OR f.knowledgeId = $knowledgeId)
-        AND ($knowledgeIds IS NULL OR f.knowledgeId IN $knowledgeIds)
-      MATCH (k:Knowledge {knowledgeId: f.knowledgeId})
-      WITH kw, f, k LIMIT $keywordLimit * $filesPerKeyword
-      RETURN kw.name AS name,
-             f.relativePath AS path,
-             f.purpose AS purpose,
-             f.summary AS summary,
-             k.repoName AS repoName,
-             f.knowledgeId AS knowledgeId
-    `;
-  }
-  if (match === "module") {
-    return `
-      MATCH (m:Module) WHERE toLower(m.name) CONTAINS $term
-      WITH m ORDER BY m.name LIMIT $keywordLimit
-      MATCH (f:File)-[:HAS_IMPORT_INTERNAL|HAS_IMPORT_EXTERNAL]->(m)
-      WHERE ($knowledgeId IS NULL OR f.knowledgeId = $knowledgeId)
-        AND ($knowledgeIds IS NULL OR f.knowledgeId IN $knowledgeIds)
-      MATCH (k:Knowledge {knowledgeId: f.knowledgeId})
-      WITH m, f, k LIMIT $keywordLimit * $filesPerKeyword
-      RETURN m.name AS name,
-             f.relativePath AS path,
-             f.purpose AS purpose,
-             f.summary AS summary,
-             k.repoName AS repoName,
-             f.knowledgeId AS knowledgeId
-    `;
-  }
-  const label = match === "class" ? "Class" : "Function";
-  const rel = match === "class" ? "HAS_CLASS" : "HAS_FUNCTION";
-  return `
-    CALL db.index.fulltext.queryNodes('idx_symbol_signature_ft', $fulltextQuery) YIELD node AS sym, score
-    WHERE '${label}' IN labels(sym)
-    WITH sym, score ORDER BY score DESC LIMIT $keywordLimit
-    MATCH (f:File)-[:${rel}]->(sym)
-    WHERE ($knowledgeId IS NULL OR f.knowledgeId = $knowledgeId)
-    MATCH (k:Knowledge {knowledgeId: f.knowledgeId})
-    WITH sym, f, k LIMIT $keywordLimit * $filesPerKeyword
-    RETURN sym.signature AS name,
-           f.relativePath AS path,
-           f.purpose AS purpose,
-           f.summary AS summary,
-           k.repoName AS repoName,
-           f.knowledgeId AS knowledgeId
-  `;
-}
-
-function groupByName(rows: RowShape[], filesPerKeyword: number): MatchedEntity[] {
+function groupByName(rows: KeywordLookupRow[], filesPerKeyword: number): MatchedEntity[] {
   const buckets = new Map<string, MatchedEntity>();
   for (const row of rows) {
     const name = row.name;

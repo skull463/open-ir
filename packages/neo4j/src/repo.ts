@@ -1,4 +1,5 @@
 import { _runCypher } from "./client.ts";
+import { repoNameFromGithubUrl } from "./knowledge.ts";
 
 export interface NodeScope {
   orgId: string;
@@ -23,7 +24,22 @@ export interface UpsertRepoNodeInput {
   summary: RepoSummaryPayload;
 }
 
+// Dual-writes :Knowledge (snake_case) + :RepoSummary (snake_case) alongside
+// :Repo so the chat-mcp legacy-schema reader (which queries
+// (:Knowledge {org_id}) and (:Knowledge)-[:HAS_REPO_SUMMARY]->(:RepoSummary))
+// finds every ingested repo. The :Knowledge node carries both knowledge_id
+// (snake) and knowledgeId (camel) on the same node so a later
+// upsertKnowledgeNode() call MERGEs into it rather than creating a duplicate.
 const UPSERT_REPO = `
+MERGE (k:Knowledge {knowledge_id: $knowledgeId})
+ON CREATE SET k.created_at = $updatedAt
+SET k.org_id = $orgId,
+    k.knowledgeId = $knowledgeId,
+    k.repository_name = $repoName,
+    k.repo_name = $repoName,
+    k.display_name = $repoName,
+    k.branch_name = $branch,
+    k.updated_at = $updatedAt
 MERGE (r:Repo {orgId: $orgId, knowledgeId: $knowledgeId, repoId: $repoId})
 SET r.repoUrl = $repoUrl,
     r.branch = $branch,
@@ -34,9 +50,20 @@ SET r.repoUrl = $repoUrl,
     r.majorSubsystems = $majorSubsystems,
     r.keyPatterns = $keyPatterns,
     r.updatedAt = $updatedAt
-WITH r
-MATCH (k:Knowledge {knowledgeId: $knowledgeId})
 MERGE (k)-[:HAS_REPO]->(r)
+MERGE (rs:RepoSummary {knowledge_id: $knowledgeId, org_id: $orgId, branch_name: $branch})
+ON CREATE SET rs.generated_at = $updatedAt
+SET rs.repo_name = $repoName,
+    rs.commit_hash = '',
+    rs.architecture = $architecture,
+    rs.data_flow = $dataFlow,
+    rs.key_patterns = $keyPatterns,
+    rs.major_subsystems = $majorSubsystems,
+    rs.purpose = $purpose,
+    rs.summary = $summary,
+    rs.tree = '',
+    rs.updated_at = $updatedAt
+MERGE (k)-[:HAS_REPO_SUMMARY]->(rs)
 `;
 
 const CLEAR_REPO_KEYWORDS = `
@@ -58,6 +85,7 @@ export async function upsertRepoNode(input: UpsertRepoNodeInput): Promise<void> 
     knowledgeId: scope.knowledgeId,
     repoId: scope.repoId,
     repoUrl: input.repoUrl,
+    repoName: repoNameFromGithubUrl(input.repoUrl),
     branch: input.branch,
     purpose: input.summary.purpose,
     summary: input.summary.summary,

@@ -40,6 +40,7 @@ export enum Config {
   QueueProvider = "queue_provider",
   QueueDbPath = "queue_db_path",
   SqlitePath = "sqlite_path",
+  LadybugPath = "ladybug_path",
   IngestionStrategy = "ingestion.strategy",
   EnrichmentModel = "enrichment.model",
   EnrichmentMaxToolCallsPerFile = "enrichment.max.tool.calls.per.file",

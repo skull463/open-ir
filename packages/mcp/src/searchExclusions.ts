@@ -47,8 +47,3 @@ export function buildExclusionParams(categories: readonly ExclusionCategory[]): 
   }
   return { suffixes: Array.from(suffixes), contains: Array.from(contains) };
 }
-
-export const EXCLUSION_WHERE = `
-  AND NOT ANY(suffix IN $excludeSuffixes WHERE f.relativePath ENDS WITH suffix)
-  AND NOT ANY(fragment IN $excludeContains WHERE f.relativePath CONTAINS fragment)
-`;

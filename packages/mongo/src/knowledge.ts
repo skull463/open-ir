@@ -123,13 +123,20 @@ export async function updateKnowledgeProgress(
   knowledgeId: string,
   processedFiles: number,
   totalFiles?: number,
+  extra?: { progressPercent?: number; currentPhase?: string },
 ): Promise<void> {
-  const update: Record<string, number | Date> = {
+  const update: Record<string, number | string | Date> = {
     "status.processedFiles": processedFiles,
     updatedAt: new Date(),
   };
   if (totalFiles !== undefined) {
     update["status.totalFiles"] = totalFiles;
+  }
+  if (extra?.progressPercent !== undefined) {
+    update["status.progressPercent"] = extra.progressPercent;
+  }
+  if (extra?.currentPhase !== undefined) {
+    update["status.currentPhase"] = extra.currentPhase;
   }
   const result = await _getDb().collection(Collections.Knowledge).updateOne({ knowledgeId }, { $set: update });
   if (result.matchedCount === 0) {

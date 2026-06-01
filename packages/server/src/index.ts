@@ -2,7 +2,7 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import express from "express";
-import { Config, DbProviderType, QueueProviderType, type Config as ConfigEnum } from "@bb/types";
+import { Config, DbProviderType, GraphProviderType, QueueProviderType, type Config as ConfigEnum } from "@bb/types";
 import { getBytebellHome, getConfigValue, HINTS } from "@bb/config";
 import { connectDb } from "@bb/db";
 import { connectGraph, indexesGraph } from "@bb/graph-db";
@@ -32,20 +32,28 @@ function checkRequiredConfig(): void {
   const missing: string[] = [];
   const hints: string[] = [];
   const dbProvider = getConfigValue(Config.DbProvider);
+  const graphProvider = getConfigValue(Config.GraphProvider);
   const queueProvider = getConfigValue(Config.QueueProvider);
 
   const required = [...REQUIRED];
-  if (dbProvider !== DbProviderType.Mongo) {
-    const idx = required.indexOf(Config.MongoUri);
+  const remove = (key: ConfigEnum): void => {
+    const idx = required.indexOf(key);
     if (idx !== -1) {
       required.splice(idx, 1);
     }
+  };
+
+  if (dbProvider !== DbProviderType.Mongo) {
+    remove(Config.MongoUri);
+  }
+  if (graphProvider !== GraphProviderType.Neo4j) {
+    // Embedded graph (ladybug) needs no Neo4j connection details.
+    remove(Config.Neo4jUri);
+    remove(Config.Neo4jUser);
+    remove(Config.Neo4jPassword);
   }
   if (queueProvider !== QueueProviderType.Bullmq) {
-    const idx = required.indexOf(Config.RedisUrl);
-    if (idx !== -1) {
-      required.splice(idx, 1);
-    }
+    remove(Config.RedisUrl);
   }
 
   for (const key of required) {

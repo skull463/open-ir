@@ -64,6 +64,13 @@ export interface GithubPullPayload extends PayloadLlmOverrides {
    * `source.commitId`.
    */
   previousCommit?: string;
+  /**
+   * Optional repo URL / branch pass-through for provider wrappers whose injected
+   * `pullFactory` re-reads the payload to resolve the clone target (e.g. GitLab).
+   * GitHub's runPull ignores these and reads `kDoc.info.repoUrl` / `kDoc.info.branch`.
+   */
+  repoUrl?: string;
+  branch?: string;
   gitToken?: string;
 }
 

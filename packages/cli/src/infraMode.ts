@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only WITH non-commercial-clause
+import path from "node:path";
 import { Config, DbProviderType, GraphProviderType, QueueProviderType } from "@bb/types";
-import { getConfigValue, setConfigValue } from "@bb/config";
+import { getBytebellHome, getConfigValue, setConfigValue } from "@bb/config";
 
 /**
  * Infrastructure mode is not a stored flag — it's derived from the three
@@ -63,10 +64,31 @@ export function isEmbedded(): boolean {
   return !needsDocker();
 }
 
+/**
+ * Embedded-mode store paths, derived from the bytebell home so the user never
+ * has to set them by hand. Filled on entering embedded mode; an existing
+ * non-empty value (an explicit override) is left untouched.
+ */
+const EMBEDDED_PATH_DEFAULTS: ReadonlyArray<readonly [Config, string]> = [
+  [Config.SqlitePath, "data.sqlite"],
+  [Config.LadybugPath, "ladybug.lbug"],
+  [Config.QueueDbPath, "queue.db"],
+];
+
 /** Apply one of the two presets to the three provider config keys. */
 export function applyInfraMode(mode: InfraMode): void {
   const triple = mode === "embedded" ? EMBEDDED_PROVIDERS : DOCKER_PROVIDERS;
   setConfigValue(Config.DbProvider, triple.db);
   setConfigValue(Config.GraphProvider, triple.graph);
   setConfigValue(Config.QueueProvider, triple.queue);
+  if (mode !== "embedded") {
+    return;
+  }
+  const home = getBytebellHome();
+  for (const [key, filename] of EMBEDDED_PATH_DEFAULTS) {
+    const current = getConfigValue(key);
+    if (typeof current === "string" && current.length === 0) {
+      setConfigValue(key, path.join(home, filename));
+    }
+  }
 }

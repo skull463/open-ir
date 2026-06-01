@@ -56,6 +56,19 @@ function checkRequiredConfig(): void {
     remove(Config.RedisUrl);
   }
 
+  // Embedded mode keeps its stores on disk — refuse to boot if any path the
+  // active embedded provider depends on is unset, instead of failing later
+  // with a cryptic file lock / IO error.
+  if (dbProvider === DbProviderType.Sqlite) {
+    required.push(Config.SqlitePath);
+  }
+  if (graphProvider === GraphProviderType.Ladybug) {
+    required.push(Config.LadybugPath);
+  }
+  if (queueProvider === QueueProviderType.Honker) {
+    required.push(Config.QueueDbPath);
+  }
+
   for (const key of required) {
     const value = getConfigValue(key);
     if (typeof value === "string" && value.length === 0) {

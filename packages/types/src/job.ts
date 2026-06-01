@@ -57,6 +57,13 @@ export interface GithubPullPayload extends PayloadLlmOverrides {
    * the same diff machinery. See `docs/pull-plan.md`.
    */
   targetCommitHash?: string;
+  /**
+   * Optional previously-indexed commit, supplied by provider wrappers (e.g. GitLab)
+   * whose source kind stores its head outside `source.commitId`. When set, runPull
+   * uses it as the current commit; GitHub leaves it unset and falls back to
+   * `source.commitId`.
+   */
+  previousCommit?: string;
   gitToken?: string;
 }
 

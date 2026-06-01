@@ -1,5 +1,11 @@
-import { Config, KnowledgeState, type GithubPullPayload, type JobMessage, type UsageGuard } from "@bb/types";
-import type { NodeScope } from "@bb/types";
+import {
+  Config,
+  KnowledgeState,
+  type GithubPullPayload,
+  type JobMessage,
+  type UsageGuard,
+  type NodeScope,
+} from "@bb/types";
 import { getConfigValue } from "@bb/config";
 import { withConcurrency } from "./concurrency.ts";
 import { knowledgeDb } from "@bb/db";
@@ -55,10 +61,17 @@ export async function runPull(
   if (kDoc === null) {
     throw new KnowledgeNotFoundError(knowledgeId);
   }
-  if (kDoc.source.kind !== "github") {
+  // When a `pullFactory` is injected the caller owns provider resolution (mirrors
+  // how an injected `SourceFactory` signals provider-handled ingest), so skip the
+  // GitHub-only assertion. OSS standalone passes no factory → guard stays enforced.
+  if (pullFactory === undefined && kDoc.source.kind !== "github") {
     throw new IngestError(knowledgeId, `pull is only supported for github knowledge (kind=${kDoc.source.kind})`);
   }
-  const currentCommit = kDoc.source.commitId ?? "";
+  // Provider wrappers (e.g. GitLab) forward the prior commit via the payload since
+  // their source kind may store it outside `source.commitId`. Prefer that; fall back
+  // to `source.commitId` for GitHub.
+  const currentCommit =
+    msg.payload.previousCommit ?? (kDoc.source.kind === "github" ? (kDoc.source.commitId ?? "") : "");
   if (currentCommit.length === 0) {
     throw new IngestError(
       knowledgeId,
@@ -79,7 +92,6 @@ export async function runPull(
 
   try {
     throwIfCancelled(knowledgeId);
-
     // Parse owner/repo up front — the resolver needs them to build the
     // commit-scoped path under the new layout.
     const parsed = parseGithubRepo(repoUrl);
@@ -87,7 +99,6 @@ export async function runPull(
       throw new IngestError(knowledgeId, `could not parse owner/repo from repoUrl=${repoUrl}`);
     }
     const orgId = resolveOrgId({});
-
     // Resolves target SHA via GitHub REST (or operator-supplied), clones into
     // the commit-scoped `repository/` dir, computes the diff. See
     // `pull-source-resolver.ts` for the dance.
@@ -109,6 +120,22 @@ export async function runPull(
       return emptyPullSummary(resolution.targetCommit);
     }
     const { source, diff, targetCommit, location, archiveSink } = resolution;
+    // Copy-forward the raw-file snapshot: seed the target commit's archive folder
+    // from the parent so it is a complete tree before changed files are pushed
+    // over it, then drop deleted / renamed-away paths. No-ops for sinks that are
+    // not commit-namespaced; failures are non-fatal (matches the archive contract).
+    if (archiveSink !== undefined) {
+      try {
+        await archiveSink.forkFrom?.(currentCommit);
+        for (const removed of [...diff.deleted, ...diff.renamed.map((r) => r.oldPath)]) {
+          await archiveSink.remove?.(removed);
+        }
+      } catch (cause: unknown) {
+        logger.warn(
+          `pull: archive copy-forward ${currentCommit.slice(0, 12)} -> ${targetCommit.slice(0, 12)} failed (non-fatal): ${cause instanceof Error ? cause.message : String(cause)}`,
+        );
+      }
+    }
 
     throwIfCancelled(knowledgeId);
     await filesGraph.snapshotFilesToVersion({ knowledgeId, commitHash: currentCommit }).catch((cause: unknown) => {

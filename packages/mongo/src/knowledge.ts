@@ -153,6 +153,13 @@ export async function upsertKnowledge(doc: Omit<KnowledgeDoc, "updatedAt"> & { u
       {
         $set: {
           source: doc.source,
+          // `info` carries repoUrl/branch (set at index time). It MUST be
+          // persisted — `GET /api/v1/repos` derives `source.repoUrl` from
+          // `info.repoUrl`, and the CLI groups the `ls` view by it. Omitting it
+          // here (as before) left Mongo entries with no repoUrl, so `ls` rendered
+          // the group label as "undefined". The SQLite provider never had this
+          // bug because it stores the whole doc as JSON.
+          info: doc.info,
           status: doc.status,
           updatedAt: doc.updatedAt ?? now,
         },

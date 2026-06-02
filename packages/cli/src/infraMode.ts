@@ -111,10 +111,10 @@ const EMBEDDED_PATH_DEFAULTS: ReadonlyArray<readonly [Config, string]> = [
 
 /** Apply one of the two presets to the three provider config keys. */
 export function applyInfraMode(mode: InfraMode): void {
-  const triple = mode === "embedded" ? EMBEDDED_PROVIDERS : DOCKER_PROVIDERS;
-  setConfigValue(Config.DbProvider, triple.db);
-  setConfigValue(Config.GraphProvider, triple.graph);
-  setConfigValue(Config.QueueProvider, triple.queue);
+  const providers = mode === "embedded" ? EMBEDDED_PROVIDERS : DOCKER_PROVIDERS;
+  setConfigValue(Config.DbProvider, providers.db);
+  setConfigValue(Config.GraphProvider, providers.graph);
+  setConfigValue(Config.QueueProvider, providers.queue);
   if (mode !== "embedded") {
     return;
   }

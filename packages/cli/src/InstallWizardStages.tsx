@@ -3,20 +3,7 @@ import type { ReactElement } from "react";
 import { Box, Text, useInput } from "ink";
 import { Field } from "./Field.tsx";
 import type { LlmProviderChoice } from "./InstallWizard.tsx";
-import type { InfraMode } from "./infraMode.ts";
-
-const INFRA_OPTIONS: { value: InfraMode; label: string; hint: string }[] = [
-  {
-    value: "embedded",
-    label: "Embedded (recommended)",
-    hint: "SQLite + Ladybug + Honker — no Docker, everything in local files under ~/.bytebell",
-  },
-  {
-    value: "docker",
-    label: "Docker",
-    hint: "Mongo + Neo4j + Redis — Docker needed (Docker Desktop/engine must be running)",
-  },
-];
+import { INFRA_MODE_OPTIONS as INFRA_OPTIONS, type InfraMode } from "./infraMode.ts";
 
 export interface InfraStageProps {
   mode: InfraMode;

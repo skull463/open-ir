@@ -4,7 +4,7 @@ import { Box, Text, useApp, useInput } from "ink";
 import { Config } from "@bb/types";
 import { getConfigValue } from "@bb/config";
 import { KEY_MAP } from "./keyMap.ts";
-import { applyInfraMode, isEmbedded, type InfraMode } from "./infraMode.ts";
+import { applyInfraMode, infraModeOption, isEmbedded, type InfraMode } from "./infraMode.ts";
 import { Field } from "./Field.tsx";
 import { ToggleField } from "./ToggleField.tsx";
 
@@ -158,12 +158,7 @@ export function SetupForm({ onDone }: SetupFormProps): ReactElement {
         onChange={(next) => setValues((prev) => ({ ...prev, "infra-mode": next }))}
       />
       <Box marginBottom={1}>
-        <Text dimColor>
-          {" "}
-          {isDocker
-            ? "docker needed — mongo + neo4j + redis containers"
-            : "embedded (recommended) — sqlite + ladybug + honker, no Docker"}
-        </Text>
+        <Text dimColor> {infraModeOption(isDocker ? "docker" : "embedded").hint}</Text>
       </Box>
       {visibleRows.map((row) => (
         <Field

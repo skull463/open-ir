@@ -16,6 +16,40 @@ import { getBytebellHome, getConfigValue, setConfigValue } from "@bb/config";
  */
 export type InfraMode = "docker" | "embedded";
 
+export interface InfraModeOption {
+  value: InfraMode;
+  label: string;
+  hint: string;
+}
+
+/**
+ * UI metadata for the two infra presets, recommended preset first. This is the
+ * single source for the labels/hints shown by the install wizard and the `set`
+ * setup form — keep mode descriptions here, not inlined per surface.
+ */
+export const INFRA_MODE_OPTIONS: readonly InfraModeOption[] = [
+  {
+    value: "embedded",
+    label: "Embedded (recommended)",
+    hint: "SQLite + Ladybug + Honker — no Docker, everything in local files under ~/.bytebell",
+  },
+  {
+    value: "docker",
+    label: "Docker",
+    hint: "Mongo + Neo4j + Redis — Docker needed (Docker Desktop/engine must be running)",
+  },
+];
+
+/** UI metadata for a single infra mode (falls back to the recommended preset). */
+export function infraModeOption(mode: InfraMode): InfraModeOption {
+  for (const option of INFRA_MODE_OPTIONS) {
+    if (option.value === mode) {
+      return option;
+    }
+  }
+  return INFRA_MODE_OPTIONS[0] ?? { value: "embedded", label: "Embedded", hint: "" };
+}
+
 interface ProviderTriple {
   db: DbProviderType;
   graph: GraphProviderType;

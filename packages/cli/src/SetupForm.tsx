@@ -162,7 +162,7 @@ export function SetupForm({ onDone }: SetupFormProps): ReactElement {
           {" "}
           {isDocker
             ? "docker needed — mongo + neo4j + redis containers"
-            : "embedded — sqlite + ladybug + honker, no Docker"}
+            : "embedded (recommended) — sqlite + ladybug + honker, no Docker"}
         </Text>
       </Box>
       {visibleRows.map((row) => (

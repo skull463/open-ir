@@ -7,11 +7,15 @@ import type { InfraMode } from "./infraMode.ts";
 
 const INFRA_OPTIONS: { value: InfraMode; label: string; hint: string }[] = [
   {
+    value: "embedded",
+    label: "Embedded (recommended)",
+    hint: "SQLite + Ladybug + Honker — no Docker, everything in local files under ~/.bytebell",
+  },
+  {
     value: "docker",
-    label: "Docker (recommended)",
+    label: "Docker",
     hint: "Mongo + Neo4j + Redis — Docker needed (Docker Desktop/engine must be running)",
   },
-  { value: "embedded", label: "Embedded", hint: "SQLite + Ladybug + Honker — no Docker, everything in local files" },
 ];
 
 export interface InfraStageProps {

@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only WITH non-commercial-clause
 import { randomBytes } from "node:crypto";
+import path from "node:path";
 import { Config, DbProviderType, GraphProviderType, QueueProviderType } from "@bb/types";
-import { getConfigValue, requiredKeysFor } from "@bb/config";
+import { getBytebellHome, getConfigValue, requiredKeysFor } from "@bb/config";
 import { bringInfraUp } from "./dockerBoot.ts";
 import { KEY_MAP } from "./keyMap.ts";
 import { success, error, info } from "./output.ts";
-import { startServer } from "./serverLifecycle.ts";
 import { isEmbedded } from "./infraMode.ts";
+import { startServer } from "./serverLifecycle.ts";
 
 const DEFAULT_MONGO_URI = "mongodb://127.0.0.1:27017/bytebell";
 const DEFAULT_NEO4J_URI = "bolt://127.0.0.1:7687";
@@ -44,6 +45,28 @@ const DEFAULTS: readonly DefaultEntry[] = [
     configKey: Config.Neo4jPassword,
     computeDefault: generateNeo4jPassword,
     needed: usingNeo4j,
+  },
+  // Embedded stores live under ~/.bytebell. These are auto-filled (and required
+  // by the server preflight) because the providers don't all default to a
+  // persistent path on their own — notably Ladybug treats an empty path as
+  // in-memory, which would silently lose the graph on restart.
+  {
+    cliKey: "sqlite-path",
+    configKey: Config.SqlitePath,
+    computeDefault: () => path.join(getBytebellHome(), "data.sqlite"),
+    needed: () => getConfigValue(Config.DbProvider) === DbProviderType.Sqlite,
+  },
+  {
+    cliKey: "ladybug-path",
+    configKey: Config.LadybugPath,
+    computeDefault: () => path.join(getBytebellHome(), "ladybug.lbug"),
+    needed: () => getConfigValue(Config.GraphProvider) === GraphProviderType.Ladybug,
+  },
+  {
+    cliKey: "queue-db-path",
+    configKey: Config.QueueDbPath,
+    computeDefault: () => path.join(getBytebellHome(), "queue.db"),
+    needed: () => getConfigValue(Config.QueueProvider) === QueueProviderType.Honker,
   },
 ];
 
@@ -109,7 +132,7 @@ export async function runBootSequence(): Promise<boolean> {
     if (entry.redacted) {
       success(`set ${entry.cliKey}=<redacted> (auto-generated)`);
     } else {
-      success(`set ${entry.cliKey} (auto-filled with local-docker default)`);
+      success(`set ${entry.cliKey} (auto-filled with default)`);
     }
   }
 

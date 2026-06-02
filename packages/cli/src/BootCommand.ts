@@ -47,7 +47,7 @@ async function runBoot(): Promise<void> {
     if (entry.redacted) {
       success(`set ${entry.cliKey}=<redacted> (auto-generated)`);
     } else {
-      success(`set ${entry.cliKey} (auto-filled with local-docker default)`);
+      success(`set ${entry.cliKey} (auto-filled with default)`);
     }
   }
 

@@ -25,8 +25,9 @@ indexing, configuration, server lifecycle, and inspection.
 
 - `bytebell setup` — interactive first-run wizard. Presents an Ink multi-stage
   form: (1) pick LLM provider (`openrouter` | `ollama`), (2) pick infrastructure
-  mode — **Docker** (non-embedded: mongo + neo4j + redis, default, labelled
-  "Docker needed") or **Embedded** (sqlite + ladybug + honker, no Docker),
+  mode — **Docker** (non-embedded: mongo + neo4j + redis, the default selection,
+  labelled "Docker needed") or **Embedded** (sqlite + ladybug + honker, no Docker,
+  labelled "recommended"),
   (3) enter credentials / model, (4) optionally supply a GitHub repo URL to index
   after boot, (5) confirm. The infra mode is a single selector that expands to the
   three `db/graph/queue` provider keys via `applyInfraMode()` (see `infraMode.ts`).
@@ -40,7 +41,8 @@ indexing, configuration, server lifecycle, and inspection.
   coercion + Zod validation + atomic `tmp → fsync → rename`. Sole
   sanctioned write path per [docs/arch.md:140](../../docs/arch.md#L140).
 - `bytebell set` (no args) — Ink setup form. Presents a single
-  **Infrastructure** toggle (`docker|embedded`, default `docker`). In
+  **Infrastructure** toggle (`docker|embedded`, default `docker`, embedded
+  labelled "recommended"). In
   Docker mode it walks Mongo / Neo4j / Neo4j-user / Neo4j-password /
   Redis text fields (with field-level format validation) plus Port /
   GitHub-concurrency / OpenRouter fields; in Embedded mode the
@@ -54,9 +56,12 @@ indexing, configuration, server lifecycle, and inspection.
   from the active provider combo (`needsDocker()` / `isEmbedded()` in
   `infraMode.ts`): **embedded** (sqlite + ladybug + honker) skips Docker
   entirely and goes straight to starting the server; **non-embedded**
-  brings Docker up. In Docker mode it auto-fills blank infra config keys
-  with local-docker defaults (only for the providers in use) and
-  generates a random Neo4j password if one isn't already set. Writes
+  brings Docker up. Either way it auto-fills blank infra
+  config keys (only for the providers in use): embedded fills the
+  `~/.bytebell` store paths (`sqlite-path` / `ladybug-path` /
+  `queue-db-path` — Ladybug in particular needs a real path or it runs
+  in-memory), Docker fills the mongo/neo4j/redis URIs and generates a
+  random Neo4j password if one isn't already set. In Docker mode it writes
   `infra/docker/.env` (Neo4j password + host ports derived from the
   configured URIs), runs `docker compose -f
 infra/docker/docker-compose.yml up -d` for **only the services the

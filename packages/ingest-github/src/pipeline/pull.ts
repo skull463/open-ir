@@ -12,9 +12,10 @@ import { knowledgeDb } from "@bb/db";
 import { knowledgeGraph, filesGraph } from "@bb/graph-db";
 import type { PipelineSummary } from "#src/types/pipeline.ts";
 import { resolveOrgId, llmCallContextFromPayload } from "./context.ts";
-import { IngestError, KnowledgeNotFoundError, UsageLimitExceededError } from "@bb/errors";
+import { IngestError, UsageLimitExceededError } from "@bb/errors";
 import { classifyFailure } from "./failure-classifier.ts";
 import { transitionState, emptyPullSummary } from "./pull-helpers.ts";
+import { preflightPull } from "./pull-preflight.ts";
 import { logger } from "@bb/logger";
 import { pathsFor } from "./paths.ts";
 import { parseGithubRepo } from "#src/githubUrl.ts";
@@ -41,8 +42,6 @@ import {
   buildFileAnalysisUserPrompt,
 } from "#src/strategies/flat-folder/prompts/file-analysis.ts";
 
-const COMMIT_HASH_RE = /^[0-9a-f]{40}$/u;
-
 export async function runPull(
   msg: JobMessage<GithubPullPayload>,
   pullFactory?: PullFactory,
@@ -50,41 +49,7 @@ export async function runPull(
   usageGuard?: UsageGuard,
 ): Promise<PipelineSummary> {
   const { knowledgeId } = msg.payload;
-  if (msg.payload.targetCommitHash !== undefined && !COMMIT_HASH_RE.test(msg.payload.targetCommitHash)) {
-    throw new IngestError(
-      knowledgeId,
-      `targetCommitHash must be a 40-character hex SHA, got: ${msg.payload.targetCommitHash}`,
-    );
-  }
-
-  const kDoc = await knowledgeDb.getKnowledge(knowledgeId);
-  if (kDoc === null) {
-    throw new KnowledgeNotFoundError(knowledgeId);
-  }
-  // When a `pullFactory` is injected the caller owns provider resolution (mirrors
-  // how an injected `SourceFactory` signals provider-handled ingest), so skip the
-  // GitHub-only assertion. OSS standalone passes no factory → guard stays enforced.
-  if (pullFactory === undefined && kDoc.source.kind !== "github") {
-    throw new IngestError(knowledgeId, `pull is only supported for github knowledge (kind=${kDoc.source.kind})`);
-  }
-  // Provider wrappers (e.g. GitLab) forward the prior commit via the payload since
-  // their source kind may store it outside `source.commitId`. Prefer that; fall back
-  // to `source.commitId` for GitHub.
-  const currentCommit =
-    msg.payload.previousCommit ?? (kDoc.source.kind === "github" ? (kDoc.source.commitId ?? "") : "");
-  if (currentCommit.length === 0) {
-    throw new IngestError(
-      knowledgeId,
-      "pull requires a previously-indexed commit; this knowledge has no commitId. Run github_index first.",
-    );
-  }
-
-  const branch = kDoc.info.branch ?? "main";
-  const repoUrl = kDoc.info.repoUrl;
-  if (repoUrl === undefined || repoUrl.length === 0) {
-    throw new IngestError(knowledgeId, "pull requires knowledge.info.repoUrl");
-  }
-  const gitToken = msg.payload.gitToken;
+  const { currentCommit, branch, repoUrl, gitToken } = await preflightPull(msg, pullFactory);
 
   clearCancellation(knowledgeId);
   await transitionState(knowledgeId, KnowledgeState.Processing);
@@ -259,6 +224,9 @@ export async function runPull(
       scope,
       payload: { knowledgeId, repoUrl, branch },
       branch,
+      owner: parsed.owner,
+      repo: parsed.repo,
+      commitHash: targetCommit,
       metaPaths,
       diff,
       affectedFolders,

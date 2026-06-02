@@ -7,9 +7,15 @@ import { getBytebellHome, getConfigValue, HINTS } from "@bb/config";
 import { connectDb } from "@bb/db";
 import { connectGraph, indexesGraph } from "@bb/graph-db";
 import { connectQueue, resumeOrphans } from "@bb/queue";
+// Provider registration is intentional and explicit at this composition root —
+// the public server supports every provider (Docker + embedded), so it imports
+// all of them. A different deployment that only needs a subset (e.g. a Neo4j +
+// Mongo production server) would import only those packages here and would never
+// load the unused drivers/native bindings (e.g. the `@bb/ladybug` core addon).
 import "@bb/mongo";
 import "@bb/sqlite";
 import "@bb/neo4j";
+import "@bb/ladybug";
 import "@bb/queue-bullmq";
 import "@bb/queue-honker";
 

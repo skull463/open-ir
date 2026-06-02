@@ -38,7 +38,7 @@ export function InstallWizard({ onDone }: InstallWizardProps): ReactElement {
   const { exit } = useApp();
   const [stage, setStage] = useState<Stage>("provider");
   const [providerIdx, setProviderIdx] = useState(0);
-  const [infraMode, setInfraMode] = useState<InfraMode>("docker");
+  const [infraMode, setInfraMode] = useState<InfraMode>("embedded");
   const [apiKey, setApiKey] = useState("");
   const [orModel, setOrModel] = useState("");
   const [ollamaUrl, setOllamaUrl] = useState("http://localhost:11434");

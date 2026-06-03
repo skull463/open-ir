@@ -82,9 +82,21 @@ export async function runPull(
     if (resolution.kind === "noop") {
       logger.info(`pull: ${knowledgeId} already at ${resolution.targetCommit.slice(0, 12)}; no-op`);
       await transitionState(knowledgeId, KnowledgeState.Processed);
-      return emptyPullSummary(resolution.targetCommit);
+      return emptyPullSummary(resolution.targetCommit, currentCommit);
     }
     const { source, diff, targetCommit, location, archiveSink } = resolution;
+    // Different commit but an empty diff (revert, whitespace-only, or otherwise
+    // non-analyzable change): treat as a no-op. Short-circuit before the analysis
+    // phases and `setKnowledgeCommit` so neither commit pointer advances — the
+    // knowledge stays anchored at `currentCommit`. Deletions count as changes, so
+    // a delete-only pull falls through to the real path below.
+    if (diff.added.length + diff.modified.length + diff.deleted.length + diff.renamed.length === 0) {
+      logger.info(
+        `pull: ${knowledgeId} ${currentCommit.slice(0, 12)} -> ${targetCommit.slice(0, 12)} empty diff; no-op`,
+      );
+      await transitionState(knowledgeId, KnowledgeState.Processed);
+      return emptyPullSummary(targetCommit, currentCommit);
+    }
     // Copy-forward the raw-file snapshot: seed the target commit's archive folder
     // from the parent so it is a complete tree before changed files are pushed
     // over it, then drop deleted / renamed-away paths. No-ops for sinks that are

@@ -47,6 +47,14 @@ export interface PipelineSummary {
   graphNodesWritten: number;
   commitHash: string;
   tokenUsage: { inputTokens: number; outputTokens: number; costUsd: number };
+  /**
+   * True when the pull resolved to a no-op: either the target equals the
+   * current commit, or the diff between them is empty. Consumers carry the
+   * base commit's stats forward instead of recording zeros. Absent on real runs.
+   */
+  noOp?: boolean;
+  /** The previously-indexed commit this no-op was measured against. Set iff `noOp`. */
+  baseCommit?: string;
 }
 
 export interface PipelineDeps {

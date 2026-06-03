@@ -82,7 +82,7 @@ export async function runPull(
     if (resolution.kind === "noop") {
       logger.info(`pull: ${knowledgeId} already at ${resolution.targetCommit.slice(0, 12)}; no-op`);
       await transitionState(knowledgeId, KnowledgeState.Processed);
-      return emptyPullSummary(resolution.targetCommit);
+      return emptyPullSummary(resolution.targetCommit, currentCommit);
     }
     const { source, diff, targetCommit, location, archiveSink } = resolution;
     // Copy-forward the raw-file snapshot: seed the target commit's archive folder
@@ -231,6 +231,24 @@ export async function runPull(
       diff,
       affectedFolders,
     });
+
+    // No-op (for stats): the pull spent no LLM tokens and upserted nothing — there was
+    // nothing that needed analysis. Covers an empty diff, a diff whose changed files were
+    // all filtered out as non-analyzable (lockfiles, docs, binaries, …), AND a delete-only
+    // pull (deletions consume no tokens). Any real deletions were already applied to the
+    // graph by `storePullAnalysis` above; we only avoid recording a misleading zero entry.
+    // Keep the knowledge anchored at `currentCommit` (do NOT advance via setKnowledgeCommit)
+    // and report a no-op so the enterprise mirror carries the base commit's stats forward.
+    const noAnalysisPerformed =
+      totalInputTokens === 0 && totalOutputTokens === 0 && stored.filesUpserted === 0 && stored.foldersUpserted === 0;
+    if (noAnalysisPerformed) {
+      await transitionState(knowledgeId, KnowledgeState.Processed);
+      progressContext.completed("github_pull complete (no-op)");
+      logger.info(
+        `pull: ${knowledgeId} ${currentCommit.slice(0, 12)} -> ${targetCommit.slice(0, 12)} no analyzable changes; no-op`,
+      );
+      return emptyPullSummary(targetCommit, currentCommit);
+    }
 
     await knowledgeDb.setKnowledgeCommit(
       knowledgeId,

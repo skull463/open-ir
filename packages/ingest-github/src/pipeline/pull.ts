@@ -85,18 +85,6 @@ export async function runPull(
       return emptyPullSummary(resolution.targetCommit, currentCommit);
     }
     const { source, diff, targetCommit, location, archiveSink } = resolution;
-    // Different commit but an empty diff (revert, whitespace-only, or otherwise
-    // non-analyzable change): treat as a no-op. Short-circuit before the analysis
-    // phases and `setKnowledgeCommit` so neither commit pointer advances — the
-    // knowledge stays anchored at `currentCommit`. Deletions count as changes, so
-    // a delete-only pull falls through to the real path below.
-    if (diff.added.length + diff.modified.length + diff.deleted.length + diff.renamed.length === 0) {
-      logger.info(
-        `pull: ${knowledgeId} ${currentCommit.slice(0, 12)} -> ${targetCommit.slice(0, 12)} empty diff; no-op`,
-      );
-      await transitionState(knowledgeId, KnowledgeState.Processed);
-      return emptyPullSummary(targetCommit, currentCommit);
-    }
     // Copy-forward the raw-file snapshot: seed the target commit's archive folder
     // from the parent so it is a complete tree before changed files are pushed
     // over it, then drop deleted / renamed-away paths. No-ops for sinks that are
@@ -243,6 +231,24 @@ export async function runPull(
       diff,
       affectedFolders,
     });
+
+    // No-op (for stats): the pull spent no LLM tokens and upserted nothing — there was
+    // nothing that needed analysis. Covers an empty diff, a diff whose changed files were
+    // all filtered out as non-analyzable (lockfiles, docs, binaries, …), AND a delete-only
+    // pull (deletions consume no tokens). Any real deletions were already applied to the
+    // graph by `storePullAnalysis` above; we only avoid recording a misleading zero entry.
+    // Keep the knowledge anchored at `currentCommit` (do NOT advance via setKnowledgeCommit)
+    // and report a no-op so the enterprise mirror carries the base commit's stats forward.
+    const noAnalysisPerformed =
+      totalInputTokens === 0 && totalOutputTokens === 0 && stored.filesUpserted === 0 && stored.foldersUpserted === 0;
+    if (noAnalysisPerformed) {
+      await transitionState(knowledgeId, KnowledgeState.Processed);
+      progressContext.completed("github_pull complete (no-op)");
+      logger.info(
+        `pull: ${knowledgeId} ${currentCommit.slice(0, 12)} -> ${targetCommit.slice(0, 12)} no analyzable changes; no-op`,
+      );
+      return emptyPullSummary(targetCommit, currentCommit);
+    }
 
     await knowledgeDb.setKnowledgeCommit(
       knowledgeId,

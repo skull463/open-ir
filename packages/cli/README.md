@@ -20,26 +20,53 @@ The user-facing terminal UI for Bytebell. Arch-spec'd at
 mode, every invocation is interactive in spirit, with subcommands for
 indexing, configuration, server lifecycle, and inspection.
 
-**v0 surface:** `set`, `boot`, `shutdown`, `server start`, `index`,
+**v0 surface:** `setup`, `set`, `boot`, `shutdown`, `server start`, `index`,
 `ingest`, `ls`, `delete`, `stats`.
 
+- `bytebell setup` — interactive first-run wizard. Presents an Ink multi-stage
+  form: (1) pick LLM provider (`openrouter` | `ollama`), (2) pick infrastructure
+  mode — **Docker** (non-embedded: mongo + neo4j + redis, the default selection,
+  labelled "Docker needed") or **Embedded** (sqlite + ladybug + honker, no Docker,
+  labelled "recommended"),
+  (3) enter credentials / model, (4) optionally supply a GitHub repo URL to index
+  after boot, (5) confirm. The infra mode is a single selector that expands to the
+  three `db/graph/queue` provider keys via `applyInfraMode()` (see `infraMode.ts`).
+  On confirm: applies config via `KEY_MAP` setters (same path as `bytebell set`),
+  stops any running server, starts a fresh server, prints the MCP endpoint, and
+  if a repo URL was given kicks `POST /api/v1/github/index` then polls to
+  completion via the shared `pollIndexToCompletion()` helper. Requires an
+  interactive TTY; exits with an error otherwise.
 - `bytebell set <key> <value>` — headless write to
   `~/.bytebell/config.json` via `@bb/config.setConfigValue`. Type
   coercion + Zod validation + atomic `tmp → fsync → rename`. Sole
   sanctioned write path per [docs/arch.md:140](../../docs/arch.md#L140).
-- `bytebell set` (no args) — Ink setup form. Walks Mongo / Neo4j /
-  Neo4j-user / Neo4j-password / Redis / Port with field-level format
-  validation. On submit, applies all six values atomically through the
-  same `setConfigValue` path. Esc cancels.
+- `bytebell set` (no args) — Ink setup form. Presents a single
+  **Infrastructure** toggle (`docker|embedded`, default `docker`, embedded
+  labelled "recommended"). In
+  Docker mode it walks Mongo / Neo4j / Neo4j-user / Neo4j-password /
+  Redis text fields (with field-level format validation) plus Port /
+  GitHub-concurrency / OpenRouter fields; in Embedded mode the
+  mongo/neo4j/redis rows are hidden and not required. On submit, the
+  mode expands to the three provider keys via `applyInfraMode()` and
+  every visible value is applied atomically through the same
+  `setConfigValue` path. Esc cancels.
 - `bytebell boot` — one-command bring-up. Refuses to proceed if
   `openrouter_api_key` or `openrouter_model` is blank (with the
-  matching `bytebell set …` hint). Auto-fills blank infra config keys
-  with local-docker defaults (mongo / neo4j / neo4j-user / redis) and
-  generates a random Neo4j password if one isn't already set. Writes
+  matching `bytebell set …` hint). Whether Docker is started is derived
+  from the active provider combo (`needsDocker()` / `isEmbedded()` in
+  `infraMode.ts`): **embedded** (sqlite + ladybug + honker) skips Docker
+  entirely and goes straight to starting the server; **non-embedded**
+  brings Docker up. Either way it auto-fills blank infra
+  config keys (only for the providers in use): embedded fills the
+  `~/.bytebell` store paths (`sqlite-path` / `ladybug-path` /
+  `queue-db-path` — Ladybug in particular needs a real path or it runs
+  in-memory), Docker fills the mongo/neo4j/redis URIs and generates a
+  random Neo4j password if one isn't already set. In Docker mode it writes
   `infra/docker/.env` (Neo4j password + host ports derived from the
   configured URIs), runs `docker compose -f
-infra/docker/docker-compose.yml up -d`, polls
-  `docker compose ps --format json` until all three services report
+infra/docker/docker-compose.yml up -d` for **only the services the
+  providers require** (mongo/neo4j/redis), polls
+  `docker compose ps --format json` until they report
   `healthy`, then invokes `ensureServerRunning()` (existing helper) to
   spawn `bytebell-server`. Idempotent — re-running on an already-up
   stack is a fast no-op. When a compose host port is already taken,
@@ -157,28 +184,52 @@ behind a `tty?` check (see `output.ts`).
 The complete arch-spec'd command surface, grouped by what each command
 will touch when implemented. Only the **bolded** entries ship in v0.
 
-| Invocation                                       | Behavior                                                                                                             | When it lands                               |
-| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
-| **`bytebell set <key> <value>`**                 | **Headless write via `setConfigValue`. v0.**                                                                         | **Shipped**                                 |
-| **`bytebell set`**                               | **Ink setup form (6 infra fields). v0.**                                                                             | **Shipped**                                 |
-| **`bytebell boot`**                              | **Pre-flight + auto-fill infra keys + `docker compose up -d` + spawn server.**                                       | **Shipped**                                 |
-| **`bytebell shutdown`**                          | **SIGTERM the server, leave Docker running.**                                                                        | **Shipped**                                 |
-| **`bytebell server start`**                      | **Spawn `bytebell-server` in foreground.**                                                                           | **Shipped**                                 |
-| **`bytebell index <git-url>`**                   | **POST `/api/v1/github/index` to local server.**                                                                     | **Shipped**                                 |
-| **`bytebell ingest [path]`**                     | **POST `/api/v1/local/index` for a directory tree.**                                                                 | **Shipped**                                 |
-| **`bytebell ls`**                                | **Render `/api/v1/repos` as a table or interactive explorer (`-i`). v0.**                                            | **Shipped**                                 |
-| **`bytebell delete`**                            | **Ink picker over `/api/v1/repos`, then DELETE `/api/v1/repos/:id` (Mongo + Neo4j + jobs).**                         | **Shipped**                                 |
-| **`bytebell stats`**                             | **Render `/api/v1/stats` (totals + per-repo + per-commit token / cost rows).**                                       | **Shipped**                                 |
-| `bytebell`                                       | Ink dashboard with Repos / Server / Activity / Cost panes ([docs/arch.md:172-184](../../docs/arch.md#L172-L184))     | After `@bb/server` HTTP API + activity feed |
-| `bytebell` (first-run auto-launch of setup form) | If `isConfigComplete()` returns false, redirect to `bytebell set` form ([docs/arch.md:170](../../docs/arch.md#L170)) | After dashboard lands                       |
-| `bytebell models set <model-id>`                 | Validate model via OpenRouter API + write `openrouter_model`                                                         | After OpenRouter helper                     |
-| `bytebell models ls`                             | Curated 5-10 models, on-the-fly OpenRouter pricing                                                                   | Same                                        |
-| `bytebell keys set`                              | Interactive masked prompt → `keytar` keychain → write key                                                            | After `keytar` integration                  |
-| `bytebell cost`                                  | Read `~/.bytebell/cost-ledger.sqlite` via `bun:sqlite`, render breakdowns                                            | After cost ledger lands in `@bb/llm`        |
-| `bytebell server stop \| status \| logs`         | Kill / inspect `bytebell-server`, tail server logs (start is shipped — see above)                                    | After `@bb/server` health surface           |
-| `bytebell mcp`                                   | Print MCP endpoint URL + sample MCP-client config                                                                    | After dashboard pane                        |
-| `bytebell infra up \| down \| status \| logs`    | Thin wrapper over `docker compose` for users who want explicit infra control                                         | If usage demands it post-v0                 |
-| `bytebell update`                                | Detect install method, run matching update, restart server                                                           | Release-engineering follow-up               |
+| Invocation                                       | Behavior                                                                                                                                                                                              | When it lands                               |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| **`bytebell setup`**                             | **First-run wizard: pick LLM provider, configure keys/model, boot server, optionally kick index. v0.**                                                                                                | **Shipped**                                 |
+| **`bytebell set <key> <value>`**                 | **Headless write via `setConfigValue`. v0.**                                                                                                                                                          | **Shipped**                                 |
+| **`bytebell set`**                               | **Ink setup form (6 infra fields). v0.**                                                                                                                                                              | **Shipped**                                 |
+| **`bytebell boot`**                              | **Pre-flight + auto-fill infra keys + `docker compose up -d` + spawn server.**                                                                                                                        | **Shipped**                                 |
+| **`bytebell shutdown`**                          | **SIGTERM the server, leave Docker running.**                                                                                                                                                         | **Shipped**                                 |
+| **`bytebell server start`**                      | **Spawn `bytebell-server` in foreground.**                                                                                                                                                            | **Shipped**                                 |
+| **`bytebell index <git-url>`**                   | **POST `/api/v1/github/index` to local server.**                                                                                                                                                      | **Shipped**                                 |
+| **`bytebell ingest [path]`**                     | **POST `/api/v1/local/index` for a directory tree.**                                                                                                                                                  | **Shipped**                                 |
+| **`bytebell ls`**                                | **Render `/api/v1/repos` as a table or interactive explorer (`-i`). v0.**                                                                                                                             | **Shipped**                                 |
+| **`bytebell delete`**                            | **Ink picker over `/api/v1/repos`, then DELETE `/api/v1/repos/:id` (Mongo + Neo4j + jobs).**                                                                                                          | **Shipped**                                 |
+| **`bytebell stats`**                             | **Render `/api/v1/stats` (totals + per-repo + per-commit token / cost rows).**                                                                                                                        | **Shipped**                                 |
+| `bytebell`                                       | Ink dashboard with Repos / Server / Activity / Cost panes ([docs/arch.md:172-184](../../docs/arch.md#L172-L184))                                                                                      | After `@bb/server` HTTP API + activity feed |
+| `bytebell` (first-run auto-launch of setup form) | If `isConfigComplete()` returns false, redirect to `bytebell set` form ([docs/arch.md:170](../../docs/arch.md#L170))                                                                                  | After dashboard lands                       |
+| `bytebell models set <model-id>`                 | Validate model via OpenRouter API + write `openrouter_model`                                                                                                                                          | After OpenRouter helper                     |
+| `bytebell models ls`                             | Curated 5-10 models, on-the-fly OpenRouter pricing                                                                                                                                                    | Same                                        |
+| `bytebell keys set`                              | Interactive masked prompt → `keytar` keychain → write key                                                                                                                                             | After `keytar` integration                  |
+| `bytebell cost`                                  | Read `~/.bytebell/cost-ledger.sqlite` via `bun:sqlite`, render breakdowns                                                                                                                             | After cost ledger lands in `@bb/llm`        |
+| `bytebell server stop \| status \| logs`         | Kill / inspect `bytebell-server`, tail server logs (start is shipped — see above)                                                                                                                     | After `@bb/server` health surface           |
+| `bytebell mcp`                                   | Print MCP endpoint URL + sample MCP-client config                                                                                                                                                     | After dashboard pane                        |
+| `bytebell infra up \| down \| status \| logs`    | Thin wrapper over `docker compose` for users who want explicit infra control                                                                                                                          | If usage demands it post-v0                 |
+| `bytebell update`                                | Detect install method, run matching update, restart server                                                                                                                                            | Release-engineering follow-up               |
+| Invocation                                       | Behavior                                                                                                                                                                                              | When it lands                               |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| **`bytebell set <key> <value>`**                 | **Headless write via `setConfigValue`. v0.**                                                                                                                                                          | **Shipped**                                 |
+| **`bytebell set`**                               | **Ink setup form (6 infra fields). v0.**                                                                                                                                                              | **Shipped**                                 |
+| **`bytebell boot`**                              | **Pre-flight + auto-fill infra keys + `docker compose up -d` + spawn server.**                                                                                                                        | **Shipped**                                 |
+| **`bytebell shutdown`**                          | **SIGTERM the server, leave Docker running.**                                                                                                                                                         | **Shipped**                                 |
+| **`bytebell server start`**                      | **Spawn `bytebell-server` in foreground.**                                                                                                                                                            | **Shipped**                                 |
+| **`bytebell index <git-url>`**                   | **POST `/api/v1/github/index` to local server.**                                                                                                                                                      | **Shipped**                                 |
+| **`bytebell ingest [path]`**                     | **POST `/api/v1/local/index` for a directory tree.**                                                                                                                                                  | **Shipped**                                 |
+| **`bytebell ls`**                                | **Render `/api/v1/repos` as a table or interactive explorer (`-i`). v0.**                                                                                                                             | **Shipped**                                 |
+| **`bytebell delete`**                            | **Ink picker over `/api/v1/repos`, then DELETE `/api/v1/repos/:id` (Mongo + Neo4j + jobs).**                                                                                                          | **Shipped**                                 |
+| **`bytebell stats`**                             | **Render `/api/v1/stats` (totals + per-repo + per-commit token / cost rows).**                                                                                                                        | **Shipped**                                 |
+| `bytebell`                                       | Ink dashboard with Repos / Server / Activity / Cost panes ([docs/arch.md:172-184](../../docs/arch.md#L172-L184))                                                                                      | After `@bb/server` HTTP API + activity feed |
+| `bytebell` (first-run auto-launch of setup form) | If `isConfigComplete()` returns false, redirect to `bytebell set` form ([docs/arch.md:170](../../docs/arch.md#L170))                                                                                  | After dashboard lands                       |
+| `bytebell models set <model-id>`                 | Validate model via OpenRouter API + write `openrouter_model`                                                                                                                                          | After OpenRouter helper                     |
+| `bytebell models ls`                             | Curated 5-10 models, on-the-fly OpenRouter pricing                                                                                                                                                    | Same                                        |
+| `bytebell keys set`                              | Interactive masked prompt → `keytar` keychain → write key                                                                                                                                             | After `keytar` integration                  |
+| `bytebell cost`                                  | Read `~/.bytebell/cost-ledger.sqlite` via `bun:sqlite`, render breakdowns                                                                                                                             | After cost ledger lands in `@bb/llm`        |
+| `bytebell server stop \| status \| logs`         | Kill / inspect `bytebell-server`, tail server logs (start is shipped — see above)                                                                                                                     | After `@bb/server` health surface           |
+| **`bytebell mcp install`**                       | **Detect installed coding tools (Claude Code, Cursor, Claude Desktop, Windsurf, VS Code) and merge a `bytebell` MCP server entry into each one's config, pointing at `http://127.0.0.1:<port>/mcp`.** | **Shipped**                                 |
+| **`bytebell mcp stats`**                         | **Render `/api/v1/mcp/stats` (global + per-identity MCP token usage).**                                                                                                                               | **Shipped**                                 |
+| `bytebell infra up \| down \| status \| logs`    | Thin wrapper over `docker compose` for users who want explicit infra control                                                                                                                          | If usage demands it post-v0                 |
+| `bytebell update`                                | Detect install method, run matching update, restart server                                                                                                                                            | Release-engineering follow-up               |
 
 ## Migrations
 
@@ -186,14 +237,18 @@ will touch when implemented. Only the **bolded** entries ship in v0.
   on-disk layout (`~/.bytebell/repos/<id>/` for clones,
   `~/.bytebell/repos/.meta/<id>/...` for meta) into the commit-scoped tree
   (`~/.bytebell/orgs/<orgId>/<provider>/<knowledgeId>/<owner>/<repo>/<commit>/...`).
-  The server boot guard refuses to start while `repos/.meta/` exists and is
-  non-empty, so this is the unblocking step after upgrading. `--dry-run`
-  prints the planned moves without touching disk. Reads `KnowledgeDoc` from
-  Mongo to derive each knowledge's `(orgId, owner, repo, commitId)`;
-  knowledges that predate commit tracking (no `source.commitId`) or have no
-  `info.repoUrl` are skipped with a per-id reason and need manual
-  `bytebell delete` + re-index. Local-source knowledges keep their original
-  `source.sourcePath` untouched; only their `meta-output` tree moves.
+  The disk work lives in `@bb/path-migration`; this command supplies the
+  Mongo knowledge list and renders the summary. The **same reconciliation runs
+  automatically at server boot** (see `@bb/server`), so this command is for
+  running it ahead of time or with `--dry-run` to preview. `--dry-run` prints
+  the plan (including would-be-deleted orphans) without touching disk. Reads
+  `KnowledgeDoc` from Mongo to derive each knowledge's
+  `(orgId, owner, repo, commitId)`; knowledges that predate commit tracking
+  (no `source.commitId`) or have no `info.repoUrl` are skipped with a per-id
+  reason and need manual `bytebell delete` + re-index. Legacy dirs with **no**
+  backing `KnowledgeDoc` are unrecoverable — they are deleted and reported as
+  `abandoned`. Local-source knowledges keep their original `source.sourcePath`
+  untouched; only their `meta-output` tree moves.
 
 ## What is intentionally out of scope (v0)
 
@@ -208,6 +263,21 @@ will touch when implemented. Only the **bolded** entries ship in v0.
   `2` = uncaught crash)
 
 ## How to extend
+
+Key source files added in the `setup` command:
+
+- `src/SetupCommand.ts` — commander entry point for `bytebell setup`; orchestrates wizard → config apply → boot → optional index (private-repo PAT + branch selection via `probeRepo`) → MCP-client install.
+- `src/InstallWizard.tsx` — Ink multi-stage wizard component (provider picker + stage routing).
+- `src/InstallWizardStages.tsx` — `FieldsStage`, `RepoStage`, `ConfirmStage` sub-components (split from `InstallWizard.tsx` to honour the 300-line rule).
+- `src/indexPoller.ts` — shared `pollIndexToCompletion()` used by both `IndexCommand.ts` and `SetupCommand.ts`; also exports the `IndexResponse` and `RepoStatus` types so neither command duplicates them.
+- `src/repoProbe.ts` — shared `probeRepo()` used by both `IndexCommand.ts` and `SetupCommand.ts`: probes `/api/v1/github/probe`, prompts for a PAT on private repos, and (in a TTY) lets the user pick a branch. Returns `{ branch, token }` with `branch === null` meaning cancel/failure.
+
+Boot and shutdown logic reused by `setup`:
+
+- `src/bootConfig.ts` — owns `applyInfraDefaults()`, `checkPreflight()`, and `runBootSequence()` (the shared defaults → docker-up → server-start sequence). Both `BootCommand.ts` and `SetupCommand.ts` delegate to `runBootSequence()`.
+- `src/dockerBoot.ts` — owns `bringInfraUp()`: Docker Compose bring-up with port-conflict handling.
+- `src/serverLifecycle.ts` — owns `startServer()` and `stopServer()` (SIGTERM + pid-file poll). `ShutdownCommand.ts` and `SetupCommand.ts` both delegate here.
+- `src/serverSpawn.ts` — owns `ensureServerRunning()`: low-level server process spawn, health polling, TCP infra preflight, and early-exit detection with log tail.
 
 Adding a new subcommand:
 

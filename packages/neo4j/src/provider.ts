@@ -6,6 +6,7 @@ import * as folderRepo from "./folder.ts";
 import * as repoRepo from "./repo.ts";
 import * as indexRepo from "./indexes.ts";
 import * as flatFolderIndexRepo from "./flatFolderIndexes.ts";
+import * as searchRepo from "./search/index.ts";
 import * as conceptGraphIndexRepo from "./conceptGraphIndexes.ts";
 import * as conceptsRepo from "./concepts.ts";
 import * as contractsRepo from "./contracts.ts";
@@ -58,6 +59,14 @@ class Neo4jGraphProvider implements IGraphDatabaseProvider {
   guideposts = {
     upsertGuidepost: guidepostsRepo.upsertGuidepost,
     attachGuidepost: guidepostsRepo.attachGuidepost,
+  };
+
+  search = {
+    runSmartSearchChannel: searchRepo.runSmartSearchChannel,
+    keywordLookup: searchRepo.keywordLookup,
+    listKnowledgeBases: searchRepo.listKnowledgeBases,
+    fetchFileMetadata: searchRepo.fetchFileMetadata,
+    fetchRepoNames: searchRepo.fetchRepoNames,
   };
 
   async connect(): Promise<void> {

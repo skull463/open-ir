@@ -11,6 +11,7 @@ import { buildShutdownCommand } from "./ShutdownCommand.ts";
 import { buildDeleteCommand } from "./DeleteCommand.ts";
 import { buildStatsCommand } from "./StatsCommand.ts";
 import { buildMcpCommand } from "./McpCommand.ts";
+import { buildSetupCommand } from "./SetupCommand.ts";
 import { buildMigrateCommand } from "./MigratePathsCommand.ts";
 import { error } from "./output.ts";
 
@@ -20,6 +21,7 @@ async function main(): Promise<void> {
   const program = new Command("bytebell");
   program.version(VERSION).description("Bytebell — local knowledge engine TUI");
   program.addCommand(buildSetCommand());
+  program.addCommand(buildSetupCommand());
   program.addCommand(buildBootCommand());
   program.addCommand(buildShutdownCommand());
   program.addCommand(buildServerCommand());

@@ -26,8 +26,10 @@ package-level contract; this file documents how the source tree is split.
   headlessly today, including `openrouter-api-key` (`redact: true`)
   and `openrouter-model` (plain text).
 - **[BootCommand.ts](BootCommand.ts)** — the `boot` subcommand.
-  Sequence: `checkPreflight` (errors out with `HINTS` if openrouter
-  api-key/model are blank) → `applyInfraDefaults` (auto-fills the
+  Sequence: `ensurePreflight` (if openrouter api-key/model are blank,
+  renders `<SetupForm />` when stdin+stdout are a TTY so the user can
+  fill them in-place; falls back to the legacy print-`HINTS`-and-exit
+  path on non-TTY for CI) → `applyInfraDefaults` (auto-fills the
   blank infra keys, generates a random Neo4j password if needed) →
   `dockerInfra.up` (writes `.env`, runs compose, polls health) →
   `ensureServerRunning` (existing helper that lazy-spawns the server
@@ -63,6 +65,31 @@ package-level contract; this file documents how the source tree is split.
   `success(line)`, `error(line, hint?)`, `list(label, items)`. Manual
   ANSI escapes wrapped behind a `stream.isTTY` check. Plain text on
   non-TTY (CI, pipes).
+- **[McpCommand.ts](McpCommand.ts)** — the `mcp` subcommand group.
+  `mcp stats` renders `/api/v1/mcp/stats` (global + per-identity token
+  usage). `mcp install` delegates to `runMcpInstall` (below).
+- **[mcpInstall.ts](mcpInstall.ts)** — orchestrator for `mcp install`.
+  Resolves the endpoint URL from `Config.ServerPort`, filters
+  `MCP_TARGETS` by `detect()`, prompts (interactive multi-select on a
+  TTY; auto-selects all detected when stdin is not a TTY), then
+  **merges** a `bytebell` entry into each picked tool's config and
+  prints a result table. Merge is non-destructive: reads existing JSON
+  (`{}` on ENOENT), backs up to `<file>.bytebell.bak`, injects only the
+  `bytebell` key under the tool's top-level key, atomic-writes
+  (tmp + rename, mode `0600`). A malformed existing file fails that one
+  tool instead of being overwritten. Idempotent — keyed by the literal
+  name `bytebell`, so re-running updates (e.g. a changed port) rather
+  than duplicating.
+- **[mcpTargets.ts](mcpTargets.ts)** — the `MCP_TARGETS` adapter table.
+  One `McpTarget` per supported tool: `configPath()` (platform-branched
+  — `~/Library/Application Support/…` on macOS, `~/.config/…` on Linux),
+  `detect()` (config file / app dir present), `topLevelKey`
+  (`mcpServers`, or `servers` for VS Code), and `entry(url)` (the
+  per-tool entry shape — `{type,url}`, `{url}`, or `{serverUrl}`).
+- **[McpToolSelector.tsx](McpToolSelector.tsx)** — Ink multi-select for
+  `mcp install`. Mirrors `RepoSelector` multi-mode but defaults every
+  detected tool to selected (the common case is "configure all"); `a`
+  toggles all/none, Space toggles a row, Enter confirms, Esc cancels.
 - **[Field.tsx](Field.tsx)** — single Ink row component used inside
   `SetupForm`. Renders an indicator + label + either an `ink-text-input`
   (when focused) or a static text view of the value (when not). Masking
@@ -70,14 +97,18 @@ package-level contract; this file documents how the source tree is split.
   view shows `•••…` for masked rows. Renders an inline red error line
   underneath when the field's `validate` returns a non-null string.
 - **[SetupForm.tsx](SetupForm.tsx)** — the Ink form rendered by
-  `bytebell set` no-args. Six rows declared in a `ROWS` constant: Mongo
-  URI / Neo4j URI / Neo4j user / Neo4j password (masked) / Redis URL /
-  Server port. Each row carries its own format-only `validate` regex.
-  State: a single `useState<Record<string,string>>` keyed by row id and
-  seeded from `loadConfig()` so users see and edit existing settings.
-  Navigation via Ink's built-in `useFocusManager` (Tab / Shift-Tab). On
-  Enter when all rows pass validation, iterates the dispatch table in
-  row order calling `entry.setter(value)`. On Esc, exits without saving.
+  `bytebell set` no-args **and** by `bytebell boot` when openrouter
+  keys are missing on an interactive TTY. Nine rows declared in a
+  `ROWS` constant: Mongo URI / Neo4j URI / Neo4j user / Neo4j password
+  (masked) / Redis URL / Server port / GitHub Concurrency / OpenRouter
+  API key (masked) / OpenRouter model. Each row carries its own
+  format-only `validate` regex (or non-empty check for the openrouter
+  rows). State: a single `useState<Record<string,string>>` keyed by
+  row id and seeded from `loadInitial()` so users see and edit
+  existing settings. Navigation via Ink's built-in `useFocusManager`
+  (Tab / Shift-Tab). On Enter when all rows pass validation, iterates
+  the dispatch table in row order calling `entry.setter(value)`. On
+  Esc, exits without saving.
 
 ## Module dependency graph
 
@@ -94,14 +125,21 @@ SetCommand.ts      → commander, react, ink (render), @bb/config (HINTS),
 bootConfig.ts      → node:crypto, @bb/types (Config), @bb/config (getConfigValue),
                      keyMap.ts (KEY_MAP)
 dockerInfra.ts     → node:child_process, node:fs/promises, node:path, node:url
-BootCommand.ts     → commander, @bb/types (Config), @bb/config (HINTS, getConfigValue),
-                     bootConfig.ts, dockerInfra.ts, serverSpawn.ts, output.ts
+BootCommand.ts     → commander, react, ink (render), @bb/types (Config),
+                     @bb/config (HINTS, getConfigValue), bootConfig.ts, dockerInfra.ts,
+                     serverSpawn.ts, SetupForm.tsx (SetupForm), output.ts
 ShutdownCommand.ts → commander, node:fs/promises, node:path, @bb/config (getBytebellHome),
                      dockerInfra.ts (composeFilePath), output.ts
 
 httpClient.ts      → node:url
 serverSpawn.ts     → node:child_process, node:fs/promises, node:path, node:url,
                      @bb/types (Config), @bb/config (getBytebellHome, getConfigValue)
+
+mcpTargets.ts      → node:path, node:fs (existsSync), node:os (homedir)
+McpToolSelector.tsx → ink, react (type-only)
+mcpInstall.ts      → node:path, node:fs, react, ink (render), @bb/types (Config),
+                     @bb/config (getConfigValue), output.ts, mcpTargets.ts, McpToolSelector.tsx
+McpCommand.ts      → commander, httpClient.ts, output.ts, mcpInstall.ts
 
 ServerCommand.ts   → commander, node:child_process, node:path, node:url, output.ts
 IndexCommand.ts    → commander, serverSpawn.ts, httpClient.ts, output.ts

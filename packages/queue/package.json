@@ -15,9 +15,8 @@
     "@bb/config": "workspace:*",
     "@bb/db": "workspace:*",
     "@bb/errors": "workspace:*",
-    "@bb/mongo": "workspace:*",
-    "@bb/redis": "workspace:*",
-    "@bb/types": "workspace:*",
-    "bullmq": "^5.76.3"
+    "@bb/logger": "workspace:*",
+    "@bb/queue-core": "workspace:*",
+    "@bb/types": "workspace:*"
   }
 }

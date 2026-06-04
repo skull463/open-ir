@@ -4,13 +4,19 @@ import { Box, Text, useApp, useInput } from "ink";
 import { Config } from "@bb/types";
 import { getConfigValue } from "@bb/config";
 import { KEY_MAP } from "./keyMap.ts";
+import { applyInfraMode, infraModeOption, isEmbedded, type InfraMode } from "./infraMode.ts";
 import { Field } from "./Field.tsx";
+import { ToggleField } from "./ToggleField.tsx";
+
+const MODE_OPTIONS: readonly [string, string] = ["docker", "embedded"];
 
 interface Row {
   id: string;
   label: string;
   cliKey: string;
   mask?: boolean;
+  /** Infra connection rows — only required/shown in Docker (non-embedded) mode. */
+  infra?: boolean;
   validate: (raw: string) => string | null;
 }
 
@@ -23,26 +29,36 @@ const ROWS: Row[] = [
     id: "mongo",
     label: "Mongo URI",
     cliKey: "mongo",
+    infra: true,
     validate: (s) => (MONGO_RX.test(s) ? null : "expected mongodb:// or mongodb+srv://"),
   },
   {
     id: "neo4j",
     label: "Neo4j URI",
     cliKey: "neo4j",
+    infra: true,
     validate: (s) => (NEO4J_RX.test(s) ? null : "expected bolt:// or neo4j://"),
   },
-  { id: "neo4j-user", label: "Neo4j user", cliKey: "neo4j-user", validate: (s) => (s.length > 0 ? null : "required") },
+  {
+    id: "neo4j-user",
+    label: "Neo4j user",
+    cliKey: "neo4j-user",
+    infra: true,
+    validate: (s) => (s.length > 0 ? null : "required"),
+  },
   {
     id: "neo4j-password",
     label: "Neo4j password",
     cliKey: "neo4j-password",
     mask: true,
+    infra: true,
     validate: (s) => (s.length > 0 ? null : "required"),
   },
   {
     id: "redis",
     label: "Redis URL",
     cliKey: "redis",
+    infra: true,
     validate: (s) => (REDIS_RX.test(s) ? null : "expected redis:// or rediss://"),
   },
   {
@@ -57,6 +73,19 @@ const ROWS: Row[] = [
     cliKey: "concurrency.github",
     validate: (s) => (/^\d+$/u.test(s) && Number(s) > 0 ? null : "expected positive integer"),
   },
+  {
+    id: "openrouter-api-key",
+    label: "OpenRouter API key",
+    cliKey: "openrouter-api-key",
+    mask: true,
+    validate: (s) => (s.length > 0 ? null : "required — get one at openrouter.ai/keys"),
+  },
+  {
+    id: "openrouter-model",
+    label: "OpenRouter model",
+    cliKey: "openrouter-model",
+    validate: (s) => (s.length > 0 ? null : "required — e.g. deepseek/deepseek-v4-flash"),
+  },
 ];
 
 function loadInitial(): Record<string, string> {
@@ -68,6 +97,9 @@ function loadInitial(): Record<string, string> {
     redis: getConfigValue(Config.RedisUrl),
     port: String(getConfigValue(Config.ServerPort)),
     "concurrency-github": String(getConfigValue(Config.ConcurrencyGithub)),
+    "openrouter-api-key": getConfigValue(Config.OpenrouterApiKey),
+    "openrouter-model": getConfigValue(Config.OpenrouterModel),
+    "infra-mode": isEmbedded() ? "embedded" : "docker",
   };
 }
 
@@ -80,11 +112,14 @@ export function SetupForm({ onDone }: SetupFormProps): ReactElement {
   const [values, setValues] = useState<Record<string, string>>(() => loadInitial());
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  const isDocker = (values["infra-mode"] ?? "docker") === "docker";
+  const visibleRows = ROWS.filter((r) => isDocker || r.infra !== true);
+
   const errors: Record<string, string | null> = {};
-  for (const row of ROWS) {
+  for (const row of visibleRows) {
     errors[row.id] = row.validate(values[row.id] ?? "");
   }
-  const allValid = ROWS.every((r) => errors[r.id] === null);
+  const allValid = visibleRows.every((r) => errors[r.id] === null);
 
   useInput((_input, key) => {
     if (key.escape) {
@@ -94,7 +129,8 @@ export function SetupForm({ onDone }: SetupFormProps): ReactElement {
     }
     if (key.return && allValid && submitError === null) {
       try {
-        for (const row of ROWS) {
+        applyInfraMode((values["infra-mode"] ?? "docker") as InfraMode);
+        for (const row of visibleRows) {
           const entry = KEY_MAP[row.cliKey];
           if (entry === undefined) {
             throw new Error(`No KEY_MAP entry for "${row.cliKey}"`);
@@ -114,7 +150,17 @@ export function SetupForm({ onDone }: SetupFormProps): ReactElement {
       <Box marginBottom={1}>
         <Text bold>Bytebell setup</Text>
       </Box>
-      {ROWS.map((row) => (
+      <ToggleField
+        id="infra-mode"
+        label="Infrastructure"
+        value={values["infra-mode"] ?? "docker"}
+        options={MODE_OPTIONS}
+        onChange={(next) => setValues((prev) => ({ ...prev, "infra-mode": next }))}
+      />
+      <Box marginBottom={1}>
+        <Text dimColor> {infraModeOption(isDocker ? "docker" : "embedded").hint}</Text>
+      </Box>
+      {visibleRows.map((row) => (
         <Field
           key={row.id}
           id={row.id}
@@ -126,7 +172,7 @@ export function SetupForm({ onDone }: SetupFormProps): ReactElement {
         />
       ))}
       <Box marginTop={1}>
-        <Text dimColor>[Tab] next [Shift-Tab] back [Enter] save [Esc] quit</Text>
+        <Text dimColor>[Tab] next [Shift-Tab] back [←/→] switch [Enter] save [Esc] quit</Text>
       </Box>
       {submitError !== null && (
         <Box marginTop={1}>

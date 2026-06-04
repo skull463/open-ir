@@ -1,4 +1,4 @@
-export { Config, DbProviderType, GraphProviderType } from "./config.ts";
+export { Config, DbProviderType, GraphProviderType, QueueProviderType } from "./config.ts";
 export { JobType, JobPriority } from "./job.ts";
 export type {
   GithubIndexPayload,
@@ -57,5 +57,6 @@ export {
   metaOutputRootFor,
   bytebellPathsFor,
   parseGithubOwnerRepo,
+  parseGitlabOwnerRepo,
 } from "./path-layout.ts";
 export type { RepoLocation, MetaPathsLayout } from "./path-layout.ts";

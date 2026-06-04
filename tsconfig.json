@@ -3,6 +3,31 @@
   "compilerOptions": {
     "noEmit": true
   },
-  "include": ["packages/*/src/**/*.ts", "packages/*/src/**/*.tsx", "packages/*/src/**/*.json"],
-  "exclude": ["**/node_modules", "**/dist", "**/*.d.ts"]
+  "files": [],
+  "references": [
+    { "path": "packages/types" },
+    { "path": "packages/errors" },
+    { "path": "packages/config" },
+    { "path": "packages/logger" },
+    { "path": "packages/mongo" },
+    { "path": "packages/sqlite" },
+    { "path": "packages/redis" },
+    { "path": "packages/neo4j" },
+    { "path": "packages/ladybug" },
+    { "path": "packages/db-core" },
+    { "path": "packages/db" },
+    { "path": "packages/graph-core" },
+    { "path": "packages/graph-db" },
+    { "path": "packages/queue-core" },
+    { "path": "packages/queue-bullmq" },
+    { "path": "packages/queue-honker" },
+    { "path": "packages/queue" },
+    { "path": "packages/llm" },
+    { "path": "packages/path-migration" },
+    { "path": "packages/ingest-github" },
+    { "path": "packages/ingest-business-context" },
+    { "path": "packages/mcp" },
+    { "path": "packages/cli" },
+    { "path": "packages/server" }
+  ]
 }

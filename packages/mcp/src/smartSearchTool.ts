@@ -1,15 +1,9 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { UsageTracker } from "@bb/llm";
-import { toNeo4jInt } from "@bb/graph-db";
+import { searchGraph } from "@bb/graph-db";
+import type { ScoredHit, SmartSearchChannel, SmartSearchChannelInput } from "@bb/graph-core";
 import { getLogger } from "@bb/logger";
-import {
-  CHANNEL_RUNNERS,
-  buildFulltextQuery,
-  type ChannelName,
-  type ScoredHit,
-  type SearchParams,
-} from "./smartSearchChannels.ts";
 import {
   attachRepoNames,
   buildConceptClusters,
@@ -19,6 +13,17 @@ import {
   type SmartSearchResult,
 } from "./smartSearchFusion.ts";
 import { EXCLUSION_CATEGORIES, buildExclusionParams, type ExclusionCategory } from "./searchExclusions.ts";
+
+const CHANNELS: readonly SmartSearchChannel[] = [
+  "purpose",
+  "businessContext",
+  "paths",
+  "keywords",
+  "classes",
+  "functions",
+  "importsInternal",
+  "importsExternal",
+];
 
 const RESULT_CAP_PER_CHANNEL = 100;
 const DEFAULT_PAGE_SIZE = 30;
@@ -110,24 +115,21 @@ export async function runSmartSearch(args: SmartSearchInput): Promise<SmartSearc
     .split(/\s+/u)
     .filter((term) => term.length > 0);
   const exclusions = buildExclusionParams(args.exclude ?? []);
-  const params: SearchParams = {
+  const params: SmartSearchChannelInput = {
     knowledgeId: args.knowledgeId ?? null,
     knowledgeIds: args.knowledgeIds !== undefined && args.knowledgeIds.length > 0 ? args.knowledgeIds : null,
     pathPrefix: args.path ?? null,
     queryTerms: queryTerms.length === 0 ? [args.query.trim().toLowerCase()] : queryTerms,
-    fulltextQuery: buildFulltextQuery(queryTerms.length === 0 ? [args.query.trim().toLowerCase()] : queryTerms),
-    resultCap: toNeo4jInt(RESULT_CAP_PER_CHANNEL),
+    resultCap: RESULT_CAP_PER_CHANNEL,
     excludeSuffixes: exclusions.suffixes,
     excludeContains: exclusions.contains,
   };
 
-  const channelNames = Object.keys(CHANNEL_RUNNERS) as ChannelName[];
   const log = getLogger("server");
   const settled = await Promise.all(
-    channelNames.map(async (channel): Promise<{ channel: ChannelName; hits: ScoredHit[] }> => {
+    CHANNELS.map(async (channel): Promise<{ channel: SmartSearchChannel; hits: ScoredHit[] }> => {
       try {
-        const runner = CHANNEL_RUNNERS[channel];
-        const hits = await runner(params);
+        const hits = await searchGraph.runSmartSearchChannel(channel, params);
         return { channel, hits };
       } catch (err: unknown) {
         log.warn("smart_search channel failed", {
@@ -140,7 +142,7 @@ export async function runSmartSearch(args: SmartSearchInput): Promise<SmartSearc
     }),
   );
 
-  const perChannel: Record<ChannelName, ScoredHit[]> = {
+  const perChannel: Record<SmartSearchChannel, ScoredHit[]> = {
     purpose: [],
     businessContext: [],
     paths: [],
@@ -150,7 +152,7 @@ export async function runSmartSearch(args: SmartSearchInput): Promise<SmartSearc
     importsInternal: [],
     importsExternal: [],
   };
-  const channelsUsed: ChannelName[] = [];
+  const channelsUsed: SmartSearchChannel[] = [];
   for (const entry of settled) {
     perChannel[entry.channel] = entry.hits;
     if (entry.hits.length > 0) {

@@ -5,6 +5,7 @@ import type {
   IGraphFolderRepository,
   IGraphRepoRepository,
   IGraphIndexRepository,
+  IGraphSearchRepository,
   IGraphConceptRepository,
   IGraphContractRepository,
   IGraphGuidepostRepository,
@@ -48,16 +49,46 @@ export const knowledgeGraph: IGraphKnowledgeRepository = {
   deleteKnowledgeGraph: (...args) => getGraph().knowledge.deleteKnowledgeGraph(...args),
 };
 
-export const filesGraph: IGraphFileRepository = {
+// The facade always provides batch + bulk paths (with a per-item fallback when
+// the active provider omits them), so they are non-optional here even though
+// `IGraphFileRepository` marks them optional for provider implementors.
+export const filesGraph: Required<IGraphFileRepository> = {
   upsertFileNode: (...args) => getGraph().files.upsertFileNode(...args),
   deleteFileNodes: (...args) => getGraph().files.deleteFileNodes(...args),
   snapshotFilesToVersion: (...args) => getGraph().files.snapshotFilesToVersion(...args),
-  upsertFileNodesBatch: (...args) => getGraph().files.upsertFileNodesBatch(...args),
+  upsertFileNodesBatch: async (inputs) => {
+    const f = getGraph().files;
+    if (f.upsertFileNodesBatch) {
+      await f.upsertFileNodesBatch(inputs);
+    } else {
+      for (const input of inputs) {
+        await f.upsertFileNode(input);
+      }
+    }
+  },
+  bulkUpsertFiles: async (knowledgeId, fileStream) => {
+    const f = getGraph().files;
+    if (f.bulkUpsertFiles) {
+      return f.bulkUpsertFiles(knowledgeId, fileStream);
+    }
+    for await (const input of fileStream) {
+      await f.upsertFileNode(input);
+    }
+  },
 };
 
 export const foldersGraph: IGraphFolderRepository = {
   upsertFolderNode: (...args) => getGraph().folders.upsertFolderNode(...args),
-  upsertFolderNodesBatch: (...args) => getGraph().folders.upsertFolderNodesBatch(...args),
+  upsertFolderNodesBatch: async (inputs) => {
+    const f = getGraph().folders;
+    if (f.upsertFolderNodesBatch) {
+      await f.upsertFolderNodesBatch(inputs);
+    } else {
+      for (const input of inputs) {
+        await f.upsertFolderNode(input);
+      }
+    }
+  },
 };
 
 export const repoGraph: IGraphRepoRepository = {
@@ -84,6 +115,14 @@ export const contractsGraph: IGraphContractRepository = {
 export const guidepostsGraph: IGraphGuidepostRepository = {
   upsertGuidepost: (...args) => getGraph().guideposts.upsertGuidepost(...args),
   attachGuidepost: (...args) => getGraph().guideposts.attachGuidepost(...args),
+};
+
+export const searchGraph: IGraphSearchRepository = {
+  runSmartSearchChannel: (...args) => getGraph().search.runSmartSearchChannel(...args),
+  keywordLookup: (...args) => getGraph().search.keywordLookup(...args),
+  listKnowledgeBases: (...args) => getGraph().search.listKnowledgeBases(...args),
+  fetchFileMetadata: (...args) => getGraph().search.fetchFileMetadata(...args),
+  fetchRepoNames: (...args) => getGraph().search.fetchRepoNames(...args),
 };
 
 export async function pingGraph(): Promise<GraphPingResult> {

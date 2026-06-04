@@ -18,6 +18,12 @@ export interface StoreFlatAnalysisInput {
   scope: NodeScope;
   payload: GithubIndexPayload;
   branch: string;
+  /** GitHub owner — persisted to RepoSummary.user_name (matches the on-disk clone path). */
+  owner: string;
+  /** Bare repo name — persisted to RepoSummary.repo_name (matches the on-disk clone path). */
+  repo: string;
+  /** Resolved commit hash — persisted to RepoSummary.commit_hash / Knowledge.commit_hash. */
+  commitHash: string;
   metaPaths: MetaPaths;
   cache: FileAnalysisCache;
   progressContext?: ProgressContext;
@@ -43,6 +49,9 @@ export async function storeFlatAnalysis(input: StoreFlatAnalysisInput): Promise<
       scope: input.scope,
       repoUrl: input.payload.repoUrl,
       branch: input.branch,
+      owner: input.owner,
+      repo: input.repo,
+      commitHash: input.commitHash,
       summary: {
         purpose: repoSummary.purpose,
         summary: repoSummary.summary,
@@ -59,6 +68,9 @@ export async function storeFlatAnalysis(input: StoreFlatAnalysisInput): Promise<
       scope: input.scope,
       repoUrl: input.payload.repoUrl,
       branch: input.branch,
+      owner: input.owner,
+      repo: input.repo,
+      commitHash: input.commitHash,
       summary: emptyRepoSummaryPayload(),
     });
   }
@@ -117,7 +129,13 @@ export async function storeFlatAnalysis(input: StoreFlatAnalysisInput): Promise<
     for (let i = 0; i < folderInputs.length; i += batchSize) {
       throwIfCancelled(input.scope.knowledgeId);
       const batch = folderInputs.slice(i, i + batchSize);
-      await foldersGraph.upsertFolderNodesBatch(batch);
+      if (foldersGraph.upsertFolderNodesBatch) {
+        await foldersGraph.upsertFolderNodesBatch(batch);
+      } else {
+        for (const item of batch) {
+          await foldersGraph.upsertFolderNode(item);
+        }
+      }
       foldersWritten += batch.length;
       nodesWritten += batch.length;
       for (const item of batch) {
@@ -125,35 +143,50 @@ export async function storeFlatAnalysis(input: StoreFlatAnalysisInput): Promise<
       }
     }
 
-    // 5. Batched file upserts.
-    const fileInputs: UpsertFileNodeInput[] = [];
-    for (const file of input.cache.values()) {
-      fileInputs.push({
-        orgId: input.scope.orgId,
-        knowledgeId: input.scope.knowledgeId,
-        repoId: input.scope.repoId,
-        relativePath: file.relativePath,
-        folderPath: directFolderOf(file.relativePath),
-        language: file.language.length > 0 ? file.language : languageFromPath(file.relativePath),
-        sha: file.sha256,
-        sizeBytes: file.sizeBytes,
-        analysis: file.analysis,
-        isBigFile: file.isBigFile,
-        totalChunks: file.totalChunks,
-        totalTokenCount: file.totalTokenCount,
-      });
+    // 5. File upsert stream.
+    async function* yieldFiles() {
+      for (const file of input.cache.values()) {
+        throwIfCancelled(input.scope.knowledgeId);
+        const upsertInput: UpsertFileNodeInput = {
+          orgId: input.scope.orgId,
+          knowledgeId: input.scope.knowledgeId,
+          repoId: input.scope.repoId,
+          relativePath: file.relativePath,
+          folderPath: directFolderOf(file.relativePath),
+          language: file.language.length > 0 ? file.language : languageFromPath(file.relativePath),
+          sha: file.sha256,
+          sizeBytes: file.sizeBytes,
+          analysis: file.analysis,
+          isBigFile: file.isBigFile,
+          totalChunks: file.totalChunks,
+          totalTokenCount: file.totalTokenCount,
+        };
+        filesWritten += 1;
+        nodesWritten += 1;
+        yield upsertInput;
+        fileReporter?.increment(1, { fileName: file.relativePath });
+      }
     }
-    logger.info(
-      `phase7: file upsert dispatching ${Math.ceil(fileInputs.length / batchSize)} batches of up to ${batchSize} files (total=${fileInputs.length})`,
-    );
-    for (let i = 0; i < fileInputs.length; i += batchSize) {
-      throwIfCancelled(input.scope.knowledgeId);
-      const batch = fileInputs.slice(i, i + batchSize);
-      await filesGraph.upsertFileNodesBatch(batch);
-      filesWritten += batch.length;
-      nodesWritten += batch.length;
-      for (const item of batch) {
-        fileReporter?.increment(1, { fileName: item.relativePath });
+
+    if (typeof filesGraph.bulkUpsertFiles === "function") {
+      await filesGraph.bulkUpsertFiles(input.scope.knowledgeId, yieldFiles());
+    } else if (typeof filesGraph.upsertFileNodesBatch === "function") {
+      let batch: UpsertFileNodeInput[] = [];
+      for await (const f of yieldFiles()) {
+        batch.push(f);
+        if (batch.length >= batchSize) {
+          throwIfCancelled(input.scope.knowledgeId);
+          await filesGraph.upsertFileNodesBatch(batch);
+          batch = [];
+        }
+      }
+      if (batch.length > 0) {
+        throwIfCancelled(input.scope.knowledgeId);
+        await filesGraph.upsertFileNodesBatch(batch);
+      }
+    } else {
+      for await (const f of yieldFiles()) {
+        await filesGraph.upsertFileNode(f);
       }
     }
   } finally {

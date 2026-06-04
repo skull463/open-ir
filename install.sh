@@ -41,17 +41,13 @@ if ! command -v bun &>/dev/null; then
 fi
 print_ok "Bun $(bun --version)"
 
-if ! command -v docker &>/dev/null; then
-  print_err "Docker is not installed."
-  echo ""
-  echo "  Install Docker Desktop from: https://www.docker.com/products/docker-desktop"
-  echo "  then re-run this script."
-  exit 1
-fi
-
-# `docker info` can hang if the daemon is wedged or mid-start, so cap it.
-# Prefer GNU `timeout`/`gtimeout`; fall back to a plain call where neither exists.
+# Docker is OPTIONAL. The recommended default is the embedded stack
+# (SQLite + Ladybug + Honker) which needs no Docker at all. Docker is only
+# required if you later choose "Docker" infra mode in `bytebell setup`
+# (Mongo + Neo4j + Redis). So this is an informational probe, never fatal.
 check_docker_running() {
+  # `docker info` can hang if the daemon is wedged or mid-start, so cap it.
+  # Prefer GNU `timeout`/`gtimeout`; fall back to a plain call where neither exists.
   if command -v timeout &>/dev/null; then
     timeout 10 docker info >/dev/null 2>&1
   elif command -v gtimeout &>/dev/null; then
@@ -61,11 +57,13 @@ check_docker_running() {
   fi
 }
 
-if ! check_docker_running; then
-  print_err "Docker is installed but not running. Start Docker Desktop and retry."
-  exit 1
+if ! command -v docker &>/dev/null; then
+  print_info "Docker not installed — fine for embedded mode (the default). Only needed if you pick Docker infra mode in 'bytebell setup'."
+elif ! check_docker_running; then
+  print_info "Docker installed but not running — fine for embedded mode (the default). Start Docker Desktop only if you choose Docker infra mode."
+else
+  print_ok "Docker $(docker --version | awk '{print $3}' | tr -d ',')"
 fi
-print_ok "Docker $(docker --version | awk '{print $3}' | tr -d ',')"
 
 if ! command -v git &>/dev/null; then
   print_err "git is not installed. Install it and retry."

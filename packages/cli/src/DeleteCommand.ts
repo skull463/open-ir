@@ -1,7 +1,8 @@
 import { Command } from "commander";
 import { Config, DbProviderType } from "@bb/types";
 import { getConfigValue } from "@bb/config";
-import { ensureServerRunning, ServerStartTimeoutError } from "./serverSpawn.ts";
+import { ensureServerRunning } from "./serverSpawn.ts";
+import { ServerStartTimeoutError } from "@bb/errors";
 import { deleteJson, HttpClientError } from "./httpClient.ts";
 import { promptRepoSelector } from "./repoSelectorPrompt.ts";
 import { error, success } from "./output.ts";

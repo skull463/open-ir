@@ -37,7 +37,10 @@ export enum Config {
   SkipDecisionCachePath = "skip.decision.cache.path",
   DbProvider = "db_provider",
   GraphProvider = "graph_provider",
+  QueueProvider = "queue_provider",
+  QueueDbPath = "queue_db_path",
   SqlitePath = "sqlite_path",
+  LadybugPath = "ladybug_path",
   IngestionStrategy = "ingestion.strategy",
   EnrichmentModel = "enrichment.model",
   EnrichmentMaxToolCallsPerFile = "enrichment.max.tool.calls.per.file",
@@ -57,6 +60,10 @@ export enum GraphProviderType {
   Ladybug = "ladybug",
 }
 
+export enum QueueProviderType {
+  Bullmq = "bullmq",
+  Honker = "honker",
+}
 /**
  * Active ingestion strategy. `flat-folder` is the historic default that
  * produces `:Repo` + `:Folder` summaries via per-folder LLM passes.

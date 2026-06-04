@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { buildSetCommand } from "./SetCommand.ts";
+import { buildSetupCommand } from "./SetupCommand.ts";
 import { buildServerCommand } from "./ServerCommand.ts";
 import { buildIndexCommand } from "./IndexCommand.ts";
 import { buildIngestCommand } from "./IngestCommand.ts";
@@ -28,6 +29,7 @@ export function buildProgram(): Command {
   const program = new Command("bytebell");
   program.version(VERSION).description("Bytebell — local knowledge engine TUI");
   program.addCommand(buildSetCommand());
+  program.addCommand(buildSetupCommand());
   program.addCommand(buildBootCommand());
   program.addCommand(buildShutdownCommand());
   program.addCommand(buildServerCommand());

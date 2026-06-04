@@ -1,6 +1,8 @@
 import { Command } from "commander";
 import { getJson } from "./httpClient.ts";
 import { info, table, error } from "./output.ts";
+import { runMcpInstall } from "./mcpInstall.ts";
+import { ensureServerRunning } from "./serverSpawn.ts";
 
 interface McpStats {
   global: {
@@ -24,10 +26,21 @@ export function buildMcpCommand(): Command {
   const mcp = new Command("mcp").description("Manage and view MCP usage");
 
   mcp
+    .command("install")
+    .description("Detect installed coding tools and register the bytebell MCP endpoint in their config.")
+    .action(async () => {
+      await runMcpInstall();
+    });
+
+  mcp
     .command("stats")
     .description("Show input/output token stats for MCP")
     .action(async () => {
       try {
+        const ctx = await ensureServerRunning();
+        if (ctx.alreadyRunning === false && ctx.logPath !== undefined) {
+          process.stderr.write(`(started server in background; logs: ${ctx.logPath})\n`);
+        }
         const stats = await getJson<McpStats>("/api/v1/mcp/stats");
 
         info("--- Global MCP Usage ---");

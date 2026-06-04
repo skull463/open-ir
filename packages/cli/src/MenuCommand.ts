@@ -15,6 +15,7 @@ const GROUPS: readonly MenuGroup[] = [
     items: [
       { id: "configure-llm", glyph: "⚙", label: "Configure LLM provider", hint: "switch openrouter/ollama · key" },
       { id: "set", glyph: "⚙", label: "Settings", hint: "infra config / setup form" },
+      { id: "mcp-install", glyph: "⧉", label: "Connect MCP clients", hint: "register bytebell in your editors" },
     ],
   },
   {
@@ -30,7 +31,7 @@ const GROUPS: readonly MenuGroup[] = [
   {
     title: "Server",
     items: [
-      { id: "boot", glyph: "▲", label: "Boot", hint: "docker infra + start server" },
+      { id: "boot", glyph: "▲", label: "Boot", hint: "start server (+ Docker infra if needed)" },
       { id: "shutdown", glyph: "■", label: "Shutdown", hint: "stop the server" },
     ],
   },
@@ -57,6 +58,7 @@ const ARG_SPECS: Record<string, readonly ArgSpec[]> = {
  */
 const DISPATCH: Record<string, readonly string[]> = {
   mcp: ["mcp", "stats"],
+  "mcp-install": ["mcp", "install"],
 };
 
 export function buildMenuCommand(): Command {

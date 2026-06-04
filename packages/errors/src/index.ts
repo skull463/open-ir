@@ -11,6 +11,12 @@ export {
   UsageLimitExceededError,
 } from "./ingest-errors.ts";
 export type { UsageLimitExceededDetail } from "./ingest-errors.ts";
-export { ServerConfigError } from "./server-errors.ts";
+export {
+  ServerConfigError,
+  ServerStartTimeoutError,
+  ServerInfraDownError,
+  ServerInfraUnreachableError,
+  ServerProcessExitedError,
+} from "./server-errors.ts";
 export { Neo4jConfigError, Neo4jConnectError, Neo4jNotConnectedError } from "./neo4j-errors.ts";
 export { LayoutMigrationRequiredError } from "./layout-errors.ts";

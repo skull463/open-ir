@@ -8,12 +8,19 @@ package-level contract; this file documents how the source tree is split.
 - **[index.ts](index.ts)** — binary entry. Shebang `#!/usr/bin/env bun`.
   Runs `checkRequiredConfig()` (throws `ServerConfigError` with the
   missing keys + matching `bytebell set …` hints); awaits the four
-  `connect*` calls (mongo → redis → neo4j → queue) and runs
-  `ensureKnowledgeIndexes()` between neo4j connect and queue connect;
+  `connect*` calls (mongo → redis → neo4j → queue), runs
+  `reconcileLegacyLayout()` right after the db connect (see
+  [legacyLayout.ts](legacyLayout.ts)), and runs `ensureKnowledgeIndexes()`
+  between neo4j connect and queue connect;
   calls both worker registrations; installs shutdown handlers;
   constructs the express app with `express.json({ limit: "1mb" })`;
   binds to `127.0.0.1`; writes `~/.bytebell/pid`. On any error during
   boot: prints to stderr and exits 1.
+- **[legacyLayout.ts](legacyLayout.ts)** — `reconcileLegacyLayout()`, called
+  after `connectDb`. Lists knowledge via `@bb/db`, delegates the disk work to
+  `@bb/path-migration` (migrate recoverable, abandon orphans), logs migrated /
+  abandoned, and throws `LayoutMigrationRequiredError` only if un-migratable
+  dirs with a live DB record remain.
 - **[routes.ts](routes.ts)** — single `registerRoutes(app)` that mounts
   every `Router` on the express app, then calls `mountMcp(app)` from
   `@bb/mcp` to register the MCP transport routes (Streamable HTTP at

@@ -11,6 +11,9 @@ export PATH="$HOME/.bun/bin:$PATH"
 # ─────────────────────────────────────────────
 
 REPO_URL="https://github.com/ByteBell/open-ir"
+# Clone the same branch this installer was published from, so the installed code
+# matches the config schema it writes. Override with BYTEBELL_BRANCH=... if needed.
+REPO_BRANCH="${BYTEBELL_BRANCH:-merge/embedded_prerelease}"
 
 # ── helpers ──────────────────────────────────
 
@@ -78,7 +81,7 @@ print_step "Cloning Bytebell"
 if [ -d "open-ir/.git" ]; then
   print_info "existing install detected at open-ir/ — leaving it untouched (no git pull)"
 else
-  git clone "$REPO_URL"
+  git clone --branch "$REPO_BRANCH" "$REPO_URL" open-ir
 fi
 cd open-ir
 REPO_DIR="$(pwd)"

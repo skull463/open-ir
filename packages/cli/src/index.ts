@@ -1,36 +1,16 @@
 #!/usr/bin/env bun
-import { Command } from "commander";
-import { buildSetCommand } from "./SetCommand.ts";
-import { buildServerCommand } from "./ServerCommand.ts";
-import { buildIndexCommand } from "./IndexCommand.ts";
-import { buildIngestCommand } from "./IngestCommand.ts";
-import { buildPullCommand } from "./PullCommand.ts";
-import { buildLsCommand } from "./LsCommand.ts";
-import { buildBootCommand } from "./BootCommand.ts";
-import { buildShutdownCommand } from "./ShutdownCommand.ts";
-import { buildDeleteCommand } from "./DeleteCommand.ts";
-import { buildStatsCommand } from "./StatsCommand.ts";
-import { buildMcpCommand } from "./McpCommand.ts";
-import { buildMigrateCommand } from "./MigratePathsCommand.ts";
+import { buildProgram } from "./program.ts";
+import { runMenu } from "./MenuCommand.ts";
 import { error } from "./output.ts";
 
-const VERSION = "0.0.0";
-
 async function main(): Promise<void> {
-  const program = new Command("bytebell");
-  program.version(VERSION).description("Bytebell — local knowledge engine TUI");
-  program.addCommand(buildSetCommand());
-  program.addCommand(buildBootCommand());
-  program.addCommand(buildShutdownCommand());
-  program.addCommand(buildServerCommand());
-  program.addCommand(buildIndexCommand());
-  program.addCommand(buildIngestCommand());
-  program.addCommand(buildPullCommand());
-  program.addCommand(buildLsCommand());
-  program.addCommand(buildDeleteCommand());
-  program.addCommand(buildStatsCommand());
-  program.addCommand(buildMcpCommand());
-  program.addCommand(buildMigrateCommand());
+  // A bare `bytebell` (no subcommand, no flags) opens the interactive menu.
+  // Anything else — a subcommand, `--help`, `--version` — parses normally.
+  if (process.argv.slice(2).length === 0) {
+    await runMenu();
+    return;
+  }
+  const program = buildProgram();
   await program.parseAsync(process.argv);
 }
 

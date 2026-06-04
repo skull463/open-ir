@@ -20,9 +20,17 @@ The user-facing terminal UI for Bytebell. Arch-spec'd at
 mode, every invocation is interactive in spirit, with subcommands for
 indexing, configuration, server lifecycle, and inspection.
 
-**v0 surface:** `set`, `boot`, `shutdown`, `server start`, `index`,
-`ingest`, `ls`, `delete`, `stats`.
+**v0 surface:** `menu`, `set`, `boot`, `shutdown`, `server start`,
+`index`, `ingest`, `ls`, `delete`, `stats`.
 
+- `bytebell` (no args) / `bytebell menu` — interactive command menu.
+  An Ink picker grouped into SETUP / KNOWLEDGE / SERVER / INSIGHTS;
+  ↑/↓ to move, Enter runs the highlighted command, Esc/q quits. The
+  SETUP group includes **Configure LLM provider** — a dedicated
+  two-phase form (pick openrouter/ollama → edit API key + model, or
+  Ollama URL + model) that saves through the same `setConfigValue`
+  path as `bytebell set`. Commands needing positional args (`index`,
+  `ingest`) prompt for them before dispatch; the rest run directly.
 - `bytebell set <key> <value>` — headless write to
   `~/.bytebell/config.json` via `@bb/config.setConfigValue`. Type
   coercion + Zod validation + atomic `tmp → fsync → rename`. Sole
@@ -85,8 +93,9 @@ The package does **not** own:
 - Live infra connection probes — the CLI cannot import `@bb/mongo` /
   `@bb/redis` per the tier rule. Format-only validation in v0; future
   `bytebell config doctor` will probe via a running server.
-- The Ink dashboard (`bytebell` no-args) — needs the server's HTTP API
-  - activity feed.
+- The full Ink dashboard (Repos / Server / Activity / Cost panes) —
+  needs the server's HTTP API + activity feed. The shipped `bytebell`
+  no-args **menu** is a lighter command picker, not this dashboard.
 - OpenRouter API key handling — own subcommand (`bytebell keys set`)
   with `keytar` keychain backing.
 
@@ -169,7 +178,8 @@ will touch when implemented. Only the **bolded** entries ship in v0.
 | **`bytebell ls`**                                | **Render `/api/v1/repos` as a table or interactive explorer (`-i`). v0.**                                            | **Shipped**                                 |
 | **`bytebell delete`**                            | **Ink picker over `/api/v1/repos`, then DELETE `/api/v1/repos/:id` (Mongo + Neo4j + jobs).**                         | **Shipped**                                 |
 | **`bytebell stats`**                             | **Render `/api/v1/stats` (totals + per-repo + per-commit token / cost rows).**                                       | **Shipped**                                 |
-| `bytebell`                                       | Ink dashboard with Repos / Server / Activity / Cost panes ([docs/arch.md:172-184](../../docs/arch.md#L172-L184))     | After `@bb/server` HTTP API + activity feed |
+| **`bytebell` / `bytebell menu`**                 | **Interactive Ink command menu (grouped picker) + dedicated Configure LLM provider form.**                           | **Shipped**                                 |
+| `bytebell` (full dashboard)                      | Ink dashboard with Repos / Server / Activity / Cost panes ([docs/arch.md:172-184](../../docs/arch.md#L172-L184))     | After `@bb/server` HTTP API + activity feed |
 | `bytebell` (first-run auto-launch of setup form) | If `isConfigComplete()` returns false, redirect to `bytebell set` form ([docs/arch.md:170](../../docs/arch.md#L170)) | After dashboard lands                       |
 | `bytebell models set <model-id>`                 | Validate model via OpenRouter API + write `openrouter_model`                                                         | After OpenRouter helper                     |
 | `bytebell models ls`                             | Curated 5-10 models, on-the-fly OpenRouter pricing                                                                   | Same                                        |

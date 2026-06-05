@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ReactElement } from "react";
-import { Box, Text, useFocusManager, useInput } from "ink";
+import { Box, Text, useInput } from "ink";
 import { Config } from "@bb/types";
 import { getConfigValue } from "@bb/config";
 import { KEY_MAP } from "./keyMap.ts";
@@ -55,8 +55,14 @@ function loadInitial(): Record<string, string> {
   };
 }
 
+export interface LlmConfigFormResult {
+  saved?: boolean;
+  back?: boolean;
+  quit?: boolean;
+}
+
 export interface LlmConfigFormProps {
-  onDone: (result: { saved: boolean; error?: string }) => void;
+  onDone: (result: LlmConfigFormResult) => void;
 }
 
 export function LlmConfigForm({ onDone }: LlmConfigFormProps): ReactElement {
@@ -73,7 +79,8 @@ export function LlmConfigForm({ onDone }: LlmConfigFormProps): ReactElement {
           setProvider(p);
           setPhase("fields");
         }}
-        onCancel={() => onDone({ saved: false })}
+        onBack={() => onDone({ back: true })}
+        onQuit={() => onDone({ quit: true })}
       />
     );
   }
@@ -91,10 +98,11 @@ export function LlmConfigForm({ onDone }: LlmConfigFormProps): ReactElement {
 interface ProviderPickerProps {
   current: Provider;
   onPick: (p: Provider) => void;
-  onCancel: () => void;
+  onBack: () => void;
+  onQuit: () => void;
 }
 
-function ProviderPicker({ current, onPick, onCancel }: ProviderPickerProps): ReactElement {
+function ProviderPicker({ current, onPick, onBack, onQuit }: ProviderPickerProps): ReactElement {
   const [index, setIndex] = useState(() =>
     Math.max(
       0,
@@ -103,8 +111,12 @@ function ProviderPicker({ current, onPick, onCancel }: ProviderPickerProps): Rea
   );
 
   useInput((input, key) => {
-    if (key.escape || input === "q") {
-      onCancel();
+    if (key.escape) {
+      onQuit();
+      return;
+    }
+    if (input === "q") {
+      onBack();
       return;
     }
     if (key.upArrow || input === "k") {
@@ -148,7 +160,8 @@ function ProviderPicker({ current, onPick, onCancel }: ProviderPickerProps): Rea
           controls={[
             { keys: "↑ ↓", label: "navigate" },
             { keys: "⏎", label: "choose" },
-            { keys: "esc", label: "cancel" },
+            { keys: "q", label: "back" },
+            { keys: "esc", label: "quit" },
           ]}
         />
       </Box>
@@ -165,7 +178,6 @@ interface FieldsFormProps {
 }
 
 function FieldsForm({ provider, values, onChange, onBack, onSaved }: FieldsFormProps): ReactElement {
-  const { focusNext, focusPrevious } = useFocusManager();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const rows = ROWS[provider];
 
@@ -181,17 +193,12 @@ function FieldsForm({ provider, values, onChange, onBack, onSaved }: FieldsFormP
     }
   };
 
+  // Tab / Shift-Tab are handled natively by Ink's focus manager (each Field
+  // joins via `useFocus`). Doing it manually here too would double-advance and
+  // skip the second field — so we only handle Esc (back) and Enter (save).
   useInput((_input, key) => {
     if (key.escape) {
       onBack();
-      return;
-    }
-    if (key.tab && key.shift) {
-      focusPrevious();
-      return;
-    }
-    if (key.tab) {
-      focusNext();
       return;
     }
     if (key.return) {

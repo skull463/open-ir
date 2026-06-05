@@ -6,13 +6,13 @@ package-level contract; this file documents how the source tree is split.
 ## Files
 
 - **[index.ts](index.ts)** — binary entry. Shebang `#!/usr/bin/env bun`.
-  A bare `bytebell` (no argv beyond node + script) calls `runMenu()` to
+  A bare `bytebell-tinker` (no argv beyond node + script) calls `runMenu()` to
   open the interactive TUI menu; anything else (a subcommand, `--help`,
   `--version`) is built via `buildProgram()` and handed to `parseAsync`.
   Top-level `try/catch` prints any uncaught error and exits `2` (the
   typed-error path through commander handlers exits `1`).
 - **[program.ts](program.ts)** — `buildProgram()` constructs the
-  commander `Command("bytebell")`, wires `VERSION`, and registers every
+  commander `Command("bytebell-tinker")`, wires `VERSION`, and registers every
   shipped subcommand: `set`, `boot`, `shutdown`, `server`, `index`,
   `ingest`, `pull`, `ls`, `delete`, `stats`, `mcp`, `migrate`, `menu`.
   Extracted from `index.ts` so `MenuCommand` can build a fresh program
@@ -22,31 +22,38 @@ package-level contract; this file documents how the source tree is split.
   string, shared by `program.ts` and the menu footer. Separate file to
   avoid an `index ↔ program ↔ MenuCommand` import cycle.
 - **[MenuCommand.ts](MenuCommand.ts)** — the `menu` subcommand and the
-  `runMenu()` orchestrator (also the default when `bytebell` is run with
-  no args). Owns the `GROUPS` layout (SETUP / KNOWLEDGE / SERVER /
-  INSIGHTS) and the `ARG_SPECS` table of which commands need positional
-  args prompted. Flow: render `<MenuSelector />` → on the synthetic
-  `configure-llm` id render `<LlmConfigForm />`; on an arg-taking command
-  render `<ArgPrompt />` then dispatch; otherwise dispatch immediately.
-  `dispatch()` builds a fresh `buildProgram()` and `parseAsync`es
-  `[node, script, command, ...args]`.
+  `runMenu()` orchestrator (also the default when `bytebell-tinker` is run
+  with no args). Owns the `GROUPS` layout (SETUP / KNOWLEDGE / SERVER /
+  INSIGHTS), the `ARG_SPECS` table (which commands need positional args
+  prompted), and `DISPATCH` (menu id → argv, e.g. `mcp` → `mcp stats`).
+  **Loops**: every command / form returns to the menu so the user moves
+  back and forth between options; the loop ends only on quit. Flow per
+  iteration: render `<MenuSelector />` → on `configure-llm` render
+  `<LlmConfigForm />`; on an arg-taking command render `<ArgPrompt />`
+  then dispatch; otherwise dispatch immediately. `dispatch()` builds a
+  fresh `buildProgram()` and `parseAsync`es `[node, script, cmd, ...args]`.
+  **Keys:** `q` backs out of a sub-screen to the menu; `Esc` leaves the
+  TUI entirely (on the text-entry screens — arg prompt, LLM fields — Esc
+  backs out instead, since `q` is typed there).
 - **[MenuSelector.tsx](MenuSelector.tsx)** — the top-level command picker.
   Takes grouped `MenuGroup[]`; renders labelled sections with a per-item
   glyph, but the cursor walks a single flat order skipping headers.
-  ↑/↓ or j/k move (wrapping), Enter selects, Esc/q quits. Header is the
-  `Bytebell` wordmark + dim `local knowledge engine · open-ir` subtitle;
-  footer is a `<ControlsBar />` with the version right-aligned.
+  ↑/↓ or j/k move (wrapping), Enter selects, Esc/q quit (root level).
+  Header is the cyan `Bytebell Tinker` wordmark + dim
+  `local knowledge engine · open-ir` subtitle; footer is a
+  `<ControlsBar />` with the version right-aligned.
 - **[ControlsBar.tsx](ControlsBar.tsx)** — the universal footer key legend.
-  Renders each `{ keys, label }` as a bold inverse "cap" (`ACCENT` purple bg
+  Renders each `{ keys, label }` as a bold inverse "cap" (`ACCENT` cyan bg
   / white) plus a bold white label, so the control hints look identical on
   every screen. Adds no outer padding (callers place it); an optional
   `version` is pushed dim-right via `space-between`. Used by `MenuSelector`,
   `ArgPrompt`, and both phases of `LlmConfigForm`.
-- **[theme.ts](theme.ts)** — single-source brand accent. Exports `ACCENT`
-  (`#a855f7`, Bytebell purple) used for cursors, active rows, form
-  highlights, and the control-key caps across every TUI component (menu,
-  forms, and the legacy pickers — RepoSelector, BranchSelector,
-  CommitSelector, LsInteractive, etc.). Replaced the previous cyan accent.
+- **[theme.ts](theme.ts)** — single-source brand accent for the **whole**
+  CLI. Exports `ACCENT` (`cyan`, Bytebell accent — an Ink colour for
+  cursors / active rows / form highlights / control caps) **and** `ANSI`
+  (raw truecolor escapes) so the non-Ink output path (`output.ts`
+  spinners, tables, progress bars) draws from the same palette. Every
+  command — Ink or plain stdout — is themed from here.
 - **[LlmConfigForm.tsx](LlmConfigForm.tsx)** — dedicated two-phase form
   for the LLM provider config. Phase 1 (`ProviderPicker`): choose
   openrouter or ollama. Phase 2 (`FieldsForm`): edit just that provider's

@@ -12,7 +12,8 @@
     "#src/*": "./src/*"
   },
   "bin": {
-    "bytebell": "./src/index.ts"
+    "bytebell-tinker": "./src/index.ts",
+    "bbtinker": "./src/index.ts"
   },
   "dependencies": {
     "@bb/config": "workspace:*",

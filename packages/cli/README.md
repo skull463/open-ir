@@ -133,12 +133,20 @@ The package does **not** own:
 entry in `package.json`:
 
 ```jsonc
-{ "bin": { "bytebell": "./src/index.ts" } }
+{
+  "bin": {
+    "bytebell-tinker": "./src/index.ts",
+    "bbtinker": "./src/index.ts",
+  },
+}
 ```
 
-Publish-time builds swap to `./dist/index.js`. v0 dev workflow runs the
-TS file directly via Bun's `#!/usr/bin/env bun` shebang; install with
-`cd packages/cli && bun link` to put `bytebell` on `PATH`.
+The binary is named **`bytebell-tinker`** (not `bytebell`) so this
+development build never collides with an installed `bytebell` on `PATH`,
+with a shorter **`bbtinker`** alias for everyday use — both point at the
+same entry. Publish-time builds swap to `./dist/index.js`. v0 dev workflow
+runs the TS file directly via Bun's `#!/usr/bin/env bun` shebang; install
+with `cd packages/cli && bun link` to put both on `PATH`.
 
 The TypeScript module exports (`buildSetCommand`, `KEY_MAP`, etc.) are
 **internal** — no other workspace package imports `@bb/cli`.

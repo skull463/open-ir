@@ -2,10 +2,10 @@ import { Command } from "commander";
 import React from "react";
 import { render } from "ink";
 import { MenuSelector, type MenuGroup, type MenuSelectorResult } from "./MenuSelector.tsx";
-import { LlmConfigForm } from "./LlmConfigForm.tsx";
+import { LlmConfigForm, type LlmConfigFormResult } from "./LlmConfigForm.tsx";
 import { ArgPrompt, type ArgSpec, type ArgPromptResult } from "./ArgPrompt.tsx";
 import { buildProgram } from "./program.ts";
-import { info, success } from "./output.ts";
+import { success } from "./output.ts";
 
 /** Section layout for the menu. `id` matches a command name, except the
  * synthetic "configure-llm" entry which opens the dedicated LLM form. */
@@ -67,25 +67,36 @@ export function buildMenuCommand(): Command {
   return cmd;
 }
 
+/**
+ * Drives the menu in a loop so the user goes "back and forth" between
+ * commands: every command / form returns to the menu instead of exiting.
+ * The loop ends only when the user quits at the menu (Esc/q) or quits from a
+ * sub-screen via Esc (the `quit` signal). `q` inside a sub-screen backs out
+ * to the menu without quitting.
+ */
 export async function runMenu(): Promise<void> {
-  const choice = await renderMenu();
-  if (choice.cancelled === true || choice.id === undefined) {
-    return;
-  }
-  if (choice.id === "configure-llm") {
-    await renderLlmForm();
-    return;
-  }
-  const specs = ARG_SPECS[choice.id];
-  if (specs !== undefined) {
-    const args = await collectArgs(choice.id, specs);
-    if (args === null) {
-      return;
+  for (;;) {
+    const choice = await renderMenu();
+    if (choice.cancelled === true || choice.id === undefined) {
+      return; // Esc / q at the menu → leave entirely
     }
-    await dispatch(choice.id, args);
-    return;
+    if (choice.id === "configure-llm") {
+      if (await renderLlmForm()) {
+        return; // Esc inside the form → leave entirely
+      }
+      continue; // saved or backed out → return to menu
+    }
+    const specs = ARG_SPECS[choice.id];
+    if (specs !== undefined) {
+      const args = await collectArgs(choice.id, specs);
+      if (args === null) {
+        continue; // backed out of the arg prompt → return to menu
+      }
+      await dispatch(choice.id, args);
+      continue;
+    }
+    await dispatch(choice.id, []);
   }
-  await dispatch(choice.id, []);
 }
 
 async function collectArgs(command: string, specs: readonly ArgSpec[]): Promise<string[] | null> {
@@ -99,7 +110,7 @@ async function collectArgs(command: string, specs: readonly ArgSpec[]): Promise<
 
 async function dispatch(command: string, args: readonly string[]): Promise<void> {
   const node = process.argv[0] ?? "bun";
-  const script = process.argv[1] ?? "bytebell";
+  const script = process.argv[1] ?? "bytebell-tinker";
   const tokens = DISPATCH[command] ?? [command];
   const program = buildProgram();
   await program.parseAsync([node, script, ...tokens, ...args]);
@@ -150,21 +161,21 @@ function renderArgPrompt(command: string, specs: readonly ArgSpec[]): Promise<Ar
   });
 }
 
-function renderLlmForm(): Promise<void> {
+/** Resolves `true` when the user quit the whole TUI from the form (Esc),
+ * `false` when they saved or backed out to the menu. */
+function renderLlmForm(): Promise<boolean> {
   return new Promise((resolve) => {
     const instance = render(
       React.createElement(LlmConfigForm, {
-        onDone: (result: { saved: boolean; error?: string }) => {
+        onDone: (result: LlmConfigFormResult) => {
           teardown(instance);
-          if (result.saved) {
+          if (result.saved === true) {
             success("LLM provider config saved to ~/.bytebell/config.json");
-          } else {
-            info("No changes saved.");
           }
-          resolve();
+          resolve(result.quit === true);
         },
       }),
     );
-    instance.waitUntilExit().catch(() => resolve());
+    instance.waitUntilExit().catch(() => resolve(false));
   });
 }

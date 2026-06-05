@@ -69,7 +69,9 @@ export function MenuSelector({ groups, onDone }: MenuSelectorProps): ReactElemen
     <Box flexDirection="column">
       <Box flexDirection="column" borderStyle="round" paddingX={2} paddingY={0}>
         <Box marginY={1} flexDirection="column">
-          <Text bold>Bytebell</Text>
+          <Text bold color={ACCENT}>
+            Bytebell Tinker
+          </Text>
           <Text dimColor>local knowledge engine · open-ir</Text>
         </Box>
         {groups.map((group) => (

@@ -26,8 +26,8 @@ export { VERSION };
  * result of this function, so the menu never drifts from the real commands.
  */
 export function buildProgram(): Command {
-  const program = new Command("bytebell");
-  program.version(VERSION).description("Bytebell — local knowledge engine TUI");
+  const program = new Command("bytebell-tinker");
+  program.version(VERSION).description("Bytebell Tinker — local knowledge engine TUI");
   program.addCommand(buildSetCommand());
   program.addCommand(buildSetupCommand());
   program.addCommand(buildBootCommand());

@@ -10,6 +10,7 @@ export {
   getBytebellHome,
   getConfigPath,
   isDevMode,
+  isForceHaltOnceEnabled,
   setBytebellHomeResolver,
   __setBytebellHomeForTests,
 } from "./paths.ts";

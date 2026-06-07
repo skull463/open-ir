@@ -1,9 +1,9 @@
 import { KnowledgeState, type LocalIngestPayload, type UsageGuard } from "@bb/types";
 import { IngestError, UsageLimitExceededError } from "@bb/errors";
 import { logger } from "@bb/logger";
-import { classifyFailure } from "./failure-classifier.ts";
+import { classifyFailure, isRetryable } from "./failure-classifier.ts";
 import { transitionState } from "./pull-helpers.ts";
-import { persistFailure } from "./run-helpers.ts";
+import { persistFailure, persistHalted, markNonRetryable } from "./run-helpers.ts";
 import type { IngestStrategy } from "#src/types/strategy.ts";
 import type { PipelineSummary } from "#src/types/pipeline.ts";
 import { ensureCommitDirs, pathsFor, type RepoLocation } from "./paths.ts";
@@ -78,7 +78,11 @@ export async function runLocal(
       });
     }
     const { category, reason, detail } = classifyFailure(cause);
+    if (isRetryable(category)) {
+      await persistHalted(knowledgeId, category, reason, detail);
+      throw new IngestError(knowledgeId, `local_ingest pipeline failed: ${reason}`, cause);
+    }
     await persistFailure(knowledgeId, category, reason, detail);
-    throw new IngestError(knowledgeId, `local_ingest pipeline failed: ${reason}`, cause);
+    throw markNonRetryable(new IngestError(knowledgeId, `local_ingest pipeline failed: ${reason}`, cause));
   }
 }

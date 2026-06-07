@@ -57,6 +57,24 @@ export interface IKnowledgeRepository {
     category: KnowledgeFailureCategory,
     detail?: string,
   ): Promise<void>;
+  /**
+   * Marks a knowledge as HALTED (transient failure, auto-retry pending) and
+   * records the same structured `failure` subdoc as `markKnowledgeFailed`.
+   * Non-terminal — the queue finalizer promotes HALTED → FAILED via
+   * `promoteHaltedToFailed` once retries are exhausted.
+   */
+  markKnowledgeHalted(
+    knowledgeId: string,
+    reason: string,
+    category: KnowledgeFailureCategory,
+    detail?: string,
+  ): Promise<void>;
+  /**
+   * Promotes a HALTED knowledge to terminal FAILED, preserving the `failure`
+   * subdoc recorded at HALT time. Scoped to `status.state === "HALTED"` so it
+   * is idempotent. Resolves to `true` when a document was promoted.
+   */
+  promoteHaltedToFailed(knowledgeId: string): Promise<boolean>;
 }
 
 export interface IRawRepository {

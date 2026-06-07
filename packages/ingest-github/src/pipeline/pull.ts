@@ -9,12 +9,13 @@ import {
 import { getConfigValue } from "@bb/config";
 import { withConcurrency } from "./concurrency.ts";
 import { knowledgeDb } from "@bb/db";
-import { knowledgeGraph, filesGraph } from "@bb/graph-db";
+import { filesGraph } from "@bb/graph-db";
 import type { PipelineSummary } from "#src/types/pipeline.ts";
 import { resolveOrgId, llmCallContextFromPayload } from "./context.ts";
 import { IngestError, UsageLimitExceededError } from "@bb/errors";
-import { classifyFailure } from "./failure-classifier.ts";
+import { classifyFailure, isRetryable } from "./failure-classifier.ts";
 import { transitionState, emptyPullSummary } from "./pull-helpers.ts";
+import { persistFailure, persistHalted, markNonRetryable } from "./run-helpers.ts";
 import { preflightPull } from "./pull-preflight.ts";
 import { logger } from "@bb/logger";
 import { pathsFor } from "./paths.ts";
@@ -284,9 +285,12 @@ export async function runPull(
       });
     }
     const { category, reason, detail } = classifyFailure(cause);
-    await knowledgeDb.markKnowledgeFailed(knowledgeId, reason, category, detail).catch(() => undefined);
-    await knowledgeGraph.setKnowledgeStateInGraph(knowledgeId, KnowledgeState.Failed).catch(() => undefined);
+    if (isRetryable(category)) {
+      await persistHalted(knowledgeId, category, reason, detail);
+      throw new IngestError(knowledgeId, `github_pull failed: ${reason}`, cause);
+    }
+    await persistFailure(knowledgeId, category, reason, detail);
     progressContext.failed(reason, undefined, category, detail);
-    throw new IngestError(knowledgeId, `github_pull failed: ${reason}`, cause);
+    throw markNonRetryable(new IngestError(knowledgeId, `github_pull failed: ${reason}`, cause));
   }
 }

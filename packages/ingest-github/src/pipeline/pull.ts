@@ -63,7 +63,12 @@ export async function runPull(
     if (parsed === null) {
       throw new IngestError(knowledgeId, `could not parse owner/repo from repoUrl=${repoUrl}`);
     }
-    const orgId = resolveOrgId({});
+    // Use the job payload's orgId (multi-tenant UUID), not an empty object —
+    // `resolveOrgId({})` would fall back to Config.OrgId (the env ORG_ID slug) and
+    // overwrite the index-written `Knowledge.org_id`, dropping the KB out of the
+    // MCP's org scope. Mirrors the index path (run.ts). OSS single-tenant payloads
+    // have no orgId, so this still resolves to Config.OrgId ("local") there.
+    const orgId = resolveOrgId(msg.payload);
     // Resolves target SHA via GitHub REST (or operator-supplied), clones into
     // the commit-scoped `repository/` dir, computes the diff. See
     // `pull-source-resolver.ts` for the dance.

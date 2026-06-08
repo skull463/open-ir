@@ -68,6 +68,12 @@ export async function resolvePullSource(input: ResolvePullSourceInput): Promise<
     if (factoryResult.targetCommit === currentCommit) {
       return { kind: "noop", targetCommit: factoryResult.targetCommit };
     }
+    // No-clone (streaming) path: the factory produced the source tree remotely, but the
+    // local meta-output dirs (file-analysis, folder-summaries, …) must still exist so
+    // analyse-changed's `saveCondensed` can persist analysis — otherwise every changed
+    // file is silently lost and the pull falsely reports "no analyzable changes".
+    // Mirrors the index factory branch in run.ts.
+    await ensureCommitDirs(location);
     return {
       kind: "ready",
       source: factoryResult.source,

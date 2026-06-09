@@ -12,6 +12,7 @@
     "#src/*": "./src/*"
   },
   "bin": {
+    "bytebell": "./src/bytebell.ts",
     "bytebell-tinker": "./src/index.ts",
     "bbtinker": "./src/index.ts"
   },

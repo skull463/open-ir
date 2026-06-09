@@ -72,16 +72,29 @@ function findListenerPids(port: number): Promise<number[]> {
   });
 }
 
-/** Stops when no process still holds the server port. */
-async function waitForServerStopped(port: number): Promise<boolean> {
+/** Stops when no process still holds the server port. When lsof is unavailable
+ *  (findListenerPids returns `[]`), falls back to `isAlive`-polling on
+ *  `knownPids`. */
+async function waitForServerStopped(port: number, knownPids?: Set<number>): Promise<boolean> {
   const start = Date.now();
   while (Date.now() - start < POLL_TIMEOUT_MS) {
-    if ((await findListenerPids(port)).length === 0) {
+    const listenerPids = await findListenerPids(port);
+    if (listenerPids.length > 0) {
+      await sleep(POLL_INTERVAL_MS);
+    } else if (knownPids && knownPids.size > 0 && [...knownPids].some(isAlive)) {
+      await sleep(POLL_INTERVAL_MS);
+    } else {
       return true;
     }
-    await sleep(POLL_INTERVAL_MS);
   }
-  return (await findListenerPids(port)).length === 0;
+  const listenerPids = await findListenerPids(port);
+  if (listenerPids.length > 0) {
+    return false;
+  }
+  if (knownPids && knownPids.size > 0 && [...knownPids].some(isAlive)) {
+    return false;
+  }
+  return true;
 }
 
 async function pidFileExists(pidFile: string): Promise<boolean> {
@@ -153,7 +166,7 @@ export async function stopServer(): Promise<StopServerResult> {
     return { wasRunning: false, timedOut: false, pid: filePid };
   }
 
-  const drained = await waitForServerStopped(port);
+  const drained = await waitForServerStopped(port, targets);
   if (drained) {
     await removeStalePidFile(pidFile);
   }

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { opendir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { Config } from "@bb/types";
@@ -110,7 +111,7 @@ async function* walk(
       continue;
     }
     if (deps.skipDecider !== undefined) {
-      const deciderInput: SkipDeciderInput = { relativePath, absolutePath: abs, ext };
+      const deciderInput: SkipDeciderInput = { relativePath, absolutePath: abs, ext, content };
       if (deps.llmCallContext !== undefined) {
         deciderInput.llmCallContext = deps.llmCallContext;
       }
@@ -244,7 +245,7 @@ async function* walkAndCategorize(
       yield { kind: "oversized", relativePath, absolutePath: abs, sizeBytes };
       continue;
     }
-    const deciderInput: SkipDeciderInput = { relativePath, absolutePath: abs, ext };
+    const deciderInput: SkipDeciderInput = { relativePath, absolutePath: abs, ext, content };
     if (deps.llmCallContext !== undefined) {
       deciderInput.llmCallContext = deps.llmCallContext;
     }
@@ -273,11 +274,10 @@ async function* walkAndCategorize(
 }
 
 function decisionKey(p: PendingFile): string {
-  if (p.ext.length > 0) {
-    return `ext:${p.ext}`;
-  }
-  const segments = p.relativePath.split("/");
-  return `filename:${segments[segments.length - 1] ?? p.relativePath}`;
+  // Per-file admission gate: dedupe by content hash so identical file contents
+  // collapse to a single LLM call while distinct files each get their own
+  // verdict. Matches the content-hash key used by the decider's `files` cache.
+  return `file:${createHash("sha256").update(p.content, "utf8").digest("hex")}`;
 }
 
 function countLines(content: string): number {

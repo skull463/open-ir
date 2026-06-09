@@ -19,6 +19,13 @@ export interface DecisionsCache {
   extensions: Record<string, DecisionEntry>;
   filenames: Record<string, DecisionEntry>;
   filename_globs: Record<string, DecisionEntry>;
+  /**
+   * Per-file decisions keyed by sha256 of the file content. This is the
+   * authoritative cache for the LLM admission gate: every accepted file is
+   * inspected individually, so an unchanged file (same content hash) skips the
+   * LLM call on re-index/pull while a junk file cannot ride a sibling's verdict.
+   */
+  files: Record<string, DecisionEntry>;
 }
 
 export function defaultCachePath(): string {
@@ -30,7 +37,7 @@ export function defaultCachePath(): string {
 }
 
 export function emptyCache(): DecisionsCache {
-  return { directories: {}, extensions: {}, filenames: {}, filename_globs: {} };
+  return { directories: {}, extensions: {}, filenames: {}, filename_globs: {}, files: {} };
 }
 
 export function loadCache(filePath: string): DecisionsCache {
@@ -103,6 +110,30 @@ export function setFilenameDecision(
   cache.filenames[filename] = entry;
 }
 
+export function getFileDecision(cache: DecisionsCache, contentHash: string): DecisionEntry | undefined {
+  return cache.files[contentHash];
+}
+
+export function setFileDecision(
+  cache: DecisionsCache,
+  contentHash: string,
+  ignore: boolean,
+  source: DecisionEntry["source"],
+  repositoryName: string | undefined,
+  relativePath: string,
+): void {
+  const existing = cache.files[contentHash];
+  const files = existing?.files ?? [];
+  if (!files.includes(relativePath)) {
+    files.push(relativePath);
+  }
+  const entry: DecisionEntry = { ignore, source, files };
+  if (repositoryName !== undefined) {
+    entry.repository_name = repositoryName;
+  }
+  cache.files[contentHash] = entry;
+}
+
 function narrow(value: unknown): DecisionsCache {
   if (typeof value !== "object" || value === null) {
     return emptyCache();
@@ -113,6 +144,7 @@ function narrow(value: unknown): DecisionsCache {
     extensions: narrowSection(rec["extensions"]),
     filenames: narrowSection(rec["filenames"]),
     filename_globs: narrowSection(rec["filename_globs"]),
+    files: narrowSection(rec["files"]),
   };
 }
 
@@ -151,7 +183,8 @@ export function logCacheSummary(cache: DecisionsCache): void {
   const exts = Object.keys(cache.extensions).length;
   const filenames = Object.keys(cache.filenames).length;
   const globs = Object.keys(cache.filename_globs).length;
+  const files = Object.keys(cache.files).length;
   logger.info(
-    `skip-decisions cache loaded: directories=${dirs} extensions=${exts} filenames=${filenames} globs=${globs}`,
+    `skip-decisions cache loaded: directories=${dirs} extensions=${exts} filenames=${filenames} globs=${globs} files=${files}`,
   );
 }

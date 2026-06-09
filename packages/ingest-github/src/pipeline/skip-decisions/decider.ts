@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { Config } from "@bb/types";
@@ -8,20 +9,14 @@ import type { SkipDecider, SkipDeciderInput, SkipDecision } from "#src/types/pip
 import {
   defaultCachePath,
   emptyCache,
+  getFileDecision,
   loadCache,
   logCacheSummary,
   saveCache,
-  setExtensionDecision,
-  setFilenameDecision,
+  setFileDecision,
   type DecisionsCache,
 } from "./cache.ts";
-import {
-  SEED_DIRECTORIES,
-  SEED_EXTENSIONS,
-  SEED_FILENAMES,
-  KNOWN_LANGUAGE_EXTENSIONS,
-  matchesAnyGlob,
-} from "./seed.ts";
+import { SEED_DIRECTORIES, SEED_EXTENSIONS, SEED_FILENAMES, matchesAnyGlob } from "./seed.ts";
 import { SKIP_DECISION_SYSTEM_PROMPT, buildSkipDecisionUserPrompt } from "./prompts/skip-decision.ts";
 
 export interface SkipDeciderDeps {
@@ -65,17 +60,21 @@ export function makeSkipDecider(deps: SkipDeciderDeps = {}): SkipDecider {
       return "reject-static";
     }
 
-    if (input.ext.length > 0 && KNOWN_LANGUAGE_EXTENSIONS.has(input.ext)) {
-      return "accept";
-    }
-
+    // Feature flag off: no LLM gate, accept everything that survived the cheap
+    // static reject lists above.
     if (!enabled) {
       return "accept";
     }
 
-    const cacheKey = input.ext.length > 0 ? input.ext : filename;
-    const section = input.ext.length > 0 ? cache.extensions : cache.filenames;
-    const cached = section[cacheKey];
+    // Every file that survives the cheap static rejects must pass the LLM
+    // admission gate. The verdict is cached per content-hash, so an unchanged
+    // file is a cache hit and a junk file cannot ride a sibling's extension
+    // verdict. Without content here, defer to the LLM (resolveLlm reads + hashes).
+    const hash = contentHashOf(input);
+    if (hash === null) {
+      return null;
+    }
+    const cached = getFileDecision(cache, hash);
     if (cached !== undefined) {
       return cached.ignore ? "reject-llm" : "accept-llm";
     }
@@ -83,13 +82,13 @@ export function makeSkipDecider(deps: SkipDeciderDeps = {}): SkipDecider {
   }
 
   async function resolveLlm(input: SkipDeciderInput): Promise<SkipDecision> {
-    const { filename } = contextFor(input);
-    const decision = await askLlmDecision(input, deps.repositoryName, input.llmCallContext);
-    if (input.ext.length > 0) {
-      setExtensionDecision(cache, input.ext, !decision, "llm", deps.repositoryName, input.relativePath);
-    } else {
-      setFilenameDecision(cache, filename, !decision, "llm", deps.repositoryName, input.relativePath);
+    const content = await resolveContent(input);
+    if (content === null) {
+      // Unreadable file — default to reject, matching the legacy read-fail path.
+      return "reject-llm";
     }
+    const decision = await askLlmDecision(input, content, deps.repositoryName, input.llmCallContext);
+    setFileDecision(cache, sha256(content), !decision, "llm", deps.repositoryName, input.relativePath);
     return decision ? "accept-llm" : "reject-llm";
   }
 
@@ -129,25 +128,35 @@ export function makeSkipDecider(deps: SkipDeciderDeps = {}): SkipDecider {
   };
 }
 
+function sha256(content: string): string {
+  return createHash("sha256").update(content, "utf8").digest("hex");
+}
+
+function contentHashOf(input: SkipDeciderInput): string | null {
+  return input.content !== undefined ? sha256(input.content) : null;
+}
+
+async function resolveContent(input: SkipDeciderInput): Promise<string | null> {
+  if (input.content !== undefined) {
+    return input.content;
+  }
+  try {
+    return await readFile(input.absolutePath, "utf8");
+  } catch (cause: unknown) {
+    const msg = cause instanceof Error ? cause.message : String(cause);
+    logger.warn(`skip-decisions: cannot read ${input.relativePath} for LLM check (${msg}); defaulting to reject`);
+    return null;
+  }
+}
+
 async function askLlmDecision(
   input: SkipDeciderInput,
+  fullContent: string,
   repositoryName: string | undefined,
   llmCallContext: AskLlmOptions | undefined,
 ): Promise<boolean> {
   const maxChars = getConfigValue(Config.SkipDecisionMaxCharsForLlm);
-  let content: string;
-  if (input.content !== undefined) {
-    content = input.content.slice(0, maxChars);
-  } else {
-    try {
-      const raw = await readFile(input.absolutePath, "utf8");
-      content = raw.slice(0, maxChars);
-    } catch (cause: unknown) {
-      const msg = cause instanceof Error ? cause.message : String(cause);
-      logger.warn(`skip-decisions: cannot read ${input.relativePath} for LLM check (${msg}); defaulting to reject`);
-      return false;
-    }
-  }
+  const content = fullContent.slice(0, maxChars);
 
   logger.info(
     `skip-decisions: asking LLM about unknown=${input.ext.length > 0 ? input.ext : "<no-ext>"} file=${input.relativePath} repo=${repositoryName ?? "<unknown>"}`,

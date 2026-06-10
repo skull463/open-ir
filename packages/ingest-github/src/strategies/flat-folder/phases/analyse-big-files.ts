@@ -18,6 +18,7 @@ import { analyzeChunk } from "#src/strategies/flat-folder/big-file/chunk-analyze
 import { condenseChunks } from "#src/strategies/flat-folder/big-file/condenser.ts";
 import {
   loadChunkIfPresent,
+  readCondensed,
   saveChunk,
   saveCondensed,
   saveManifest,
@@ -72,6 +73,14 @@ export async function analyseBigFiles(input: AnalyseBigFilesInput): Promise<Proc
     throwIfCancelled(input.knowledgeId);
     const status = await inspect(input.metaPaths, entry.relativePath);
     if (status === "complete") {
+      // Already condensed on a prior attempt — count its persisted token cost so
+      // the per-run total reflects start→complete, not just post-resume work.
+      const resumed = await readCondensed(input.metaPaths, entry.relativePath);
+      if (resumed?.tokenUsage) {
+        totalInputTokens += resumed.tokenUsage.inputTokens;
+        totalOutputTokens += resumed.tokenUsage.outputTokens;
+        totalCostUsd += resumed.tokenUsage.costUsd;
+      }
       cached += 1;
       continue;
     }

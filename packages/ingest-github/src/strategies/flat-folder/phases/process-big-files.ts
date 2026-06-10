@@ -7,6 +7,7 @@ import type { ProgressContext } from "#src/progress/types.ts";
 import { throwIfCancelled, CancellationError } from "#src/pipeline/cancellation.ts";
 import { readBigFiles } from "#src/strategies/flat-folder/big-file/detector.ts";
 import { inspect } from "#src/strategies/flat-folder/big-file/cache.ts";
+import { readCondensed } from "#src/strategies/flat-folder/big-file/storage.ts";
 import { processBigFile } from "#src/strategies/flat-folder/big-file/index.ts";
 
 export interface ProcessBigFilesInput {
@@ -58,6 +59,14 @@ export async function processBigFilesQueue(input: ProcessBigFilesInput): Promise
       }
       const status = await inspect(input.metaPaths, entry.relativePath);
       if (status === "complete") {
+        // Already condensed on a prior attempt — count its persisted token cost so
+        // the per-run total reflects start→complete, not just post-resume work.
+        const resumed = await readCondensed(input.metaPaths, entry.relativePath);
+        if (resumed?.tokenUsage) {
+          totalInputTokens += resumed.tokenUsage.inputTokens;
+          totalOutputTokens += resumed.tokenUsage.outputTokens;
+          totalCostUsd += resumed.tokenUsage.costUsd;
+        }
         cached += 1;
         reporter?.increment(1, { fileName: entry.relativePath });
         continue;

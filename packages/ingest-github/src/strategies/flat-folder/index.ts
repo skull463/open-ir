@@ -117,7 +117,16 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
 
       logger.info(`flat-folder: phase3 (backfill missing fields) starting`);
       throwIfCancelled(knowledgeId);
-      await backfillMissingFields(metaPaths, fileAnalysisCache, limiter, llmCallContext, progressContext);
+      const backfill = await backfillMissingFields(
+        metaPaths,
+        fileAnalysisCache,
+        limiter,
+        llmCallContext,
+        progressContext,
+      );
+      totalInputTokens += backfill.tokenUsage.inputTokens;
+      totalOutputTokens += backfill.tokenUsage.outputTokens;
+      totalCostUsd += backfill.tokenUsage.costUsd;
 
       progressContext.phaseChanged("folder_analysis");
       logger.info(`flat-folder: phase5 (folder summaries) starting`);

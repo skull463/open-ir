@@ -12,15 +12,14 @@ import { knowledgeDb } from "@bb/db";
 import { filesGraph } from "@bb/graph-db";
 import type { PipelineSummary } from "#src/types/pipeline.ts";
 import { resolveOrgId, llmCallContextFromPayload } from "./context.ts";
-import { IngestError, UsageLimitExceededError } from "@bb/errors";
-import { classifyFailure, isRetryable } from "./failure-classifier.ts";
+import { IngestError } from "@bb/errors";
 import { transitionState, emptyPullSummary } from "./pull-helpers.ts";
-import { persistFailure, persistHalted, markNonRetryable } from "./run-helpers.ts";
+import { throwPullFailure } from "./pull-failure.ts";
 import { preflightPull } from "./pull-preflight.ts";
 import { logger } from "@bb/logger";
 import { pathsFor } from "./paths.ts";
 import { parseGithubRepo } from "#src/githubUrl.ts";
-import { CancellationError, clearCancellation, throwIfCancelled } from "./cancellation.ts";
+import { clearCancellation, throwIfCancelled } from "./cancellation.ts";
 import { affectedFoldersFromDiff } from "./affected-folders.ts";
 import { resolvePullSource } from "./pull-source-resolver.ts";
 import type { PullFactory } from "#src/types/pipeline.ts";
@@ -182,7 +181,16 @@ export async function runPull(
 
     logger.info(`pull: phase backfill fields starting`);
     throwIfCancelled(knowledgeId);
-    await backfillMissingFields(metaPaths, fileAnalysisCache, limiter, llmCallContext, progressContext);
+    const backfill = await backfillMissingFields(
+      metaPaths,
+      fileAnalysisCache,
+      limiter,
+      llmCallContext,
+      progressContext,
+    );
+    totalInputTokens += backfill.tokenUsage.inputTokens;
+    totalOutputTokens += backfill.tokenUsage.outputTokens;
+    totalCostUsd += backfill.tokenUsage.costUsd;
 
     progressContext.phaseChanged("folder_analysis");
     logger.info(`pull: phase selective folder summary (${affectedFolders.size} folders) starting`);
@@ -277,25 +285,6 @@ export async function runPull(
       tokenUsage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens, costUsd: totalCostUsd },
     };
   } catch (cause: unknown) {
-    if (cause instanceof CancellationError) {
-      clearCancellation(knowledgeId);
-      logger.info(`pull: cancelled for ${knowledgeId}`);
-      throw cause;
-    }
-    if (cause instanceof UsageLimitExceededError && usageGuard !== undefined) {
-      await usageGuard.flushPartial(cause.cumulative).catch((flushErr: unknown) => {
-        logger.warn(
-          `pull: usageGuard.flushPartial failed for ${knowledgeId}: ${flushErr instanceof Error ? flushErr.message : String(flushErr)}`,
-        );
-      });
-    }
-    const { category, reason, detail } = classifyFailure(cause);
-    if (isRetryable(category)) {
-      await persistHalted(knowledgeId, category, reason, detail);
-      throw new IngestError(knowledgeId, `github_pull failed: ${reason}`, cause);
-    }
-    await persistFailure(knowledgeId, category, reason, detail);
-    progressContext.failed(reason, undefined, category, detail);
-    throw markNonRetryable(new IngestError(knowledgeId, `github_pull failed: ${reason}`, cause));
+    return await throwPullFailure(cause, { knowledgeId, usageGuard, progressContext });
   }
 }

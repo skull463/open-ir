@@ -80,6 +80,15 @@ export async function analyseSmallFiles(input: AnalyseSmallInput): Promise<Analy
             // JSON is the per-file ledger; a retry must not re-burn the LLM.
             const resumed = await readCondensed(input.metaPaths, entry.relativePath);
             if (resumed !== null) {
+              // Account for the tokens spent on the prior attempt so the per-run
+              // total reflects start→complete cost, not just the work done since
+              // resume. The condensed JSON already carries `tokenUsage` (absent
+              // only for oversized stubs / merge fallbacks — hence the guard).
+              if (resumed.tokenUsage) {
+                totalInputTokens += resumed.tokenUsage.inputTokens;
+                totalOutputTokens += resumed.tokenUsage.outputTokens;
+                totalCostUsd += resumed.tokenUsage.costUsd;
+              }
               smallFilesAnalysed += 1;
               reporter?.increment(1, { fileName: entry.relativePath });
               return;

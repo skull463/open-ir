@@ -8,6 +8,8 @@ export {
   setKnowledgeCommit,
   setKnowledgeState,
   markKnowledgeFailed,
+  markKnowledgeHalted,
+  promoteHaltedToFailed,
   setKnowledgeBranch,
   updateKnowledgeProgress,
   upsertKnowledge,

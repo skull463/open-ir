@@ -20,6 +20,8 @@ class SqliteDatabaseProvider implements IDocumentDatabaseProvider {
     listKnowledge: knowledgeRepo.listKnowledge,
     getKnowledge: knowledgeRepo.getKnowledge,
     markKnowledgeFailed: knowledgeRepo.markKnowledgeFailed,
+    markKnowledgeHalted: knowledgeRepo.markKnowledgeHalted,
+    promoteHaltedToFailed: knowledgeRepo.promoteHaltedToFailed,
   };
 
   raw = {

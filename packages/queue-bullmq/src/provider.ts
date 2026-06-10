@@ -2,11 +2,13 @@
 // as the "bullmq" provider at module load; the server picks it up via
 // `import "@bb/queue-bullmq"` (side effect) + `connectQueue("bullmq")`.
 
-import { Queue, Worker, type Job } from "bullmq";
+import { Queue, UnrecoverableError, Worker, type Job } from "bullmq";
 import { JobType, type JobMessage, type PayloadFor } from "@bb/types";
 import { QueueConnectError, QueueNotConnectedError } from "@bb/errors";
 import { connectRedis, closeRedis, pingRedis, getRedisConnection } from "@bb/redis";
 import { defaultConcurrencyFor, registerQueueProvider } from "@bb/queue";
+import { knowledgeDb } from "@bb/db";
+import { logger } from "@bb/logger";
 import type {
   FailedJob,
   IQueueProvider,
@@ -104,7 +106,17 @@ class BullmqQueueProvider implements IQueueProvider {
     const worker = new Worker(
       type,
       async (job: Job<JobMessage<PayloadFor<T>>>) => {
-        await handler(job.data);
+        try {
+          await handler(job.data);
+        } catch (err) {
+          // Non-retryable failure (pipeline already wrote terminal FAILED) →
+          // BullMQ UnrecoverableError so it stops retrying. Transient failures
+          // re-throw unchanged and BullMQ applies attempts/backoff.
+          if (isNonRetryable(err)) {
+            throw new UnrecoverableError(err instanceof Error ? err.message : String(err));
+          }
+          throw err;
+        }
       },
       {
         connection: getRedisConnection(),
@@ -112,6 +124,28 @@ class BullmqQueueProvider implements IQueueProvider {
         concurrency,
       },
     );
+    // When BullMQ exhausts all automatic retries, promote the transiently
+    // HALTED knowledge to terminal FAILED. This is the authoritative "no more
+    // retries" signal, so HALTED can never get stuck. UnrecoverableError
+    // failures are already terminal (pipeline wrote FAILED); skip them.
+    worker.on("failed", (job, err) => {
+      if (job === undefined) {
+        return;
+      }
+      const made = job.attemptsMade ?? 0;
+      const max = job.opts?.attempts ?? 1;
+      const knowledgeId = (job.data as JobMessage<unknown> | undefined)?.knowledgeId;
+      if (made < max || err?.name === "UnrecoverableError" || typeof knowledgeId !== "string") {
+        return;
+      }
+      void knowledgeDb.promoteHaltedToFailed(knowledgeId).catch((cause: unknown) => {
+        logger.error(
+          `queue-bullmq: promoteHaltedToFailed failed for ${knowledgeId}: ${
+            cause instanceof Error ? cause.message : String(cause)
+          }`,
+        );
+      });
+    });
     this.workers.push(worker);
   }
 
@@ -157,6 +191,11 @@ class BullmqQueueProvider implements IQueueProvider {
     }
     return q;
   }
+}
+
+/** Duck-typed contract with the pipelines: `retryable === false` ⇒ terminal. */
+function isNonRetryable(err: unknown): boolean {
+  return typeof err === "object" && err !== null && (err as { retryable?: boolean }).retryable === false;
 }
 
 function normalizeFailed(type: JobType, job: Job): FailedJob {

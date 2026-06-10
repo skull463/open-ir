@@ -3,9 +3,10 @@ import { knowledgeDb } from "@bb/db";
 import { knowledgeGraph } from "@bb/graph-db";
 import { IngestError, UsageLimitExceededError } from "@bb/errors";
 import { logger } from "@bb/logger";
-import { classifyFailure } from "./failure-classifier.ts";
+import { classifyFailure, isRetryable } from "./failure-classifier.ts";
 import { transitionState } from "./pull-helpers.ts";
-import { isGithubPayload, persistFailure } from "./run-helpers.ts";
+import { isGithubPayload, persistFailure, persistHalted, markNonRetryable } from "./run-helpers.ts";
+import { maybeInjectOneShotHalt } from "./fault-injection.ts";
 import { runLocal } from "./run-local.ts";
 import type { IngestRunnerDeps, IngestRunnerInput } from "#src/types/ingest-runner.ts";
 import type { IngestStrategy } from "#src/types/strategy.ts";
@@ -66,7 +67,6 @@ async function runGithub(
   const startedAt = Date.now();
   await transitionState(knowledgeId, KnowledgeState.Processing);
   const progressContext = progressContextFactory(knowledgeId);
-  let strategyStarted = false;
   try {
     throwIfCancelled(knowledgeId);
     const branch = await resolveBranch(knowledgeId, payload, payload.gitToken);
@@ -195,7 +195,9 @@ async function runGithub(
     if (usageGuard !== undefined) {
       strategyInput.usageGuard = usageGuard;
     }
-    strategyStarted = true;
+    // TEST-ONLY: one-shot forced transient failure to exercise HALTED → retry.
+    // No-op unless BYTEBELL_FORCE_HALT_ONCE=1. Remove with fault-injection.ts.
+    maybeInjectOneShotHalt(knowledgeId);
     const result = await strategy.execute(strategyInput);
 
     await knowledgeDb.setKnowledgeCommit(
@@ -234,11 +236,18 @@ async function runGithub(
       });
     }
     const { category, reason, detail } = classifyFailure(cause);
-    await persistFailure(knowledgeId, category, reason, detail);
-    if (!strategyStarted) {
-      progressContext.failed(reason, undefined, category, detail);
+    if (isRetryable(category)) {
+      // Transient — record HALTED and re-throw so the queue retries. The
+      // queue finalizer emits the RETRYING SSE and (on exhaustion) FAILED.
+      await persistHalted(knowledgeId, category, reason, detail);
+      throw new IngestError(knowledgeId, `github_index pipeline failed: ${reason}`, cause);
     }
-    throw new IngestError(knowledgeId, `github_index pipeline failed: ${reason}`, cause);
+    // Non-retryable — terminal now. Emit FAILED SSE and tell the queue not to
+    // retry (worker wrapper converts a `retryable === false` error into a
+    // BullMQ UnrecoverableError).
+    await persistFailure(knowledgeId, category, reason, detail);
+    progressContext.failed(reason, undefined, category, detail);
+    throw markNonRetryable(new IngestError(knowledgeId, `github_index pipeline failed: ${reason}`, cause));
   }
 }
 

@@ -4,6 +4,13 @@ export enum KnowledgeState {
   Ingested = "INGESTED",
   Processing = "PROCESSING",
   Processed = "PROCESSED",
+  /**
+   * Non-terminal failure: a transient error occurred and auto-retry is in
+   * progress / scheduled. Bounded — the queue retry mechanism flips it to
+   * `Failed` once attempts are exhausted. Distinct from `Failed` so callers
+   * know no user action is required yet.
+   */
+  Halted = "HALTED",
   Failed = "FAILED",
 }
 
@@ -137,8 +144,10 @@ export interface KnowledgeDoc {
   updatedAt: Date;
   info: KnowledgeInfo;
   /**
-   * Populated when `status.state === KnowledgeState.Failed`. Cleared
-   * automatically on the next successful transition out of FAILED.
+   * Populated when `status.state` is `KnowledgeState.Halted` (transient,
+   * auto-retry pending) or `KnowledgeState.Failed` (terminal). The reason is
+   * written at HALTED time and preserved when the finalizer flips HALTED →
+   * FAILED. Cleared automatically on the next successful transition out.
    */
   failure?: KnowledgeFailure;
   /**

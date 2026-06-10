@@ -179,9 +179,7 @@ async function askLlmDecision(
     llmCallContext ?? {},
   );
   if (result.decision === null) {
-    logger.warn(
-      `skip-decisions: LLM returned no decision for ${input.relativePath}; rejecting this run (not cached)`,
-    );
+    logger.warn(`skip-decisions: LLM returned no decision for ${input.relativePath}; rejecting this run (not cached)`);
     return null;
   }
   logger.info(

@@ -1,3 +1,4 @@
+import { logger } from "@bb/logger";
 import { askLLM, type AskLlmOptions, type AskLlmUsage } from "./client.ts";
 
 export interface AskJsonLlmOptions extends AskLlmOptions {
@@ -60,7 +61,10 @@ export async function askYesNoLLM(
       return { decision: false, usage, raw: content };
     }
     return { decision: null, usage, raw: content };
-  } catch {
+  } catch (err) {
+    // Surface the underlying failure (bad model, missing key, rate limit, network) instead of
+    // swallowing it — a silent null here previously masqueraded as a verdict downstream.
+    logger.warn(`askYesNoLLM: LLM call failed — ${err instanceof Error ? err.message : String(err)}`);
     return { decision: null, usage: { model: "", inputTokens: 0, outputTokens: 0, costUsd: 0 }, raw: "" };
   }
 }

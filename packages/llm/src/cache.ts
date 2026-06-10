@@ -12,6 +12,7 @@ export interface CacheKeyInput {
   prompt: string;
   systemPrompt: string | null;
   modelChain: string[];
+  temperature: number | null;
 }
 
 export interface CachedDecision {
@@ -38,6 +39,7 @@ export function computeCacheKey(input: CacheKeyInput): string {
     prompt: input.prompt,
     systemPrompt: input.systemPrompt,
     modelChain: input.modelChain,
+    temperature: input.temperature,
   });
   return createHash("sha256").update(canonical).digest("hex");
 }

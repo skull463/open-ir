@@ -176,7 +176,10 @@ async function askLlmDecision(
       content,
       truncatedTo: content.length,
     }),
-    llmCallContext ?? {},
+    // temperature: 0 makes the yes/no verdict deterministic so the same content
+    // never flips between ACCEPT and REJECT across runs. Caller context (model,
+    // key, provider) is preserved; it must not override the fixed temperature.
+    { ...(llmCallContext ?? {}), temperature: 0 },
   );
   if (result.decision === null) {
     logger.warn(`skip-decisions: LLM returned no decision for ${input.relativePath}; rejecting this run (not cached)`);

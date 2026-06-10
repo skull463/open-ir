@@ -27,6 +27,13 @@ export interface AskLlmOptions {
    * the named provider regardless of the configured default.
    */
   provider?: LlmProviderName;
+  /**
+   * Sampling temperature passed to the provider. Omit to use the provider's
+   * default. Set to `0` for deterministic, repeatable verdicts (e.g. the
+   * skip-decision yes/no gate). Part of the cache key, so changing it does
+   * not return a verdict sampled at a different temperature.
+   */
+  temperature?: number;
 }
 
 export interface AskLlmUsage {
@@ -58,6 +65,7 @@ export async function askLLM(prompt: string, opts: AskLlmOptions = {}): Promise<
         prompt,
         systemPrompt: opts.systemPrompt ?? null,
         modelChain: chain,
+        temperature: opts.temperature ?? null,
       })
     : null;
   if (cacheOn && cacheKey !== null) {

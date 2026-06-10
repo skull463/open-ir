@@ -95,6 +95,15 @@ export interface TokenUsage {
 export interface UsageGuard {
   onPhaseComplete(phase: string, cumulative: TokenUsage): Promise<void>;
   flushPartial(cumulative: TokenUsage): Promise<void>;
+  /**
+   * Per-LLM-call usage observer wired onto `llmCallContext.onUsage`, invoked
+   * once for every provider resolution. The enterprise guard meters FRESH
+   * (`usage.cached !== true`) tokens against the user's bill the moment they
+   * are spent — progressive billing, no terminal write. Disk-cache hits
+   * (`cached === true`) are skipped. Synchronous/fire-and-forget: the
+   * implementation must do its own async write and swallow errors.
+   */
+  meterUsage(usage: { inputTokens: number; outputTokens: number; costUsd: number; cached?: boolean }): void;
 }
 
 export interface KnowledgeFailure {

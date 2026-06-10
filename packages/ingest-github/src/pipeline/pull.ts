@@ -11,7 +11,7 @@ import { withConcurrency } from "./concurrency.ts";
 import { knowledgeDb } from "@bb/db";
 import { filesGraph } from "@bb/graph-db";
 import type { PipelineSummary } from "#src/types/pipeline.ts";
-import { resolveOrgId, llmCallContextFromPayload } from "./context.ts";
+import { resolveOrgId, llmCallContextFromPayload, withUsageMeter } from "./context.ts";
 import { IngestError } from "@bb/errors";
 import { transitionState, emptyPullSummary } from "./pull-helpers.ts";
 import { throwPullFailure } from "./pull-failure.ts";
@@ -125,7 +125,9 @@ export async function runPull(
       buildUserPrompt: buildFileAnalysisUserPrompt,
     });
 
-    const llmCallContext = llmCallContextFromPayload(msg.payload);
+    // Bridge the per-job usage guard onto the LLM context so every fresh call
+    // is metered to the user's bill progressively (see `withUsageMeter`).
+    const llmCallContext = withUsageMeter(llmCallContextFromPayload(msg.payload), usageGuard);
 
     progressContext.phaseChanged("file_analysis");
     logger.info(`pull: phase per-file dispatcher for ${knowledgeId} starting`);

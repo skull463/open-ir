@@ -34,6 +34,14 @@ export interface AskLlmOptions {
    * not return a verdict sampled at a different temperature.
    */
   temperature?: number;
+  /**
+   * Per-call usage observer. Invoked once for every provider resolution — both
+   * fresh calls (`usage.cached !== true`) and disk-cache hits (`true`) — so a
+   * consumer can meter spend progressively. Fire-and-forget: `askLLM` swallows
+   * any throw so billing can never break the LLM path. Threaded via the same
+   * options object as `apiKey`/`model`; absent in OSS standalone (no billing).
+   */
+  onUsage?: (usage: AskLlmUsage) => void;
 }
 
 export interface AskLlmUsage {
@@ -81,7 +89,9 @@ export async function askLLM(prompt: string, opts: AskLlmOptions = {}): Promise<
       const saved = cached.usage.inputTokens + cached.usage.outputTokens;
       logger.debug(`llm: cache hit (key=${cacheKey.slice(0, 8)}, tokens-saved=${saved})`);
       void recordHit(cacheKey);
-      return { content: cached.content, usage: { ...cached.usage, cached: true } };
+      const hitUsage = { ...cached.usage, cached: true };
+      notifyUsage(opts, hitUsage);
+      return { content: cached.content, usage: hitUsage };
     }
     logger.debug(`llm: cache miss (key=${cacheKey.slice(0, 8)})`);
   }
@@ -96,5 +106,19 @@ export async function askLLM(prompt: string, opts: AskLlmOptions = {}): Promise<
       modelChain: chain,
     });
   }
-  return { ...result, usage: { ...result.usage, cached: false } };
+  const freshUsage = { ...result.usage, cached: false };
+  notifyUsage(opts, freshUsage);
+  return { ...result, usage: freshUsage };
+}
+
+/** Fire the per-call usage observer, swallowing any error — billing must never break the LLM path. */
+function notifyUsage(opts: AskLlmOptions, usage: AskLlmUsage): void {
+  if (opts.onUsage === undefined) {
+    return;
+  }
+  try {
+    opts.onUsage(usage);
+  } catch (err) {
+    logger.debug(`llm: onUsage observer threw (ignored): ${err instanceof Error ? err.message : String(err)}`);
+  }
 }

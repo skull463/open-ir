@@ -88,6 +88,13 @@ export function makeSkipDecider(deps: SkipDeciderDeps = {}): SkipDecider {
       return "reject-llm";
     }
     const decision = await askLlmDecision(input, content, deps.repositoryName, input.llmCallContext);
+    if (decision === null) {
+      // LLM gave no usable verdict (error / unparseable). Do NOT cache it: caching here would
+      // poison the content-hash entry with a transient failure and permanently reject this file on
+      // every future re-index (the cache hit short-circuits the LLM). Reject only this run; the next
+      // index re-asks once the LLM is healthy.
+      return "reject-llm";
+    }
     setFileDecision(cache, sha256(content), !decision, "llm", deps.repositoryName, input.relativePath);
     return decision ? "accept-llm" : "reject-llm";
   }
@@ -154,7 +161,7 @@ async function askLlmDecision(
   fullContent: string,
   repositoryName: string | undefined,
   llmCallContext: AskLlmOptions | undefined,
-): Promise<boolean> {
+): Promise<boolean | null> {
   const maxChars = getConfigValue(Config.SkipDecisionMaxCharsForLlm);
   const content = fullContent.slice(0, maxChars);
 
@@ -172,8 +179,10 @@ async function askLlmDecision(
     llmCallContext ?? {},
   );
   if (result.decision === null) {
-    logger.warn(`skip-decisions: LLM returned no decision for ${input.relativePath}; defaulting to reject`);
-    return false;
+    logger.warn(
+      `skip-decisions: LLM returned no decision for ${input.relativePath}; rejecting this run (not cached)`,
+    );
+    return null;
   }
   logger.info(
     `skip-decisions: LLM decision for ${input.relativePath}: ${result.decision ? "ACCEPT" : "REJECT"} (model=${result.usage.model}, in=${result.usage.inputTokens}, out=${result.usage.outputTokens})`,

@@ -195,3 +195,13 @@ export type {
 } from "./progress/types.ts";
 export { nullProgressContextFactory } from "./progress/NullProgressReporter.ts";
 export { dbProgressContextFactory } from "./progress/DbProgressReporter.ts";
+// Cooperative cancellation: the pipeline polls `throwIfCancelled` at every file /
+// phase boundary. A consumer (e.g. the enterprise worker) calls `markCancelled`
+// when the knowledge is deleted so an in-flight job aborts at its next checkpoint.
+export {
+  markCancelled,
+  clearCancellation,
+  isCancelled,
+  throwIfCancelled,
+  CancellationError,
+} from "./pipeline/cancellation.ts";

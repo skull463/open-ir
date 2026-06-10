@@ -28,6 +28,8 @@ export interface AnalyseSmallResult {
   oversizedStubs: number;
   failed: number;
   tokenUsage: { inputTokens: number; outputTokens: number; costUsd: number };
+  /** Subset of `tokenUsage` served from cache / resumed from disk (not billable). */
+  cachedTokenUsage: { inputTokens: number; outputTokens: number; costUsd: number };
 }
 
 /**
@@ -48,6 +50,9 @@ export async function analyseSmallFiles(input: AnalyseSmallInput): Promise<Analy
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
   let totalCostUsd = 0;
+  let cachedInputTokens = 0;
+  let cachedOutputTokens = 0;
+  let cachedCostUsd = 0;
 
   const reporter = input.progressContext?.reporter({
     phase: "file_analysis",
@@ -88,6 +93,10 @@ export async function analyseSmallFiles(input: AnalyseSmallInput): Promise<Analy
                 totalInputTokens += resumed.tokenUsage.inputTokens;
                 totalOutputTokens += resumed.tokenUsage.outputTokens;
                 totalCostUsd += resumed.tokenUsage.costUsd;
+                // Resumed from disk → the whole file was cached this run.
+                cachedInputTokens += resumed.tokenUsage.inputTokens;
+                cachedOutputTokens += resumed.tokenUsage.outputTokens;
+                cachedCostUsd += resumed.tokenUsage.costUsd;
               }
               smallFilesAnalysed += 1;
               reporter?.increment(1, { fileName: entry.relativePath });
@@ -117,6 +126,11 @@ export async function analyseSmallFiles(input: AnalyseSmallInput): Promise<Analy
               totalInputTokens += condensed.tokenUsage.inputTokens;
               totalOutputTokens += condensed.tokenUsage.outputTokens;
               totalCostUsd += condensed.tokenUsage.costUsd;
+            }
+            if (condensed.cachedTokenUsage) {
+              cachedInputTokens += condensed.cachedTokenUsage.inputTokens;
+              cachedOutputTokens += condensed.cachedTokenUsage.outputTokens;
+              cachedCostUsd += condensed.cachedTokenUsage.costUsd;
             }
             smallFilesAnalysed += 1;
             reporter?.increment(1, { fileName: entry.relativePath });
@@ -154,6 +168,7 @@ export async function analyseSmallFiles(input: AnalyseSmallInput): Promise<Analy
     oversizedStubs,
     failed,
     tokenUsage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens, costUsd: totalCostUsd },
+    cachedTokenUsage: { inputTokens: cachedInputTokens, outputTokens: cachedOutputTokens, costUsd: cachedCostUsd },
   };
 }
 

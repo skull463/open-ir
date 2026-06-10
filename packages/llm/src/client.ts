@@ -46,6 +46,13 @@ export interface AskLlmUsage {
    * `0` when the provider omits the field. Never computed client-side.
    */
   costUsd: number;
+  /**
+   * `true` when this result was served from the on-disk LLM cache (no fresh
+   * provider call, no new spend this run). Set by `askLLM` at its return
+   * points; treat an absent value as `false`. Consumers split billable
+   * ("fresh") from non-billable ("cached") token usage on this flag.
+   */
+  cached?: boolean;
 }
 
 export interface AskLlmResult {
@@ -74,7 +81,7 @@ export async function askLLM(prompt: string, opts: AskLlmOptions = {}): Promise<
       const saved = cached.usage.inputTokens + cached.usage.outputTokens;
       logger.debug(`llm: cache hit (key=${cacheKey.slice(0, 8)}, tokens-saved=${saved})`);
       void recordHit(cacheKey);
-      return { content: cached.content, usage: cached.usage };
+      return { content: cached.content, usage: { ...cached.usage, cached: true } };
     }
     logger.debug(`llm: cache miss (key=${cacheKey.slice(0, 8)})`);
   }
@@ -89,5 +96,5 @@ export async function askLLM(prompt: string, opts: AskLlmOptions = {}): Promise<
       modelChain: chain,
     });
   }
-  return result;
+  return { ...result, usage: { ...result.usage, cached: false } };
 }

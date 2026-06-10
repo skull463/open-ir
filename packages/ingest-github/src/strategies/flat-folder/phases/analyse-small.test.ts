@@ -66,23 +66,43 @@ function countingAnalyzer(): { analyzer: FileAnalyzer; calls: () => number } {
   return { analyzer, calls: () => calls };
 }
 
+// Analyzer whose single call was served from the @bb/llm disk cache: it reports
+// the original token usage AND flags the whole result as cached.
+function cacheHitAnalyzer(): { analyzer: FileAnalyzer; calls: () => number } {
+  let calls = 0;
+  const analyzer: FileAnalyzer = {
+    analyze: async () => {
+      calls += 1;
+      return {
+        language: "typescript",
+        analysis: emptyFileAnalysis(),
+        tokenUsage: { ...TOKENS },
+        cachedTokenUsage: { ...TOKENS },
+      };
+    },
+  };
+  return { analyzer, calls: () => calls };
+}
+
 test("resume counts the prior attempt's tokens (start→complete parity)", async () => {
   const { metaPaths, cleanup } = await makeMetaPaths();
   try {
     const { analyzer, calls } = countingAnalyzer();
     const manifest = manifestOf(smallEntry("src/a.ts"));
 
-    // Run 1: fresh — writes condensed JSON, counts tokens via the LLM path.
+    // Run 1: fresh provider call — counted as total, nothing cached.
     const first = await analyseSmallFiles({ knowledgeId: "k", manifest, source, metaPaths, analyzer, limiter });
     expect(calls()).toBe(1);
     expect(first.tokenUsage.inputTokens).toBe(TOKENS.inputTokens);
     expect(first.tokenUsage.costUsd).toBeCloseTo(TOKENS.costUsd);
+    expect(first.cachedTokenUsage).toEqual({ inputTokens: 0, outputTokens: 0, costUsd: 0 });
 
-    // Run 2: resume — condensed JSON on disk, no LLM call, but tokens must still
-    // be counted so the per-run total matches the fresh run.
+    // Run 2: resume — condensed JSON on disk, no LLM call. Tokens must still be
+    // counted, and the WHOLE file counts as cached (no fresh spend this run).
     const second = await analyseSmallFiles({ knowledgeId: "k", manifest, source, metaPaths, analyzer, limiter });
     expect(calls()).toBe(1); // no re-burn
     expect(second.tokenUsage).toEqual(first.tokenUsage);
+    expect(second.cachedTokenUsage).toEqual(first.tokenUsage); // fully cached
     expect(second.smallFilesAnalysed).toBe(1);
   } finally {
     await cleanup();
@@ -109,7 +129,31 @@ test("resume tolerates a condensed file with no tokenUsage (oversized-stub guard
 
     expect(calls()).toBe(0); // resumed, no LLM call
     expect(result.tokenUsage).toEqual({ inputTokens: 0, outputTokens: 0, costUsd: 0 });
+    expect(result.cachedTokenUsage).toEqual({ inputTokens: 0, outputTokens: 0, costUsd: 0 });
     expect(result.smallFilesAnalysed).toBe(1);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("a fresh file served from the @bb/llm cache is counted as cached, not billed", async () => {
+  const { metaPaths, cleanup } = await makeMetaPaths();
+  try {
+    const { analyzer, calls } = cacheHitAnalyzer();
+    const result = await analyseSmallFiles({
+      knowledgeId: "k",
+      manifest: manifestOf(smallEntry("src/cached.ts")),
+      source,
+      metaPaths,
+      analyzer,
+      limiter,
+    });
+
+    expect(calls()).toBe(1); // the analyzer ran, but its call hit the disk cache
+    expect(result.tokenUsage).toEqual({ ...TOKENS }); // total reflects the work
+    expect(result.cachedTokenUsage).toEqual({ ...TOKENS }); // …and it's all cached
+    // fresh (billable) = total − cached = 0
+    expect(result.tokenUsage.inputTokens - result.cachedTokenUsage.inputTokens).toBe(0);
   } finally {
     await cleanup();
   }

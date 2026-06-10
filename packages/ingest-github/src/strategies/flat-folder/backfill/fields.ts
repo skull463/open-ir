@@ -53,6 +53,7 @@ export async function backfillMissingFields(
   updated: number;
   failed: number;
   tokenUsage: { inputTokens: number; outputTokens: number; costUsd: number };
+  cachedTokenUsage: { inputTokens: number; outputTokens: number; costUsd: number };
 }> {
   let updated = 0;
   let failed = 0;
@@ -60,6 +61,9 @@ export async function backfillMissingFields(
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
   let totalCostUsd = 0;
+  let cachedInputTokens = 0;
+  let cachedOutputTokens = 0;
+  let cachedCostUsd = 0;
   const reporter = progressContext?.reporter({
     phase: "file_analysis",
     subPhase: "backfill",
@@ -87,6 +91,11 @@ export async function backfillMissingFields(
             totalInputTokens += response.usage.inputTokens;
             totalOutputTokens += response.usage.outputTokens;
             totalCostUsd += response.usage.costUsd;
+            if (response.usage.cached === true) {
+              cachedInputTokens += response.usage.inputTokens;
+              cachedOutputTokens += response.usage.outputTokens;
+              cachedCostUsd += response.usage.costUsd;
+            }
             if (result === null) {
               reporter?.increment(1, { fileName: entry.relativePath });
               return;
@@ -124,6 +133,7 @@ export async function backfillMissingFields(
       updated,
       failed,
       tokenUsage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens, costUsd: totalCostUsd },
+      cachedTokenUsage: { inputTokens: cachedInputTokens, outputTokens: cachedOutputTokens, costUsd: cachedCostUsd },
     };
   } finally {
     reporter?.stop();

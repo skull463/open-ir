@@ -64,6 +64,7 @@ export async function runLocal(
       graphNodesWritten: result.graphNodesWritten,
       commitHash,
       tokenUsage: result.tokenUsage,
+      cachedTokenUsage: result.cachedTokenUsage,
     };
   } catch (cause: unknown) {
     if (cause instanceof CancellationError) {

@@ -16,6 +16,7 @@ export function emptyPullSummary(commitHash: string, baseCommit: string): Pipeli
     graphNodesWritten: 0,
     commitHash,
     tokenUsage: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
+    cachedTokenUsage: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
     noOp: true,
     baseCommit,
   };

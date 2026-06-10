@@ -206,6 +206,9 @@ async function runGithub(
       String(result.tokenUsage.inputTokens),
       String(result.tokenUsage.outputTokens),
       String(result.tokenUsage.costUsd),
+      String(result.cachedTokenUsage.inputTokens),
+      String(result.cachedTokenUsage.outputTokens),
+      String(result.cachedTokenUsage.costUsd),
     );
     await transitionState(knowledgeId, KnowledgeState.Processed);
 
@@ -221,6 +224,7 @@ async function runGithub(
       graphNodesWritten: result.graphNodesWritten,
       commitHash,
       tokenUsage: result.tokenUsage,
+      cachedTokenUsage: result.cachedTokenUsage,
     };
   } catch (cause: unknown) {
     if (cause instanceof CancellationError) {

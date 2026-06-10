@@ -82,12 +82,18 @@ export async function askJsonLLM<T>(
   let totalCostUsd = 0;
   let lastModel = "";
   let lastRaw = "";
+  // The aggregate is "cached" only if NO underlying call hit the provider — a
+  // single fresh attempt means real spend occurred this run.
+  let anyFresh = false;
 
   for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
     const { content, usage } = await askLLM(userPrompt, baseOpts);
     totalInputTokens += usage.inputTokens;
     totalOutputTokens += usage.outputTokens;
     totalCostUsd += usage.costUsd;
+    if (usage.cached !== true) {
+      anyFresh = true;
+    }
     lastModel = usage.model;
     lastRaw = content;
     const parsed = tryParseJson<T>(content);
@@ -99,6 +105,7 @@ export async function askJsonLLM<T>(
           inputTokens: totalInputTokens,
           outputTokens: totalOutputTokens,
           costUsd: totalCostUsd,
+          cached: !anyFresh,
         },
         raw: content,
       };
@@ -107,7 +114,13 @@ export async function askJsonLLM<T>(
 
   return {
     result: null,
-    usage: { model: lastModel, inputTokens: totalInputTokens, outputTokens: totalOutputTokens, costUsd: totalCostUsd },
+    usage: {
+      model: lastModel,
+      inputTokens: totalInputTokens,
+      outputTokens: totalOutputTokens,
+      costUsd: totalCostUsd,
+      cached: !anyFresh,
+    },
     raw: lastRaw,
   };
 }

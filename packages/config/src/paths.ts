@@ -81,3 +81,15 @@ export function __setBytebellHomeForTests(home: string | null): void {
 export function isDevMode(): boolean {
   return process.env["BYTEBELL_DEV"] === "1";
 }
+
+/**
+ * TEST-ONLY toggle (`BYTEBELL_FORCE_HALT_ONCE=1`). When on, the ingest pipeline
+ * forces a one-shot transient LLM failure per knowledge so the HALTED → retry →
+ * PROCESSED loop can be exercised end-to-end. Read here (the sanctioned env
+ * boundary) rather than in package code, mirroring `isDevMode`. Does NOT bypass
+ * the Rule of Env Vars — no infra URI, credential, or persisted setting is
+ * sourced. Remove alongside `ingest-github`'s `fault-injection.ts`.
+ */
+export function isForceHaltOnceEnabled(): boolean {
+  return process.env["BYTEBELL_FORCE_HALT_ONCE"] === "1";
+}

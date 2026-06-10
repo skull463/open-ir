@@ -48,6 +48,27 @@ export function classifyFailure(cause: unknown): ClassifiedFailure {
   return { category: "internal", reason: describe(cause) };
 }
 
+/**
+ * Categories that warrant an automatic retry. These are transient — a network
+ * blip, provider throttle, or unexpected internal error that may not recur on
+ * the next attempt. Everything else (bad/expired key, missing config, billing
+ * exhausted, user cancellation, usage cap) is operator-actionable and will
+ * fail identically on retry, so those go straight to terminal FAILED with no
+ * wasted attempts.
+ *
+ * Single source of truth for the HALTED-vs-FAILED decision in every pipeline
+ * catch block (see `run.ts`, `run-local.ts`, `pull.ts`).
+ */
+const RETRYABLE_CATEGORIES: ReadonlySet<KnowledgeFailureCategory> = new Set([
+  "llm_rate_limit",
+  "llm_unreachable",
+  "internal",
+]);
+
+export function isRetryable(category: KnowledgeFailureCategory): boolean {
+  return RETRYABLE_CATEGORIES.has(category);
+}
+
 function classifyLlmTransport(cause: LlmError): ClassifiedFailure {
   const status = cause.status;
   const detail = cause.detail ?? cause.message;

@@ -4,7 +4,6 @@ import { logger } from "@bb/logger";
 import type { FileAnalyzer } from "#src/types/pipeline.ts";
 import type { IngestStrategy, StrategyInput, StrategyResult } from "#src/types/strategy.ts";
 import { throwIfCancelled } from "#src/pipeline/cancellation.ts";
-import { classifyFailure } from "#src/pipeline/failure-classifier.ts";
 import { withConcurrency } from "#src/pipeline/concurrency.ts";
 import { scanAndClassify } from "#src/strategies/flat-folder/phases/scan-and-classify.ts";
 import { analyseSmallFiles } from "#src/strategies/flat-folder/phases/analyse-small.ts";
@@ -51,143 +50,140 @@ export function createConceptGraphStrategy(deps: ConceptGraphStrategyDeps): Inge
   const progressContextFactory = deps.progressContextFactory ?? nullProgressContextFactory;
   return {
     name: "concept-graph",
+    // Failures propagate to the pipeline runner + queue finalizer, which own the
+    // HALTED-vs-FAILED decision and outcome SSE. The strategy never catches to
+    // emit terminal state itself — it just lets the error surface.
     async execute(input: StrategyInput): Promise<StrategyResult> {
       const { context, source, archiveSink, metaPaths } = input;
       const { knowledgeId, orgId, repoId, llmCallContext } = context;
       const progressContext: ProgressContext = progressContextFactory(knowledgeId);
 
-      try {
-        // Shared LLM limiter — same pool flat-folder uses; nothing about the
-        // concept-graph strategy needs a separate budget for phases 1–3.
-        const llmConcurrency = getConfigValue(Config.LlmConcurrency);
-        const limiter = withConcurrency(llmConcurrency);
+      // Shared LLM limiter — same pool flat-folder uses; nothing about the
+      // concept-graph strategy needs a separate budget for phases 1–3.
+      const llmConcurrency = getConfigValue(Config.LlmConcurrency);
+      const limiter = withConcurrency(llmConcurrency);
 
-        // ── Phase 1: scan + classify (reused) ──────────────────────────────
-        progressContext.phaseChanged("scan");
-        logger.info(`concept-graph: phase1 (scan + classify) starting for ${knowledgeId} limit=${llmConcurrency}`);
-        throwIfCancelled(knowledgeId);
-        const scanInput: Parameters<typeof scanAndClassify>[0] = {
-          knowledgeId,
-          source,
-          metaPaths,
-          limiter,
-          progressContext,
-        };
-        if (llmCallContext !== undefined) {
-          scanInput.llmCallContext = llmCallContext;
-        }
-        const { manifest } = await scanAndClassify(scanInput);
-
-        const eligibleInput: Parameters<typeof writeEligibleFiles>[0] = {
-          knowledgeId,
-          manifest,
-          source,
-        };
-        if (archiveSink !== undefined) {
-          eligibleInput.archiveSink = archiveSink;
-        }
-        await writeEligibleFiles(eligibleInput);
-
-        // ── Phase 2: analyse small + big (reused) ──────────────────────────
-        progressContext.phaseChanged("file_analysis");
-        logger.info(
-          `concept-graph: phase2 (analyse small ${manifest.summary.smallCount} + big ${manifest.summary.bigCount}) starting in parallel`,
-        );
-        throwIfCancelled(knowledgeId);
-        const smallInput: Parameters<typeof analyseSmallFiles>[0] = {
-          knowledgeId,
-          manifest,
-          source,
-          metaPaths,
-          analyzer: deps.fileAnalyzer,
-          limiter,
-          progressContext,
-        };
-        if (archiveSink !== undefined) {
-          smallInput.archiveSink = archiveSink;
-        }
-        if (llmCallContext !== undefined) {
-          smallInput.llmCallContext = llmCallContext;
-        }
-        const bigInput: Parameters<typeof analyseBigFiles>[0] = {
-          knowledgeId,
-          manifest,
-          source,
-          metaPaths,
-          limiter,
-          progressContext,
-        };
-        if (llmCallContext !== undefined) {
-          bigInput.llmCallContext = llmCallContext;
-        }
-        const [smallResult, bigResult] = await Promise.all([analyseSmallFiles(smallInput), analyseBigFiles(bigInput)]);
-        // Mutable accumulator — Phase 5 enrichment will fold its own usage in
-        // once Step 6 lands. Kept as an object so adding more contributors
-        // later doesn't require turning consts back into lets.
-        const tokenUsage = {
-          inputTokens: smallResult.tokenUsage.inputTokens + bigResult.tokenUsage.inputTokens,
-          outputTokens: smallResult.tokenUsage.outputTokens + bigResult.tokenUsage.outputTokens,
-          costUsd: smallResult.tokenUsage.costUsd + bigResult.tokenUsage.costUsd,
-        };
-
-        // ── Phase 3: backfill (reused) ─────────────────────────────────────
-        logger.info(`concept-graph: loading file-analysis cache`);
-        throwIfCancelled(knowledgeId);
-        const fileAnalysisCache = await FileAnalysisCache.loadAll(metaPaths);
-
-        logger.info(`concept-graph: phase3 (backfill missing fields) starting`);
-        throwIfCancelled(knowledgeId);
-        await backfillMissingFields(metaPaths, fileAnalysisCache, limiter, llmCallContext, progressContext);
-
-        // ── Phase 4: store files only (no folders, no repo) ───────────────
-        progressContext.phaseChanged("indexing");
-        logger.info(`concept-graph: phase4 (store files; no :Folder/:Repo) starting`);
-        throwIfCancelled(knowledgeId);
-        const storeResult = await storeFilesNoFolders({
-          scope: { orgId, knowledgeId, repoId },
-          metaPaths,
-          cache: fileAnalysisCache,
-          progressContext,
-        });
-
-        // ── Phase 5: per-file MCP enrichment ───────────────────────────────
-        progressContext.phaseChanged("enrichment");
-        logger.info(`concept-graph: phase5 (per-file MCP enrichment) starting`);
-        throwIfCancelled(knowledgeId);
-        const enrichInput: Parameters<typeof enrichFiles>[0] = {
-          scope: { orgId, knowledgeId, repoId },
-          metaPaths,
-          cache: fileAnalysisCache,
-          commitId: source.commitHash,
-          progressContext,
-        };
-        if (llmCallContext !== undefined) {
-          enrichInput.llmCallContext = llmCallContext;
-        }
-        const enrichResult = await enrichFiles(enrichInput);
-        tokenUsage.inputTokens += enrichResult.tokenUsage.inputTokens;
-        tokenUsage.outputTokens += enrichResult.tokenUsage.outputTokens;
-        tokenUsage.costUsd += enrichResult.tokenUsage.costUsd;
-        logger.info(
-          `concept-graph: phase5 done — enriched=${enrichResult.filesEnriched} runId=${enrichResult.enrichmentRunId}`,
-        );
-
-        progressContext.completed();
-
-        const totalFilesAnalyzed =
-          smallResult.smallFilesAnalysed + smallResult.oversizedStubs + bigResult.processed + bigResult.cached;
-        return {
-          filesAnalyzed: totalFilesAnalyzed,
-          foldersSummarised: 0,
-          repoSummarised: false,
-          graphNodesWritten: storeResult.nodesWritten,
-          tokenUsage,
-        };
-      } catch (cause: unknown) {
-        const { category, reason, detail } = classifyFailure(cause);
-        progressContext.failed(reason, undefined, category, detail);
-        throw cause;
+      // ── Phase 1: scan + classify (reused) ──────────────────────────────
+      progressContext.phaseChanged("scan");
+      logger.info(`concept-graph: phase1 (scan + classify) starting for ${knowledgeId} limit=${llmConcurrency}`);
+      throwIfCancelled(knowledgeId);
+      const scanInput: Parameters<typeof scanAndClassify>[0] = {
+        knowledgeId,
+        source,
+        metaPaths,
+        limiter,
+        progressContext,
+      };
+      if (llmCallContext !== undefined) {
+        scanInput.llmCallContext = llmCallContext;
       }
+      const { manifest } = await scanAndClassify(scanInput);
+
+      const eligibleInput: Parameters<typeof writeEligibleFiles>[0] = {
+        knowledgeId,
+        manifest,
+        source,
+      };
+      if (archiveSink !== undefined) {
+        eligibleInput.archiveSink = archiveSink;
+      }
+      await writeEligibleFiles(eligibleInput);
+
+      // ── Phase 2: analyse small + big (reused) ──────────────────────────
+      progressContext.phaseChanged("file_analysis");
+      logger.info(
+        `concept-graph: phase2 (analyse small ${manifest.summary.smallCount} + big ${manifest.summary.bigCount}) starting in parallel`,
+      );
+      throwIfCancelled(knowledgeId);
+      const smallInput: Parameters<typeof analyseSmallFiles>[0] = {
+        knowledgeId,
+        manifest,
+        source,
+        metaPaths,
+        analyzer: deps.fileAnalyzer,
+        limiter,
+        progressContext,
+      };
+      if (archiveSink !== undefined) {
+        smallInput.archiveSink = archiveSink;
+      }
+      if (llmCallContext !== undefined) {
+        smallInput.llmCallContext = llmCallContext;
+      }
+      const bigInput: Parameters<typeof analyseBigFiles>[0] = {
+        knowledgeId,
+        manifest,
+        source,
+        metaPaths,
+        limiter,
+        progressContext,
+      };
+      if (llmCallContext !== undefined) {
+        bigInput.llmCallContext = llmCallContext;
+      }
+      const [smallResult, bigResult] = await Promise.all([analyseSmallFiles(smallInput), analyseBigFiles(bigInput)]);
+      // Mutable accumulator — Phase 5 enrichment will fold its own usage in
+      // once Step 6 lands. Kept as an object so adding more contributors
+      // later doesn't require turning consts back into lets.
+      const tokenUsage = {
+        inputTokens: smallResult.tokenUsage.inputTokens + bigResult.tokenUsage.inputTokens,
+        outputTokens: smallResult.tokenUsage.outputTokens + bigResult.tokenUsage.outputTokens,
+        costUsd: smallResult.tokenUsage.costUsd + bigResult.tokenUsage.costUsd,
+      };
+
+      // ── Phase 3: backfill (reused) ─────────────────────────────────────
+      logger.info(`concept-graph: loading file-analysis cache`);
+      throwIfCancelled(knowledgeId);
+      const fileAnalysisCache = await FileAnalysisCache.loadAll(metaPaths);
+
+      logger.info(`concept-graph: phase3 (backfill missing fields) starting`);
+      throwIfCancelled(knowledgeId);
+      await backfillMissingFields(metaPaths, fileAnalysisCache, limiter, llmCallContext, progressContext);
+
+      // ── Phase 4: store files only (no folders, no repo) ───────────────
+      progressContext.phaseChanged("indexing");
+      logger.info(`concept-graph: phase4 (store files; no :Folder/:Repo) starting`);
+      throwIfCancelled(knowledgeId);
+      const storeResult = await storeFilesNoFolders({
+        scope: { orgId, knowledgeId, repoId },
+        metaPaths,
+        cache: fileAnalysisCache,
+        progressContext,
+      });
+
+      // ── Phase 5: per-file MCP enrichment ───────────────────────────────
+      progressContext.phaseChanged("enrichment");
+      logger.info(`concept-graph: phase5 (per-file MCP enrichment) starting`);
+      throwIfCancelled(knowledgeId);
+      const enrichInput: Parameters<typeof enrichFiles>[0] = {
+        scope: { orgId, knowledgeId, repoId },
+        metaPaths,
+        cache: fileAnalysisCache,
+        commitId: source.commitHash,
+        progressContext,
+      };
+      if (llmCallContext !== undefined) {
+        enrichInput.llmCallContext = llmCallContext;
+      }
+      const enrichResult = await enrichFiles(enrichInput);
+      tokenUsage.inputTokens += enrichResult.tokenUsage.inputTokens;
+      tokenUsage.outputTokens += enrichResult.tokenUsage.outputTokens;
+      tokenUsage.costUsd += enrichResult.tokenUsage.costUsd;
+      logger.info(
+        `concept-graph: phase5 done — enriched=${enrichResult.filesEnriched} runId=${enrichResult.enrichmentRunId}`,
+      );
+
+      progressContext.completed();
+
+      const totalFilesAnalyzed =
+        smallResult.smallFilesAnalysed + smallResult.oversizedStubs + bigResult.processed + bigResult.cached;
+      return {
+        filesAnalyzed: totalFilesAnalyzed,
+        foldersSummarised: 0,
+        repoSummarised: false,
+        graphNodesWritten: storeResult.nodesWritten,
+        tokenUsage,
+      };
     },
   };
 }

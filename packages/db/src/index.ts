@@ -49,6 +49,8 @@ export const knowledgeDb: IKnowledgeRepository = {
   listKnowledge: (...args) => getDb().knowledge.listKnowledge(...args),
   getKnowledge: (...args) => getDb().knowledge.getKnowledge(...args),
   markKnowledgeFailed: (...args) => getDb().knowledge.markKnowledgeFailed(...args),
+  markKnowledgeHalted: (...args) => getDb().knowledge.markKnowledgeHalted(...args),
+  promoteHaltedToFailed: (...args) => getDb().knowledge.promoteHaltedToFailed(...args),
 };
 
 export const rawDb: IRawRepository = {

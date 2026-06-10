@@ -12,6 +12,7 @@ Strategy. Registers itself with `@bb/queue` via side-effect import as the `"bull
 - Owns the Redis lifecycle: `connect()` calls `connectRedis()`, `close()` calls `closeRedis()`, `ping()` calls `pingRedis()`.
 - Maps `JobPriority` (Low/Normal/High) to BullMQ's smaller-number-wins ordering (1000/100/10).
 - Computes the stable dedupe `jobId = ${type}-${knowledgeId}` so re-publishing is a no-op.
+- Finalizes failed jobs: the worker converts a handler error carrying `retryable === false` into a BullMQ `UnrecoverableError` (skips remaining attempts, since the pipeline already wrote terminal `FAILED`), and a `worker.on("failed")` handler promotes a transiently-`HALTED` knowledge to terminal `FAILED` via `knowledgeDb.promoteHaltedToFailed` once `attemptsMade >= attempts`. This authoritative "no more retries" signal guarantees HALTED can never get stuck. (OSS has no SSE — state-only, no retry event.)
 
 ## Public Exports
 

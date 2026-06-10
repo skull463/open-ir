@@ -46,6 +46,44 @@ export async function markKnowledgeFailed(
   }
 }
 
+export async function markKnowledgeHalted(
+  knowledgeId: string,
+  reason: string,
+  category: KnowledgeFailureCategory,
+  detail?: string,
+): Promise<void> {
+  const db = getSqliteDb();
+  const now = new Date().toISOString();
+  const failure = {
+    reason,
+    category,
+    at: now,
+    detail: detail || undefined,
+  };
+  const result = db.run(
+    "UPDATE knowledge SET value = json_set(value, '$.status.state', 'HALTED', '$.updatedAt', ?, '$.failure', json(?)) WHERE key = ?",
+    [now, JSON.stringify(failure), knowledgeId],
+  );
+  if (result.changes === 0) {
+    throw new KnowledgeNotFoundError(knowledgeId);
+  }
+}
+
+/**
+ * Promotes a HALTED knowledge to terminal FAILED, preserving the `failure`
+ * subdoc. Scoped to current state HALTED so it is idempotent. Resolves to
+ * `true` when a document was promoted.
+ */
+export async function promoteHaltedToFailed(knowledgeId: string): Promise<boolean> {
+  const db = getSqliteDb();
+  const now = new Date().toISOString();
+  const result = db.run(
+    "UPDATE knowledge SET value = json_set(value, '$.status.state', 'FAILED', '$.updatedAt', ?) WHERE key = ? AND json_extract(value, '$.status.state') = 'HALTED'",
+    [now, knowledgeId],
+  );
+  return result.changes > 0;
+}
+
 export async function setKnowledgeCommit(
   knowledgeId: string,
   commitHash: string,

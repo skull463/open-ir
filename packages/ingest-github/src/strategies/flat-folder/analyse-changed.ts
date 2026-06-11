@@ -36,10 +36,11 @@ export interface AnalyseChangedInput {
   /**
    * Per-job effective ignore sets. The walk-time pruning never runs on diff
    * paths, so the dispatcher re-applies the static directory / filename /
-   * extension / glob checks here. Absent → built-in filename/extension defaults
-   * only (directory + glob checks skipped, matching legacy pull behavior).
+   * extension / glob checks here. REQUIRED — callers with no overrides pass
+   * `buildEffectiveIgnoreSets()` (pure seed defaults); there is no silent
+   * filename/extension-only fallback.
    */
-  ignoreSets?: EffectiveIgnoreSets;
+  ignoreSets: EffectiveIgnoreSets;
 }
 
 export interface AnalyseChangedResult {

@@ -6,7 +6,7 @@ import type { AskLlmOptions } from "@bb/llm";
 import type { MetaPaths } from "#src/types/meta-paths.ts";
 import type { BigFileEntry } from "#src/types/big-file.ts";
 import type { SkipDecider, SourceReader } from "#src/types/pipeline.ts";
-import type { EffectiveIgnoreSets } from "#src/pipeline/skip-decisions/effective.ts";
+import { buildEffectiveIgnoreSets, type EffectiveIgnoreSets } from "#src/pipeline/skip-decisions/effective.ts";
 import type { ProgressContext } from "#src/progress/types.ts";
 import type { ConcurrencyLimiter } from "#src/pipeline/concurrency.ts";
 import { throwIfCancelled } from "#src/pipeline/cancellation.ts";
@@ -62,11 +62,15 @@ export async function scanAndClassify(input: ScanAndClassifyInput): Promise<Scan
 
   const repositoryHint =
     input.source.localRepoDir.length > 0 ? path.basename(input.source.localRepoDir) : input.knowledgeId;
+  // Resolve the effective ignore sets exactly once and thread them everywhere
+  // (decider + scan deps below) — never conditionally, so the walk and the
+  // decider can't silently diverge from the per-job overrides.
+  const ignoreSets = input.ignoreSets ?? buildEffectiveIgnoreSets();
   const skipDecider =
     input.skipDecider ??
     makeSkipDecider({
       repositoryName: repositoryHint,
-      ...(input.ignoreSets !== undefined ? { ignoreSets: input.ignoreSets } : {}),
+      ignoreSets,
     });
 
   const reporter = input.progressContext?.reporter({
@@ -76,15 +80,12 @@ export async function scanAndClassify(input: ScanAndClassifyInput): Promise<Scan
   await reporter?.start();
 
   try {
-    const scanDeps: Parameters<typeof input.source.scan>[0] = { skipDecider };
+    const scanDeps: Parameters<typeof input.source.scan>[0] = { skipDecider, ignoreSets };
     if (input.limiter !== undefined) {
       scanDeps.limiter = input.limiter;
     }
     if (input.llmCallContext !== undefined) {
       scanDeps.llmCallContext = input.llmCallContext;
-    }
-    if (input.ignoreSets !== undefined) {
-      scanDeps.ignoreSets = input.ignoreSets;
     }
 
     for await (const entry of input.source.scan(scanDeps)) {

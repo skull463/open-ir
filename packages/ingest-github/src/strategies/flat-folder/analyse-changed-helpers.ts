@@ -4,23 +4,23 @@ import type { EffectiveIgnoreSets } from "#src/pipeline/skip-decisions/effective
 import type { BigFileEntry } from "#src/types/big-file.ts";
 
 /**
- * Replicates the index-time static skip decision for a single diff path. With
- * `sets` undefined, falls back to the built-in filename/extension filter only
- * (legacy pull behavior). With `sets` present, also rejects paths under an
- * ignored directory segment or matching an ignored glob — so a pull honours the
- * org's overrides the same way the initial index does.
+ * Replicates the index-time static skip decision for a single diff path:
+ * filename + extension + directory segments + globs, all against the per-job
+ * effective ignore sets — so a pull rejects exactly what the initial index
+ * rejected. `sets` is REQUIRED: a caller with no overrides passes
+ * `buildEffectiveIgnoreSets()` (pure seed defaults). There is deliberately no
+ * undefined fallback — a fallback would silently skip the directory and glob
+ * checks and reintroduce the index-vs-pull divergence this function exists to
+ * close.
  */
 export function isStaticallyIgnored(
   relativePath: string,
   filename: string,
   ext: string,
-  sets: EffectiveIgnoreSets | undefined,
+  sets: EffectiveIgnoreSets,
 ): boolean {
   if (!passesPathFilters(filename, ext, sets)) {
     return true;
-  }
-  if (sets === undefined) {
-    return false;
   }
   for (const segment of relativePath.split("/").slice(0, -1)) {
     if (sets.directories.has(segment)) {

@@ -55,7 +55,7 @@ export function createConceptGraphStrategy(deps: ConceptGraphStrategyDeps): Inge
     // emit terminal state itself — it just lets the error surface.
     async execute(input: StrategyInput): Promise<StrategyResult> {
       const { context, source, archiveSink, metaPaths } = input;
-      const { knowledgeId, orgId, repoId, llmCallContext } = context;
+      const { knowledgeId, orgId, repoId, llmCallContext, ignoreSets } = context;
       const progressContext: ProgressContext = progressContextFactory(knowledgeId);
 
       // Shared LLM limiter — same pool flat-folder uses; nothing about the
@@ -76,6 +76,9 @@ export function createConceptGraphStrategy(deps: ConceptGraphStrategyDeps): Inge
       };
       if (llmCallContext !== undefined) {
         scanInput.llmCallContext = llmCallContext;
+      }
+      if (ignoreSets !== undefined) {
+        scanInput.ignoreSets = ignoreSets;
       }
       const { manifest } = await scanAndClassify(scanInput);
 

@@ -11,7 +11,7 @@ import { withConcurrency } from "./concurrency.ts";
 import { knowledgeDb } from "@bb/db";
 import { filesGraph } from "@bb/graph-db";
 import type { PipelineSummary } from "#src/types/pipeline.ts";
-import { resolveOrgId, llmCallContextFromPayload, withUsageMeter } from "./context.ts";
+import { resolveOrgId, llmCallContextFromPayload, ignoreSetsFromPayload, withUsageMeter } from "./context.ts";
 import { IngestError } from "@bb/errors";
 import { transitionState, emptyPullSummary } from "./pull-helpers.ts";
 import { throwPullFailure } from "./pull-failure.ts";
@@ -139,6 +139,7 @@ export async function runPull(
       analyzer: fileAnalyzer,
       diff,
       progressContext,
+      ignoreSets: ignoreSetsFromPayload(msg.payload),
     };
     if (llmCallContext !== undefined) {
       analyseChangedInput.llmCallContext = llmCallContext;

@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { opendir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { Config } from "@bb/types";
@@ -6,6 +5,8 @@ import { getConfigValue } from "@bb/config";
 import type { AskLlmOptions } from "@bb/llm";
 import { logger } from "@bb/logger";
 import { SKIP_DIRS, looksBinary, passesPathFilters } from "./filters.ts";
+import { countLines, decisionKey } from "./scan-helpers.ts";
+import type { EffectiveIgnoreSets } from "./skip-decisions/effective.ts";
 import type { ConcurrencyLimiter } from "./concurrency.ts";
 import type { ScanEntry, SkipDecider, SkipDeciderInput } from "#src/types/pipeline.ts";
 
@@ -18,6 +19,12 @@ export interface ScanRepositoryDeps {
   skipDecider?: SkipDecider;
   llmCallContext?: AskLlmOptions;
   limiter?: ConcurrencyLimiter;
+  /**
+   * Effective ignore sets (seed defaults overlaid with per-job overrides). Used
+   * for directory-walk pruning and the path filter. When omitted, the built-in
+   * `SKIP_DIRS` / `SKIP_FILES` / `BINARY_EXTENSIONS` defaults apply (unchanged).
+   */
+  ignoreSets?: EffectiveIgnoreSets;
 }
 
 interface ScanCounts {
@@ -78,7 +85,7 @@ async function* walk(
   for await (const entry of dir) {
     const abs = path.join(currentDir, entry.name);
     if (entry.isDirectory()) {
-      if (SKIP_DIRS.has(entry.name)) {
+      if ((deps.ignoreSets?.directories ?? SKIP_DIRS).has(entry.name)) {
         continue;
       }
       yield* walk(rootDir, abs, limits, deps, counts);
@@ -87,7 +94,7 @@ async function* walk(
     if (!entry.isFile()) {
       continue;
     }
-    if (!passesPathFilters(entry.name, path.extname(entry.name))) {
+    if (!passesPathFilters(entry.name, path.extname(entry.name), deps.ignoreSets)) {
       counts.rejectStatic += 1;
       continue;
     }
@@ -162,7 +169,7 @@ async function* twoPassScan(
   if (pending.length > 0) {
     const unique = new Map<string, SkipDeciderInput>();
     for (const p of pending) {
-      const key = decisionKey(p);
+      const key = decisionKey(p.content);
       if (!unique.has(key)) {
         unique.set(key, p.input);
       }
@@ -213,7 +220,7 @@ async function* walkAndCategorize(
   for await (const entry of dir) {
     const abs = path.join(currentDir, entry.name);
     if (entry.isDirectory()) {
-      if (SKIP_DIRS.has(entry.name)) {
+      if ((deps.ignoreSets?.directories ?? SKIP_DIRS).has(entry.name)) {
         continue;
       }
       yield* walkAndCategorize(rootDir, abs, limits, deps, decider, counts, pending);
@@ -222,7 +229,7 @@ async function* walkAndCategorize(
     if (!entry.isFile()) {
       continue;
     }
-    if (!passesPathFilters(entry.name, path.extname(entry.name))) {
+    if (!passesPathFilters(entry.name, path.extname(entry.name), deps.ignoreSets)) {
       counts.rejectStatic += 1;
       continue;
     }
@@ -271,26 +278,6 @@ async function* walkAndCategorize(
     // sync === null → needs LLM. Defer to pass 2.
     pending.push({ relativePath, absolutePath: abs, sizeBytes, content, ext, input: deciderInput });
   }
-}
-
-function decisionKey(p: PendingFile): string {
-  // Per-file admission gate: dedupe by content hash so identical file contents
-  // collapse to a single LLM call while distinct files each get their own
-  // verdict. Matches the content-hash key used by the decider's `files` cache.
-  return `file:${createHash("sha256").update(p.content, "utf8").digest("hex")}`;
-}
-
-function countLines(content: string): number {
-  if (content.length === 0) {
-    return 0;
-  }
-  let lines = 1;
-  for (let i = 0; i < content.length; i += 1) {
-    if (content.charCodeAt(i) === 10) {
-      lines += 1;
-    }
-  }
-  return lines;
 }
 
 export async function readScannedFile(absolutePath: string): Promise<string> {

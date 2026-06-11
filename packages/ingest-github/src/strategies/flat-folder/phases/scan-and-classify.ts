@@ -6,6 +6,7 @@ import type { AskLlmOptions } from "@bb/llm";
 import type { MetaPaths } from "#src/types/meta-paths.ts";
 import type { BigFileEntry } from "#src/types/big-file.ts";
 import type { SkipDecider, SourceReader } from "#src/types/pipeline.ts";
+import type { EffectiveIgnoreSets } from "#src/pipeline/skip-decisions/effective.ts";
 import type { ProgressContext } from "#src/progress/types.ts";
 import type { ConcurrencyLimiter } from "#src/pipeline/concurrency.ts";
 import { throwIfCancelled } from "#src/pipeline/cancellation.ts";
@@ -33,6 +34,12 @@ export interface ScanAndClassifyInput {
    * still works standalone.
    */
   limiter?: ConcurrencyLimiter;
+  /**
+   * Per-job effective ignore sets. Forwarded to the skip-decider (so static
+   * filename/extension/glob checks honour the org's overrides) and to the
+   * directory-walk pruning inside `scanRepository`. Absent → seed defaults.
+   */
+  ignoreSets?: EffectiveIgnoreSets;
 }
 
 export interface ScanAndClassifyResult {
@@ -55,7 +62,12 @@ export async function scanAndClassify(input: ScanAndClassifyInput): Promise<Scan
 
   const repositoryHint =
     input.source.localRepoDir.length > 0 ? path.basename(input.source.localRepoDir) : input.knowledgeId;
-  const skipDecider = input.skipDecider ?? makeSkipDecider({ repositoryName: repositoryHint });
+  const skipDecider =
+    input.skipDecider ??
+    makeSkipDecider({
+      repositoryName: repositoryHint,
+      ...(input.ignoreSets !== undefined ? { ignoreSets: input.ignoreSets } : {}),
+    });
 
   const reporter = input.progressContext?.reporter({
     phase: "scan",
@@ -70,6 +82,9 @@ export async function scanAndClassify(input: ScanAndClassifyInput): Promise<Scan
     }
     if (input.llmCallContext !== undefined) {
       scanDeps.llmCallContext = input.llmCallContext;
+    }
+    if (input.ignoreSets !== undefined) {
+      scanDeps.ignoreSets = input.ignoreSets;
     }
 
     for await (const entry of input.source.scan(scanDeps)) {

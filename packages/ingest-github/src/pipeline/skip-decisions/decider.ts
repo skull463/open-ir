@@ -16,12 +16,19 @@ import {
   setFileDecision,
   type DecisionsCache,
 } from "./cache.ts";
-import { SEED_DIRECTORIES, SEED_EXTENSIONS, SEED_FILENAMES, matchesAnyGlob } from "./seed.ts";
+import { matchesAnyGlob } from "./seed.ts";
+import { buildEffectiveIgnoreSets, type EffectiveIgnoreSets } from "./effective.ts";
 import { SKIP_DECISION_SYSTEM_PROMPT, buildSkipDecisionUserPrompt } from "./prompts/skip-decision.ts";
 
 export interface SkipDeciderDeps {
   repositoryName?: string;
   cachePath?: string;
+  /**
+   * Effective ignore sets (seed defaults overlaid with any per-job overrides).
+   * When omitted, falls back to the pure seed defaults — behavior identical to
+   * before per-job overrides existed.
+   */
+  ignoreSets?: EffectiveIgnoreSets;
 }
 
 interface StaticDecisionContext {
@@ -33,6 +40,7 @@ export function makeSkipDecider(deps: SkipDeciderDeps = {}): SkipDecider {
   const enabled = getConfigValue(Config.SkipDecisionEnabled);
   const cachePath = deps.cachePath ?? defaultCachePath();
   const cache: DecisionsCache = enabled ? loadCache(cachePath) : emptyCache();
+  const ignoreSets = deps.ignoreSets ?? buildEffectiveIgnoreSets();
   if (enabled) {
     logCacheSummary(cache);
   }
@@ -46,17 +54,17 @@ export function makeSkipDecider(deps: SkipDeciderDeps = {}): SkipDecider {
   function staticDecision(input: SkipDeciderInput): SkipDecision | null {
     const { filename, segments } = contextFor(input);
     for (const segment of segments.slice(0, -1)) {
-      if (SEED_DIRECTORIES.has(segment)) {
+      if (ignoreSets.directories.has(segment)) {
         return "reject-static";
       }
     }
-    if (SEED_FILENAMES.has(filename)) {
+    if (ignoreSets.filenames.has(filename)) {
       return "reject-static";
     }
-    if (input.ext.length > 0 && SEED_EXTENSIONS.has(input.ext)) {
+    if (input.ext.length > 0 && ignoreSets.extensions.has(input.ext)) {
       return "reject-static";
     }
-    if (matchesAnyGlob(filename)) {
+    if (matchesAnyGlob(filename, ignoreSets.globs)) {
       return "reject-static";
     }
 

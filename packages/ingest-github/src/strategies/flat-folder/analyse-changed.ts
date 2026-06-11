@@ -8,13 +8,20 @@ import type { ArchiveSink, FileAnalyzer, ScannedFile, SourceReader } from "#src/
 import type { MetaPaths } from "#src/types/meta-paths.ts";
 import type { BigFileEntry } from "#src/types/big-file.ts";
 import type { ProgressContext } from "#src/progress/types.ts";
-import { looksBinary, passesPathFilters } from "#src/pipeline/filters.ts";
+import { looksBinary } from "#src/pipeline/filters.ts";
+import type { EffectiveIgnoreSets } from "#src/pipeline/skip-decisions/effective.ts";
+import { countLines } from "#src/pipeline/scan-helpers.ts";
 import { withConcurrency } from "#src/pipeline/concurrency.ts";
 import { throwIfCancelled, CancellationError } from "#src/pipeline/cancellation.ts";
 import type { DiffResult } from "#src/pipeline/git-diff.ts";
 import { analyseScannedFile, buildOversizedStub } from "#src/strategies/flat-folder/analyse-file.ts";
 import { saveCondensed } from "#src/strategies/flat-folder/big-file/storage.ts";
 import { readBigFiles, writeBigFiles } from "#src/strategies/flat-folder/big-file/detector.ts";
+import {
+  describe,
+  isStaticallyIgnored,
+  mergeBigFileEntries,
+} from "#src/strategies/flat-folder/analyse-changed-helpers.ts";
 
 export interface AnalyseChangedInput {
   knowledgeId: string;
@@ -26,6 +33,13 @@ export interface AnalyseChangedInput {
   /** Optional non-fatal archive sink. When set, analysed content is pushed after `saveCondensed`. */
   archiveSink?: ArchiveSink;
   progressContext?: ProgressContext;
+  /**
+   * Per-job effective ignore sets. The walk-time pruning never runs on diff
+   * paths, so the dispatcher re-applies the static directory / filename /
+   * extension / glob checks here. Absent → built-in filename/extension defaults
+   * only (directory + glob checks skipped, matching legacy pull behavior).
+   */
+  ignoreSets?: EffectiveIgnoreSets;
 }
 
 export interface AnalyseChangedResult {
@@ -101,7 +115,7 @@ export async function analyseChangedFiles(input: AnalyseChangedInput): Promise<A
       throwIfCancelled(input.knowledgeId);
       const filename = path.basename(relativePath);
       const ext = path.extname(filename).toLowerCase();
-      if (!passesPathFilters(filename, ext)) {
+      if (isStaticallyIgnored(relativePath, filename, ext, input.ignoreSets)) {
         skipped += 1;
         reporter?.increment(1, { fileName: relativePath });
         continue;
@@ -248,32 +262,4 @@ export async function analyseChangedFiles(input: AnalyseChangedInput): Promise<A
     tokenUsage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens, costUsd: totalCostUsd },
     cachedTokenUsage: { inputTokens: cachedInputTokens, outputTokens: cachedOutputTokens, costUsd: cachedCostUsd },
   };
-}
-
-function mergeBigFileEntries(existing: BigFileEntry[], additions: BigFileEntry[]): BigFileEntry[] {
-  const byPath = new Map<string, BigFileEntry>();
-  for (const entry of existing) {
-    byPath.set(entry.relativePath, entry);
-  }
-  for (const entry of additions) {
-    byPath.set(entry.relativePath, entry);
-  }
-  return [...byPath.values()];
-}
-
-function countLines(content: string): number {
-  if (content.length === 0) {
-    return 0;
-  }
-  let lines = 1;
-  for (let i = 0; i < content.length; i += 1) {
-    if (content.charCodeAt(i) === 10) {
-      lines += 1;
-    }
-  }
-  return lines;
-}
-
-function describe(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
 }

@@ -8,6 +8,8 @@ export type {
   JobMessage,
   PayloadFor,
   PayloadLlmOverrides,
+  IgnoreOverridePatch,
+  IgnoreOverrides,
 } from "./job.ts";
 export { KnowledgeState } from "./knowledge.ts";
 export type {

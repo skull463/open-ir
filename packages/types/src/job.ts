@@ -32,6 +32,36 @@ export interface PayloadLlmOverrides {
   llmKeyId?: string;
 }
 
+/**
+ * A copy-on-write delta against one category of built-in ignore defaults.
+ * `add` adds patterns to the effective ignore set; `remove` un-ignores a
+ * built-in default (its strings are matched verbatim against the seed lists).
+ * Both are plain string arrays so the patch serializes cleanly into a BullMQ
+ * payload.
+ */
+export interface IgnoreOverridePatch {
+  add?: string[];
+  remove?: string[];
+}
+
+/**
+ * Per-job ignore overrides, supplied by a downstream multi-tenant wrapper that
+ * resolves an org's custom ignore config at the enqueue boundary and infuses it
+ * into the payload. Each category overlays the worker's built-in seed defaults
+ * (see `pipeline/skip-decisions/effective.ts`). OSS standalone leaves this unset
+ * and the worker uses pure seed defaults — behavior identical to before this
+ * field existed.
+ *
+ * `globs` removals are matched as exact pattern strings (not glob-evaluated)
+ * against the seed glob list.
+ */
+export interface IgnoreOverrides {
+  directories?: IgnoreOverridePatch;
+  filenames?: IgnoreOverridePatch;
+  extensions?: IgnoreOverridePatch;
+  globs?: IgnoreOverridePatch;
+}
+
 export interface GithubIndexPayload extends PayloadLlmOverrides {
   knowledgeId: string;
   repoUrl: string;
@@ -39,6 +69,8 @@ export interface GithubIndexPayload extends PayloadLlmOverrides {
   commitHash?: string;
   gitToken?: string;
   orgId?: string;
+  /** Optional per-job ignore overrides; absent in OSS standalone runs. */
+  ignoreOverrides?: IgnoreOverrides;
 }
 
 export interface GithubPullPayload extends PayloadLlmOverrides {
@@ -72,6 +104,8 @@ export interface GithubPullPayload extends PayloadLlmOverrides {
   repoUrl?: string;
   branch?: string;
   gitToken?: string;
+  /** Optional per-job ignore overrides; absent in OSS standalone runs. */
+  ignoreOverrides?: IgnoreOverrides;
 }
 
 export interface LocalIngestPayload {

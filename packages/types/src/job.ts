@@ -106,6 +106,14 @@ export interface GithubPullPayload extends PayloadLlmOverrides {
   gitToken?: string;
   /** Optional per-job ignore overrides; absent in OSS standalone runs. */
   ignoreOverrides?: IgnoreOverrides;
+  /**
+   * Marks this pull as an unattended auto-pull / bulk refresh of already-indexed
+   * knowledge. When true, a terminal failure preserves the prior `PROCESSED` state
+   * instead of marking the knowledge `FAILED`/`HALTED` — a failed background refresh
+   * must never degrade a healthy index. OSS standalone never sets this (no auto-pull),
+   * so behavior there is unchanged. See `pull-failure.ts`.
+   */
+  isAutoPull?: boolean;
 }
 
 export interface LocalIngestPayload {

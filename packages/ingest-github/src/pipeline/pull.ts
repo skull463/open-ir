@@ -278,6 +278,11 @@ export async function runPull(
       cachedTokenUsage: cached,
     };
   } catch (cause: unknown) {
-    return await throwPullFailure(cause, { knowledgeId, usageGuard, progressContext });
+    return await throwPullFailure(cause, {
+      knowledgeId,
+      usageGuard,
+      progressContext,
+      ...(msg.payload.isAutoPull === true ? { isAutoPull: true } : {}),
+    });
   }
 }

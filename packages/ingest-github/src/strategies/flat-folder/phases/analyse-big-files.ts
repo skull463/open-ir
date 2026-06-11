@@ -18,6 +18,7 @@ import { analyzeChunk } from "#src/strategies/flat-folder/big-file/chunk-analyze
 import { condenseChunks } from "#src/strategies/flat-folder/big-file/condenser.ts";
 import {
   loadChunkIfPresent,
+  readCondensed,
   saveChunk,
   saveCondensed,
   saveManifest,
@@ -25,6 +26,7 @@ import {
 import type { ScanManifest, ScanManifestEntry } from "#src/strategies/flat-folder/scan-manifest.ts";
 import type { ProcessBigFilesResult } from "#src/strategies/flat-folder/phases/process-big-files.ts";
 import { describe } from "#src/strategies/flat-folder/phases/process-big-files.ts";
+import { addUsage, createTokenAccumulator } from "#src/types/token-usage.ts";
 
 export interface AnalyseBigFilesInput {
   knowledgeId: string;
@@ -61,9 +63,8 @@ export async function analyseBigFiles(input: AnalyseBigFilesInput): Promise<Proc
   let cached = 0;
   let failed = 0;
   let processed = 0;
-  let totalInputTokens = 0;
-  let totalOutputTokens = 0;
-  let totalCostUsd = 0;
+  // Tracks total + cached usage; resumed/disk-loaded work counts as fully cached.
+  const usage = createTokenAccumulator();
 
   // Per-file preparation: read content, chunk, record state. Sequential and
   // cheap — no LLM calls here.
@@ -72,6 +73,10 @@ export async function analyseBigFiles(input: AnalyseBigFilesInput): Promise<Proc
     throwIfCancelled(input.knowledgeId);
     const status = await inspect(input.metaPaths, entry.relativePath);
     if (status === "complete") {
+      // Already condensed on a prior attempt — count its persisted token cost so
+      // the per-run total reflects start→complete. Resumed from disk → fully cached.
+      const resumed = await readCondensed(input.metaPaths, entry.relativePath);
+      usage.add(resumed?.tokenUsage, resumed?.tokenUsage);
       cached += 1;
       continue;
     }
@@ -157,6 +162,8 @@ export async function analyseBigFiles(input: AnalyseBigFilesInput): Promise<Proc
           const totalIn = chunkInputTokens + (merged.tokenUsage?.inputTokens ?? 0);
           const totalOut = chunkOutputTokens + (merged.tokenUsage?.outputTokens ?? 0);
           const totalCost = chunkCostUsd + (merged.tokenUsage?.costUsd ?? 0);
+          // Cached subset = cached chunks (incl. disk-loaded) + cached condense step.
+          const cachedSub = addUsage(merged.cachedTokenUsage, ...definedResults.map((r) => r.cachedTokenUsage));
 
           const manifest: HugeFileManifest = {
             relativePath: state.entry.relativePath,
@@ -179,12 +186,11 @@ export async function analyseBigFiles(input: AnalyseBigFilesInput): Promise<Proc
             analysedAt: new Date().toISOString(),
             analysis: merged.analysis,
             tokenUsage: { inputTokens: totalIn, outputTokens: totalOut, costUsd: totalCost },
+            cachedTokenUsage: cachedSub,
           };
           await saveCondensed(input.metaPaths, condensed);
 
-          totalInputTokens += totalIn;
-          totalOutputTokens += totalOut;
-          totalCostUsd += totalCost;
+          usage.add({ inputTokens: totalIn, outputTokens: totalOut, costUsd: totalCost }, cachedSub);
           processed += 1;
         } catch (cause: unknown) {
           if (cause instanceof CancellationError) {
@@ -213,6 +219,8 @@ export async function analyseBigFiles(input: AnalyseBigFilesInput): Promise<Proc
           try {
             const cachedChunk = await loadChunkIfPresent(input.metaPaths, state.entry.relativePath, idx);
             if (cachedChunk !== null) {
+              // Loaded from disk → no fresh call this run; whole chunk is cached.
+              cachedChunk.cachedTokenUsage = cachedChunk.tokenUsage;
               state.results[idx] = cachedChunk;
             } else {
               const analyzed = await retryLlmCall(() => analyzeChunk(chunk, input.llmCallContext), {
@@ -271,7 +279,8 @@ export async function analyseBigFiles(input: AnalyseBigFilesInput): Promise<Proc
     cached,
     failed,
     skippedOversized,
-    tokenUsage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens, costUsd: totalCostUsd },
+    tokenUsage: usage.total(),
+    cachedTokenUsage: usage.cached(),
   };
 }
 

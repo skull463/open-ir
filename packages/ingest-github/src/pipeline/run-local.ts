@@ -9,7 +9,7 @@ import type { PipelineSummary } from "#src/types/pipeline.ts";
 import { ensureCommitDirs, pathsFor, type RepoLocation } from "./paths.ts";
 import { CancellationError, clearCancellation, throwIfCancelled } from "./cancellation.ts";
 import { createDiskSourceReader } from "./disk-source-reader.ts";
-import { resolveOrgId } from "./context.ts";
+import { resolveOrgId, withUsageMeter } from "./context.ts";
 import { localRepoName } from "./stats.ts";
 
 /**
@@ -48,6 +48,11 @@ export async function runLocal(
       metaPaths,
       context: { knowledgeId, orgId, repoId: knowledgeId, owner: "local", repo: localRepoName(rootDir), commitHash },
     };
+    // Meter fresh LLM usage progressively when a guard is present.
+    const llmCallContext = withUsageMeter(undefined, usageGuard);
+    if (llmCallContext !== undefined) {
+      localStrategyInput.context.llmCallContext = llmCallContext;
+    }
     if (usageGuard !== undefined) {
       localStrategyInput.usageGuard = usageGuard;
     }
@@ -64,6 +69,7 @@ export async function runLocal(
       graphNodesWritten: result.graphNodesWritten,
       commitHash,
       tokenUsage: result.tokenUsage,
+      cachedTokenUsage: result.cachedTokenUsage,
     };
   } catch (cause: unknown) {
     if (cause instanceof CancellationError) {

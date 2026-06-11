@@ -49,10 +49,21 @@ export async function backfillMissingFields(
   limiter: ConcurrencyLimiter,
   llmCallContext?: AskLlmOptions,
   progressContext?: ProgressContext,
-): Promise<{ updated: number; failed: number }> {
+): Promise<{
+  updated: number;
+  failed: number;
+  tokenUsage: { inputTokens: number; outputTokens: number; costUsd: number };
+  cachedTokenUsage: { inputTokens: number; outputTokens: number; costUsd: number };
+}> {
   let updated = 0;
   let failed = 0;
   let dispatched = 0;
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let totalCostUsd = 0;
+  let cachedInputTokens = 0;
+  let cachedOutputTokens = 0;
+  let cachedCostUsd = 0;
   const reporter = progressContext?.reporter({
     phase: "file_analysis",
     subPhase: "backfill",
@@ -75,11 +86,31 @@ export async function backfillMissingFields(
           try {
             const response = await askJsonLLM<BackfillJson>(BACKFILL_SYSTEM_PROMPT, userPrompt, llmCallContext ?? {});
             const result = response.result;
+            // Count the backfill call's cost even when the response is unusable —
+            // the tokens were spent regardless.
+            totalInputTokens += response.usage.inputTokens;
+            totalOutputTokens += response.usage.outputTokens;
+            totalCostUsd += response.usage.costUsd;
+            if (response.usage.cached === true) {
+              cachedInputTokens += response.usage.inputTokens;
+              cachedOutputTokens += response.usage.outputTokens;
+              cachedCostUsd += response.usage.costUsd;
+            }
             if (result === null) {
               reporter?.increment(1, { fileName: entry.relativePath });
               return;
             }
             applyBackfill(a, result, needed);
+            // Fold this call's cost into the persisted `tokenUsage` so a later
+            // retry (which skips backfill once the fields exist) still recovers
+            // it via the analyse-small/big resume branch. The resumed file then
+            // carries original-analysis + backfill cost as a single total.
+            const prior = entry.tokenUsage ?? { inputTokens: 0, outputTokens: 0, costUsd: 0 };
+            entry.tokenUsage = {
+              inputTokens: prior.inputTokens + response.usage.inputTokens,
+              outputTokens: prior.outputTokens + response.usage.outputTokens,
+              costUsd: prior.costUsd + response.usage.costUsd,
+            };
             await saveCondensed(metaPaths, entry);
             cache.set(entry);
             updated += 1;
@@ -98,7 +129,12 @@ export async function backfillMissingFields(
     logger.info(`phase3 dispatching ${dispatched} backfill tasks`);
     await Promise.all(tasks);
     logger.info(`phase3 done: updated=${updated} failed=${failed}`);
-    return { updated, failed };
+    return {
+      updated,
+      failed,
+      tokenUsage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens, costUsd: totalCostUsd },
+      cachedTokenUsage: { inputTokens: cachedInputTokens, outputTokens: cachedOutputTokens, costUsd: cachedCostUsd },
+    };
   } finally {
     reporter?.stop();
   }

@@ -105,11 +105,17 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
       let totalInputTokens = smallResult.tokenUsage.inputTokens + bigResult.tokenUsage.inputTokens;
       let totalOutputTokens = smallResult.tokenUsage.outputTokens + bigResult.tokenUsage.outputTokens;
       let totalCostUsd = smallResult.tokenUsage.costUsd + bigResult.tokenUsage.costUsd;
-      await usageGuard?.onPhaseComplete("file_analysis", {
-        inputTokens: totalInputTokens,
-        outputTokens: totalOutputTokens,
-        costUsd: totalCostUsd,
+      let cachedInputTokens = smallResult.cachedTokenUsage.inputTokens + bigResult.cachedTokenUsage.inputTokens;
+      let cachedOutputTokens = smallResult.cachedTokenUsage.outputTokens + bigResult.cachedTokenUsage.outputTokens;
+      let cachedCostUsd = smallResult.cachedTokenUsage.costUsd + bigResult.cachedTokenUsage.costUsd;
+      // The usage guard meters BILLABLE (fresh = total − cached) usage only;
+      // cached tokens incurred no fresh provider spend.
+      const freshUsage = (): { inputTokens: number; outputTokens: number; costUsd: number } => ({
+        inputTokens: Math.max(0, totalInputTokens - cachedInputTokens),
+        outputTokens: Math.max(0, totalOutputTokens - cachedOutputTokens),
+        costUsd: Math.max(0, totalCostUsd - cachedCostUsd),
       });
+      await usageGuard?.onPhaseComplete("file_analysis", freshUsage());
 
       logger.info(`flat-folder: loading file-analysis cache`);
       throwIfCancelled(knowledgeId);
@@ -117,7 +123,19 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
 
       logger.info(`flat-folder: phase3 (backfill missing fields) starting`);
       throwIfCancelled(knowledgeId);
-      await backfillMissingFields(metaPaths, fileAnalysisCache, limiter, llmCallContext, progressContext);
+      const backfill = await backfillMissingFields(
+        metaPaths,
+        fileAnalysisCache,
+        limiter,
+        llmCallContext,
+        progressContext,
+      );
+      totalInputTokens += backfill.tokenUsage.inputTokens;
+      totalOutputTokens += backfill.tokenUsage.outputTokens;
+      totalCostUsd += backfill.tokenUsage.costUsd;
+      cachedInputTokens += backfill.cachedTokenUsage.inputTokens;
+      cachedOutputTokens += backfill.cachedTokenUsage.outputTokens;
+      cachedCostUsd += backfill.cachedTokenUsage.costUsd;
 
       progressContext.phaseChanged("folder_analysis");
       logger.info(`flat-folder: phase5 (folder summaries) starting`);
@@ -133,28 +151,26 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
       totalInputTokens += phase5.tokenUsage.inputTokens;
       totalOutputTokens += phase5.tokenUsage.outputTokens;
       totalCostUsd += phase5.tokenUsage.costUsd;
-      await usageGuard?.onPhaseComplete("folder_analysis", {
-        inputTokens: totalInputTokens,
-        outputTokens: totalOutputTokens,
-        costUsd: totalCostUsd,
-      });
+      cachedInputTokens += phase5.cachedTokenUsage.inputTokens;
+      cachedOutputTokens += phase5.cachedTokenUsage.outputTokens;
+      cachedCostUsd += phase5.cachedTokenUsage.costUsd;
+      await usageGuard?.onPhaseComplete("folder_analysis", freshUsage());
 
       progressContext.phaseChanged("indexing");
       logger.info(`flat-folder: phase6 (repo summary) starting`);
       throwIfCancelled(knowledgeId);
-      const { summary: repoSummary, tokenUsage: repoUsage } = await summariseRepo(
-        knowledgeId,
-        metaPaths,
-        llmCallContext,
-      );
+      const {
+        summary: repoSummary,
+        tokenUsage: repoUsage,
+        cachedTokenUsage: repoCached,
+      } = await summariseRepo(knowledgeId, metaPaths, llmCallContext);
       totalInputTokens += repoUsage.inputTokens;
       totalOutputTokens += repoUsage.outputTokens;
       totalCostUsd += repoUsage.costUsd;
-      await usageGuard?.onPhaseComplete("repo_summary", {
-        inputTokens: totalInputTokens,
-        outputTokens: totalOutputTokens,
-        costUsd: totalCostUsd,
-      });
+      cachedInputTokens += repoCached.inputTokens;
+      cachedOutputTokens += repoCached.outputTokens;
+      cachedCostUsd += repoCached.costUsd;
+      await usageGuard?.onPhaseComplete("repo_summary", freshUsage());
       let repoSummarised = false;
       if (repoSummary !== null) {
         await persistRepoSummary(metaPaths, makeRepoSummaryEnvelope(knowledgeId, orgId, repoSummary));
@@ -184,6 +200,11 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
         repoSummarised,
         graphNodesWritten: phase7.nodesWritten,
         tokenUsage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens, costUsd: totalCostUsd },
+        cachedTokenUsage: {
+          inputTokens: cachedInputTokens,
+          outputTokens: cachedOutputTokens,
+          costUsd: cachedCostUsd,
+        },
       };
     },
   };

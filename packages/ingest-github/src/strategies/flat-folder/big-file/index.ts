@@ -12,6 +12,7 @@ import { splitFileIntoChunks } from "./chunker.ts";
 import { analyzeChunk } from "./chunk-analyzer.ts";
 import { condenseChunks } from "./condenser.ts";
 import { loadChunkIfPresent, saveChunk, saveCondensed, saveManifest } from "./storage.ts";
+import { addUsage } from "#src/types/token-usage.ts";
 
 export interface ProcessBigFileInput {
   knowledgeId: string;
@@ -51,6 +52,9 @@ export async function processBigFile(input: ProcessBigFileInput): Promise<Conden
       }
       const cached = await loadChunkIfPresent(input.metaPaths, input.relativePath, idx);
       if (cached !== null) {
+        // Loaded from disk → no fresh call this run, so the whole chunk's cost
+        // is "cached" for this run regardless of how it was originally produced.
+        cached.cachedTokenUsage = cached.tokenUsage;
         results[idx] = cached;
         reporter?.increment(1, { fileName: `${input.relativePath}#chunk-${String(idx)}` });
         continue;
@@ -85,6 +89,8 @@ export async function processBigFile(input: ProcessBigFileInput): Promise<Conden
   const totalInputTokens = chunkInputTokens + (merged.tokenUsage?.inputTokens ?? 0);
   const totalOutputTokens = chunkOutputTokens + (merged.tokenUsage?.outputTokens ?? 0);
   const totalCostUsd = chunkCostUsd + (merged.tokenUsage?.costUsd ?? 0);
+  // Cached subset = cached chunks (incl. disk-loaded) + cached condense step.
+  const cachedTokenUsage = addUsage(merged.cachedTokenUsage, ...results.map((r) => r.cachedTokenUsage));
 
   const manifest: HugeFileManifest = {
     relativePath: input.relativePath,
@@ -107,6 +113,7 @@ export async function processBigFile(input: ProcessBigFileInput): Promise<Conden
     analysedAt: new Date().toISOString(),
     analysis: merged.analysis,
     tokenUsage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens, costUsd: totalCostUsd },
+    cachedTokenUsage,
   };
   await saveCondensed(input.metaPaths, condensed);
   return condensed;

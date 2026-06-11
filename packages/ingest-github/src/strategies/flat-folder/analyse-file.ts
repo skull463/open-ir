@@ -15,7 +15,7 @@ export async function analyseScannedFile(
   if (llmCallContext !== undefined) {
     analyzerInput.llmCallContext = llmCallContext;
   }
-  const { language, analysis, tokenUsage } = await analyzer.analyze(analyzerInput);
+  const { language, analysis, tokenUsage, cachedTokenUsage } = await analyzer.analyze(analyzerInput);
   return {
     relativePath: file.relativePath,
     language,
@@ -28,6 +28,7 @@ export async function analyseScannedFile(
     analysedAt: new Date().toISOString(),
     analysis,
     tokenUsage,
+    cachedTokenUsage,
   };
 }
 

@@ -34,6 +34,9 @@ interface FolderSummaryTotals {
   inputTokens: number;
   outputTokens: number;
   costUsd: number;
+  cachedInputTokens: number;
+  cachedOutputTokens: number;
+  cachedCostUsd: number;
 }
 
 /**
@@ -51,10 +54,17 @@ async function dispatchIndividual(
 ): Promise<void> {
   try {
     throwIfCancelled(knowledgeId);
-    const { summary, tokenUsage } = await summariseFolder(bucket.folderPath, bucket.files, llmCallContext);
+    const { summary, tokenUsage, cachedTokenUsage } = await summariseFolder(
+      bucket.folderPath,
+      bucket.files,
+      llmCallContext,
+    );
     totals.inputTokens += tokenUsage.inputTokens;
     totals.outputTokens += tokenUsage.outputTokens;
     totals.costUsd += tokenUsage.costUsd;
+    totals.cachedInputTokens += cachedTokenUsage.inputTokens;
+    totals.cachedOutputTokens += cachedTokenUsage.outputTokens;
+    totals.cachedCostUsd += cachedTokenUsage.costUsd;
     if (summary !== null) {
       await persistFolderSummary(metaPaths, summary);
       totals.succeeded += 1;
@@ -88,10 +98,13 @@ async function dispatchBatch(
 ): Promise<void> {
   try {
     throwIfCancelled(knowledgeId);
-    const { summaries, tokenUsage } = await summariseFolderBatch(batch, llmCallContext);
+    const { summaries, tokenUsage, cachedTokenUsage } = await summariseFolderBatch(batch, llmCallContext);
     totals.inputTokens += tokenUsage.inputTokens;
     totals.outputTokens += tokenUsage.outputTokens;
     totals.costUsd += tokenUsage.costUsd;
+    totals.cachedInputTokens += cachedTokenUsage.inputTokens;
+    totals.cachedOutputTokens += cachedTokenUsage.outputTokens;
+    totals.cachedCostUsd += cachedTokenUsage.costUsd;
     for (const bucket of batch) {
       const summary = summaries.get(bucket.folderPath) ?? null;
       if (summary !== null) {
@@ -138,7 +151,16 @@ export async function dispatchFolderSummaries(
   knowledgeId: string,
   phaseLabel: string,
 ): Promise<FolderSummaryTotals> {
-  const totals: FolderSummaryTotals = { succeeded: 0, failed: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 };
+  const totals: FolderSummaryTotals = {
+    succeeded: 0,
+    failed: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    costUsd: 0,
+    cachedInputTokens: 0,
+    cachedOutputTokens: 0,
+    cachedCostUsd: 0,
+  };
   const { individual, batches } = groupFoldersForBatching(groups);
   const tasks: Promise<void>[] = [];
   for (const bucket of individual) {
@@ -166,6 +188,7 @@ export async function runFolderSummaryPhase(
   succeeded: number;
   failed: number;
   tokenUsage: { inputTokens: number; outputTokens: number; costUsd: number };
+  cachedTokenUsage: { inputTokens: number; outputTokens: number; costUsd: number };
 }> {
   const groups = groupByDirectFolder(cache);
   const reporter = progressContext?.reporter({
@@ -184,5 +207,10 @@ export async function runFolderSummaryPhase(
     succeeded: totals.succeeded,
     failed: totals.failed,
     tokenUsage: { inputTokens: totals.inputTokens, outputTokens: totals.outputTokens, costUsd: totals.costUsd },
+    cachedTokenUsage: {
+      inputTokens: totals.cachedInputTokens,
+      outputTokens: totals.cachedOutputTokens,
+      costUsd: totals.cachedCostUsd,
+    },
   };
 }

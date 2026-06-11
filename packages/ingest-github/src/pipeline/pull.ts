@@ -11,16 +11,15 @@ import { withConcurrency } from "./concurrency.ts";
 import { knowledgeDb } from "@bb/db";
 import { filesGraph } from "@bb/graph-db";
 import type { PipelineSummary } from "#src/types/pipeline.ts";
-import { resolveOrgId, llmCallContextFromPayload } from "./context.ts";
-import { IngestError, UsageLimitExceededError } from "@bb/errors";
-import { classifyFailure, isRetryable } from "./failure-classifier.ts";
+import { resolveOrgId, llmCallContextFromPayload, withUsageMeter } from "./context.ts";
+import { IngestError } from "@bb/errors";
 import { transitionState, emptyPullSummary } from "./pull-helpers.ts";
-import { persistFailure, persistHalted, markNonRetryable } from "./run-helpers.ts";
+import { throwPullFailure } from "./pull-failure.ts";
 import { preflightPull } from "./pull-preflight.ts";
 import { logger } from "@bb/logger";
 import { pathsFor } from "./paths.ts";
 import { parseGithubRepo } from "#src/githubUrl.ts";
-import { CancellationError, clearCancellation, throwIfCancelled } from "./cancellation.ts";
+import { clearCancellation, throwIfCancelled } from "./cancellation.ts";
 import { affectedFoldersFromDiff } from "./affected-folders.ts";
 import { resolvePullSource } from "./pull-source-resolver.ts";
 import type { PullFactory } from "#src/types/pipeline.ts";
@@ -37,6 +36,7 @@ import {
   summariseRepo,
 } from "#src/strategies/flat-folder/repo-summary.ts";
 import { storePullAnalysis } from "#src/strategies/flat-folder/store-pull.ts";
+import { createTokenAccumulator } from "#src/types/token-usage.ts";
 import { createLlmFileAnalyzer } from "#src/adapters/llm-file-analyzer.ts";
 import {
   COMBINED_CODE_ANALYSIS_SYSTEM_PROMPT,
@@ -125,7 +125,9 @@ export async function runPull(
       buildUserPrompt: buildFileAnalysisUserPrompt,
     });
 
-    const llmCallContext = llmCallContextFromPayload(msg.payload);
+    // Bridge the per-job usage guard onto the LLM context so every fresh call
+    // is metered to the user's bill progressively (see `withUsageMeter`).
+    const llmCallContext = withUsageMeter(llmCallContextFromPayload(msg.payload), usageGuard);
 
     progressContext.phaseChanged("file_analysis");
     logger.info(`pull: phase per-file dispatcher for ${knowledgeId} starting`);
@@ -145,14 +147,10 @@ export async function runPull(
       analyseChangedInput.archiveSink = archiveSink;
     }
     const phase1 = await analyseChangedFiles(analyseChangedInput);
-    let totalInputTokens = phase1.tokenUsage.inputTokens;
-    let totalOutputTokens = phase1.tokenUsage.outputTokens;
-    let totalCostUsd = phase1.tokenUsage.costUsd;
-    await usageGuard?.onPhaseComplete("file_analysis_changed", {
-      inputTokens: totalInputTokens,
-      outputTokens: totalOutputTokens,
-      costUsd: totalCostUsd,
-    });
+    // The guard meters BILLABLE (fresh = total − cached) usage only.
+    const usage = createTokenAccumulator();
+    usage.add(phase1.tokenUsage, phase1.cachedTokenUsage);
+    await usageGuard?.onPhaseComplete("file_analysis_changed", usage.fresh());
 
     logger.info(`pull: phase process big files starting`);
     throwIfCancelled(knowledgeId);
@@ -166,14 +164,8 @@ export async function runPull(
       processBigFilesInput.llmCallContext = llmCallContext;
     }
     const phase2 = await processBigFilesQueue(processBigFilesInput);
-    totalInputTokens += phase2.tokenUsage.inputTokens;
-    totalOutputTokens += phase2.tokenUsage.outputTokens;
-    totalCostUsd += phase2.tokenUsage.costUsd;
-    await usageGuard?.onPhaseComplete("big_file_analysis", {
-      inputTokens: totalInputTokens,
-      outputTokens: totalOutputTokens,
-      costUsd: totalCostUsd,
-    });
+    usage.add(phase2.tokenUsage, phase2.cachedTokenUsage);
+    await usageGuard?.onPhaseComplete("big_file_analysis", usage.fresh());
 
     logger.info(`pull: loading file-analysis cache`);
     throwIfCancelled(knowledgeId);
@@ -182,7 +174,14 @@ export async function runPull(
 
     logger.info(`pull: phase backfill fields starting`);
     throwIfCancelled(knowledgeId);
-    await backfillMissingFields(metaPaths, fileAnalysisCache, limiter, llmCallContext, progressContext);
+    const backfill = await backfillMissingFields(
+      metaPaths,
+      fileAnalysisCache,
+      limiter,
+      llmCallContext,
+      progressContext,
+    );
+    usage.add(backfill.tokenUsage, backfill.cachedTokenUsage);
 
     progressContext.phaseChanged("folder_analysis");
     logger.info(`pull: phase selective folder summary (${affectedFolders.size} folders) starting`);
@@ -198,28 +197,20 @@ export async function runPull(
       selectiveInput.llmCallContext = llmCallContext;
     }
     const phase5 = await runSelectiveFolderSummary(selectiveInput);
-    totalInputTokens += phase5.tokenUsage.inputTokens;
-    totalOutputTokens += phase5.tokenUsage.outputTokens;
-    totalCostUsd += phase5.tokenUsage.costUsd;
-    await usageGuard?.onPhaseComplete("folder_analysis", {
-      inputTokens: totalInputTokens,
-      outputTokens: totalOutputTokens,
-      costUsd: totalCostUsd,
-    });
+    usage.add(phase5.tokenUsage, phase5.cachedTokenUsage);
+    await usageGuard?.onPhaseComplete("folder_analysis", usage.fresh());
 
     progressContext.phaseChanged("indexing");
     logger.info(`pull: phase repo summary starting`);
     throwIfCancelled(knowledgeId);
     const scope: NodeScope = { orgId, knowledgeId, repoId: knowledgeId };
-    const { summary: repoSummary, tokenUsage: repoUsage } = await summariseRepo(knowledgeId, metaPaths, llmCallContext);
-    totalInputTokens += repoUsage.inputTokens;
-    totalOutputTokens += repoUsage.outputTokens;
-    totalCostUsd += repoUsage.costUsd;
-    await usageGuard?.onPhaseComplete("repo_summary", {
-      inputTokens: totalInputTokens,
-      outputTokens: totalOutputTokens,
-      costUsd: totalCostUsd,
-    });
+    const {
+      summary: repoSummary,
+      tokenUsage: repoUsage,
+      cachedTokenUsage: repoCached,
+    } = await summariseRepo(knowledgeId, metaPaths, llmCallContext);
+    usage.add(repoUsage, repoCached);
+    await usageGuard?.onPhaseComplete("repo_summary", usage.fresh());
     if (repoSummary !== null) {
       await persistRepoSummary(metaPaths, makeRepoSummaryEnvelope(knowledgeId, orgId, repoSummary));
     }
@@ -245,8 +236,12 @@ export async function runPull(
     // graph by `storePullAnalysis` above; we only avoid recording a misleading zero entry.
     // Keep the knowledge anchored at `currentCommit` (do NOT advance via setKnowledgeCommit)
     // and report a no-op so the enterprise mirror carries the base commit's stats forward.
+    const totals = usage.total();
     const noAnalysisPerformed =
-      totalInputTokens === 0 && totalOutputTokens === 0 && stored.filesUpserted === 0 && stored.foldersUpserted === 0;
+      totals.inputTokens === 0 &&
+      totals.outputTokens === 0 &&
+      stored.filesUpserted === 0 &&
+      stored.foldersUpserted === 0;
     if (noAnalysisPerformed) {
       await transitionState(knowledgeId, KnowledgeState.Processed);
       progressContext.completed("github_pull complete (no-op)");
@@ -256,12 +251,16 @@ export async function runPull(
       return emptyPullSummary(targetCommit, currentCommit);
     }
 
+    const cached = usage.cached();
     await knowledgeDb.setKnowledgeCommit(
       knowledgeId,
       targetCommit,
-      String(totalInputTokens),
-      String(totalOutputTokens),
-      String(totalCostUsd),
+      String(totals.inputTokens),
+      String(totals.outputTokens),
+      String(totals.costUsd),
+      String(cached.inputTokens),
+      String(cached.outputTokens),
+      String(cached.costUsd),
     );
     await transitionState(knowledgeId, KnowledgeState.Processed);
     progressContext.completed("github_pull complete");
@@ -274,28 +273,10 @@ export async function runPull(
       repoSummarised: repoSummary !== null,
       graphNodesWritten: stored.filesUpserted + stored.foldersUpserted,
       commitHash: targetCommit,
-      tokenUsage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens, costUsd: totalCostUsd },
+      tokenUsage: totals,
+      cachedTokenUsage: cached,
     };
   } catch (cause: unknown) {
-    if (cause instanceof CancellationError) {
-      clearCancellation(knowledgeId);
-      logger.info(`pull: cancelled for ${knowledgeId}`);
-      throw cause;
-    }
-    if (cause instanceof UsageLimitExceededError && usageGuard !== undefined) {
-      await usageGuard.flushPartial(cause.cumulative).catch((flushErr: unknown) => {
-        logger.warn(
-          `pull: usageGuard.flushPartial failed for ${knowledgeId}: ${flushErr instanceof Error ? flushErr.message : String(flushErr)}`,
-        );
-      });
-    }
-    const { category, reason, detail } = classifyFailure(cause);
-    if (isRetryable(category)) {
-      await persistHalted(knowledgeId, category, reason, detail);
-      throw new IngestError(knowledgeId, `github_pull failed: ${reason}`, cause);
-    }
-    await persistFailure(knowledgeId, category, reason, detail);
-    progressContext.failed(reason, undefined, category, detail);
-    throw markNonRetryable(new IngestError(knowledgeId, `github_pull failed: ${reason}`, cause));
+    return await throwPullFailure(cause, { knowledgeId, usageGuard, progressContext });
   }
 }

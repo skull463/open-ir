@@ -5,6 +5,7 @@ import type { ChunkAnalysisResult, FileChunk } from "#src/types/big-file.ts";
 import { FALLBACK_LANGUAGE, emptyFileAnalysis } from "#src/types/file-analysis.ts";
 import { shapeAnalysis } from "#src/adapters/llm-file-analyzer.ts";
 import { CHUNK_ANALYSIS_SYSTEM_PROMPT, buildChunkUserPrompt } from "#src/strategies/flat-folder/prompts/chunk.ts";
+import { ZERO_USAGE } from "#src/types/token-usage.ts";
 
 export async function analyzeChunk(chunk: FileChunk, llmCallContext?: AskLlmOptions): Promise<ChunkAnalysisResult> {
   const systemPrompt = CHUNK_ANALYSIS_SYSTEM_PROMPT;
@@ -25,6 +26,11 @@ export async function analyzeChunk(chunk: FileChunk, llmCallContext?: AskLlmOpti
       return emptyChunkResult(chunk);
     }
     const { language, analysis } = shapeAnalysis(response.result);
+    const tokenUsage = {
+      inputTokens: response.usage.inputTokens,
+      outputTokens: response.usage.outputTokens,
+      costUsd: response.usage.costUsd,
+    };
     return {
       relativePath: chunk.relativePath,
       chunkIndex: chunk.chunkIndex,
@@ -33,11 +39,8 @@ export async function analyzeChunk(chunk: FileChunk, llmCallContext?: AskLlmOpti
       endLine: chunk.endLine,
       language,
       analysis,
-      tokenUsage: {
-        inputTokens: response.usage.inputTokens,
-        outputTokens: response.usage.outputTokens,
-        costUsd: response.usage.costUsd,
-      },
+      tokenUsage,
+      cachedTokenUsage: response.usage.cached === true ? { ...tokenUsage } : { ...ZERO_USAGE },
     };
   } catch (cause: unknown) {
     if (cause instanceof LlmConfigError || cause instanceof LlmError) {

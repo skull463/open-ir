@@ -44,6 +44,7 @@ export function createLlmFileAnalyzer(deps: LlmFileAnalyzerDeps): FileAnalyzer {
       const t0 = performance.now();
       let raw: RawAnalysisJson | null = null;
       let usage: { inputTokens: number; outputTokens: number; costUsd: number } | undefined;
+      let cachedUsage: { inputTokens: number; outputTokens: number; costUsd: number } | undefined;
       try {
         const response = await askJsonLLM<RawAnalysisJson>(systemPrompt, userPrompt, input.llmCallContext ?? {});
         raw = response.result;
@@ -52,6 +53,9 @@ export function createLlmFileAnalyzer(deps: LlmFileAnalyzerDeps): FileAnalyzer {
           outputTokens: response.usage.outputTokens,
           costUsd: response.usage.costUsd,
         };
+        // A whole single-call file analysis is "cached" iff that call hit the
+        // disk cache (no fresh provider spend this run).
+        cachedUsage = response.usage.cached === true ? { ...usage } : { inputTokens: 0, outputTokens: 0, costUsd: 0 };
         if (raw === null) {
           logger.warn(`llm-file-analyzer: ${input.relativePath} returned unparseable JSON`);
         }
@@ -65,10 +69,16 @@ export function createLlmFileAnalyzer(deps: LlmFileAnalyzerDeps): FileAnalyzer {
         logger.warn(`llm-file-analyzer: ${input.relativePath} askJsonLLM failed: ${msg}`);
       }
       if (raw === null) {
-        return { language: FALLBACK_LANGUAGE, analysis: emptyFileAnalysis(), tokenUsage: usage };
+        return {
+          language: FALLBACK_LANGUAGE,
+          analysis: emptyFileAnalysis(),
+          tokenUsage: usage,
+          cachedTokenUsage: cachedUsage,
+        };
       }
       const shaped = shapeAnalysis(raw);
       shaped.tokenUsage = usage;
+      shaped.cachedTokenUsage = cachedUsage;
       logger.info(
         `llm-file-analyzer: ✓ ${input.relativePath} (${Math.round(performance.now() - t0)}ms, lang=${shaped.language})`,
       );

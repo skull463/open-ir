@@ -130,6 +130,13 @@ export function createConceptGraphStrategy(deps: ConceptGraphStrategyDeps): Inge
         outputTokens: smallResult.tokenUsage.outputTokens + bigResult.tokenUsage.outputTokens,
         costUsd: smallResult.tokenUsage.costUsd + bigResult.tokenUsage.costUsd,
       };
+      // Cached subset (served from disk cache / resumed). Enrichment (phase 5)
+      // is counted as fresh; its tokens are added to `tokenUsage` only.
+      const cachedTokenUsage = {
+        inputTokens: smallResult.cachedTokenUsage.inputTokens + bigResult.cachedTokenUsage.inputTokens,
+        outputTokens: smallResult.cachedTokenUsage.outputTokens + bigResult.cachedTokenUsage.outputTokens,
+        costUsd: smallResult.cachedTokenUsage.costUsd + bigResult.cachedTokenUsage.costUsd,
+      };
 
       // ── Phase 3: backfill (reused) ─────────────────────────────────────
       logger.info(`concept-graph: loading file-analysis cache`);
@@ -183,6 +190,7 @@ export function createConceptGraphStrategy(deps: ConceptGraphStrategyDeps): Inge
         repoSummarised: false,
         graphNodesWritten: storeResult.nodesWritten,
         tokenUsage,
+        cachedTokenUsage,
       };
     },
   };

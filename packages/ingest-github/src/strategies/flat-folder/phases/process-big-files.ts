@@ -7,6 +7,7 @@ import type { ProgressContext } from "#src/progress/types.ts";
 import { throwIfCancelled, CancellationError } from "#src/pipeline/cancellation.ts";
 import { readBigFiles } from "#src/strategies/flat-folder/big-file/detector.ts";
 import { inspect } from "#src/strategies/flat-folder/big-file/cache.ts";
+import { readCondensed } from "#src/strategies/flat-folder/big-file/storage.ts";
 import { processBigFile } from "#src/strategies/flat-folder/big-file/index.ts";
 
 export interface ProcessBigFilesInput {
@@ -23,6 +24,8 @@ export interface ProcessBigFilesResult {
   failed: number;
   skippedOversized: number;
   tokenUsage: { inputTokens: number; outputTokens: number; costUsd: number };
+  /** Subset of `tokenUsage` served from cache / resumed from disk (not billable). */
+  cachedTokenUsage: { inputTokens: number; outputTokens: number; costUsd: number };
 }
 
 /**
@@ -40,6 +43,9 @@ export async function processBigFilesQueue(input: ProcessBigFilesInput): Promise
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
   let totalCostUsd = 0;
+  let cachedInputTokens = 0;
+  let cachedOutputTokens = 0;
+  let cachedCostUsd = 0;
 
   const reporter = input.progressContext?.reporter({
     phase: "file_analysis",
@@ -58,6 +64,18 @@ export async function processBigFilesQueue(input: ProcessBigFilesInput): Promise
       }
       const status = await inspect(input.metaPaths, entry.relativePath);
       if (status === "complete") {
+        // Already condensed on a prior attempt — count its persisted token cost so
+        // the per-run total reflects start→complete, not just post-resume work.
+        const resumed = await readCondensed(input.metaPaths, entry.relativePath);
+        if (resumed?.tokenUsage) {
+          totalInputTokens += resumed.tokenUsage.inputTokens;
+          totalOutputTokens += resumed.tokenUsage.outputTokens;
+          totalCostUsd += resumed.tokenUsage.costUsd;
+          // Resumed from disk → the whole file was cached this run.
+          cachedInputTokens += resumed.tokenUsage.inputTokens;
+          cachedOutputTokens += resumed.tokenUsage.outputTokens;
+          cachedCostUsd += resumed.tokenUsage.costUsd;
+        }
         cached += 1;
         reporter?.increment(1, { fileName: entry.relativePath });
         continue;
@@ -93,6 +111,11 @@ export async function processBigFilesQueue(input: ProcessBigFilesInput): Promise
           totalOutputTokens += condensed.tokenUsage.outputTokens;
           totalCostUsd += condensed.tokenUsage.costUsd;
         }
+        if (condensed.cachedTokenUsage) {
+          cachedInputTokens += condensed.cachedTokenUsage.inputTokens;
+          cachedOutputTokens += condensed.cachedTokenUsage.outputTokens;
+          cachedCostUsd += condensed.cachedTokenUsage.costUsd;
+        }
       } catch (cause: unknown) {
         if (cause instanceof CancellationError) {
           throw cause;
@@ -114,6 +137,7 @@ export async function processBigFilesQueue(input: ProcessBigFilesInput): Promise
       failed,
       skippedOversized,
       tokenUsage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens, costUsd: totalCostUsd },
+      cachedTokenUsage: { inputTokens: cachedInputTokens, outputTokens: cachedOutputTokens, costUsd: cachedCostUsd },
     };
   } finally {
     reporter?.stop();

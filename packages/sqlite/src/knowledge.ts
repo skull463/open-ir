@@ -90,6 +90,9 @@ export async function setKnowledgeCommit(
   inputTokens: string = "",
   outputTokens: string = "",
   costUsd: string = "0",
+  cachedInputTokens: string = "0",
+  cachedOutputTokens: string = "0",
+  cachedCostUsd: string = "0",
 ): Promise<void> {
   const db = getSqliteDb();
   const row = db.query("SELECT value FROM knowledge WHERE key = ?").get(knowledgeId) as {
@@ -108,8 +111,16 @@ export async function setKnowledgeCommit(
     typeof c === "string" ? c === commitHash : (c as { hash?: string }).hash === commitHash,
   );
   if (!exists) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    source.commitHashes.push({ hash: commitHash, inputTokens, outputTokens, costUsd } as any);
+    source.commitHashes.push({
+      hash: commitHash,
+      inputTokens,
+      outputTokens,
+      costUsd,
+      cachedInputTokens,
+      cachedOutputTokens,
+      cachedCostUsd,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
   }
   doc.updatedAt = new Date();
   db.run("UPDATE knowledge SET value = ? WHERE key = ?", [JSON.stringify(doc), knowledgeId]);

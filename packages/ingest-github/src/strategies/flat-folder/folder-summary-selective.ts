@@ -20,6 +20,7 @@ export interface SelectiveFolderSummaryResult {
   failed: number;
   skipped: number;
   tokenUsage: { inputTokens: number; outputTokens: number; costUsd: number };
+  cachedTokenUsage: { inputTokens: number; outputTokens: number; costUsd: number };
 }
 
 /**
@@ -56,5 +57,10 @@ export async function runSelectiveFolderSummary(
     failed: totals.failed,
     skipped,
     tokenUsage: { inputTokens: totals.inputTokens, outputTokens: totals.outputTokens, costUsd: totals.costUsd },
+    cachedTokenUsage: {
+      inputTokens: totals.cachedInputTokens,
+      outputTokens: totals.cachedOutputTokens,
+      costUsd: totals.cachedCostUsd,
+    },
   };
 }

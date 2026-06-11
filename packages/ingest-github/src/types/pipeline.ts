@@ -25,6 +25,8 @@ export interface AnalyzedFileResult {
   language: string;
   analysis: FileAnalysis;
   tokenUsage?: { inputTokens: number; outputTokens: number; costUsd: number } | undefined;
+  /** Subset of `tokenUsage` served from the `@bb/llm` disk cache (no fresh spend). */
+  cachedTokenUsage?: { inputTokens: number; outputTokens: number; costUsd: number } | undefined;
 }
 
 export interface FileAnalyzer {
@@ -47,6 +49,8 @@ export interface PipelineSummary {
   graphNodesWritten: number;
   commitHash: string;
   tokenUsage: { inputTokens: number; outputTokens: number; costUsd: number };
+  /** Subset of `tokenUsage` served from cache / resumed from disk (not billable). */
+  cachedTokenUsage: { inputTokens: number; outputTokens: number; costUsd: number };
   /**
    * True when the pull resolved to a no-op: either the target equals the
    * current commit, or the diff between them is empty. Consumers carry the

@@ -16,6 +16,18 @@ import {
   type BatchedFolderInput,
 } from "./prompts/folder-summary.ts";
 import type { FolderSummary } from "./types.ts";
+import { ZERO_USAGE } from "#src/types/token-usage.ts";
+
+/** The portion of a single LLM call's usage that was served from cache. */
+function cachedUsageOf(usage: { inputTokens: number; outputTokens: number; costUsd: number; cached?: boolean }): {
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+} {
+  return usage.cached === true
+    ? { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, costUsd: usage.costUsd }
+    : { ...ZERO_USAGE };
+}
 
 export interface FolderBucket {
   folderPath: string;
@@ -81,6 +93,7 @@ export async function summariseFolder(
 ): Promise<{
   summary: FolderSummary | null;
   tokenUsage: { inputTokens: number; outputTokens: number; costUsd: number };
+  cachedTokenUsage: { inputTokens: number; outputTokens: number; costUsd: number };
 }> {
   const userPrompt = folderAnalysisUserPrompt(folderPath, files);
   try {
@@ -89,32 +102,24 @@ export async function summariseFolder(
       userPrompt,
       llmCallContext ?? {},
     );
+    const tokenUsage = {
+      inputTokens: response.usage.inputTokens,
+      outputTokens: response.usage.outputTokens,
+      costUsd: response.usage.costUsd,
+    };
+    const cachedTokenUsage = cachedUsageOf(response.usage);
     if (response.result === null) {
       logger.warn(`summariseFolder: ${folderPath || "<root>"} returned unparseable JSON`);
-      return {
-        summary: null,
-        tokenUsage: {
-          inputTokens: response.usage.inputTokens,
-          outputTokens: response.usage.outputTokens,
-          costUsd: response.usage.costUsd,
-        },
-      };
+      return { summary: null, tokenUsage, cachedTokenUsage };
     }
-    return {
-      summary: shapeFolderSummary(folderPath, response.result),
-      tokenUsage: {
-        inputTokens: response.usage.inputTokens,
-        outputTokens: response.usage.outputTokens,
-        costUsd: response.usage.costUsd,
-      },
-    };
+    return { summary: shapeFolderSummary(folderPath, response.result), tokenUsage, cachedTokenUsage };
   } catch (cause: unknown) {
     if (cause instanceof LlmConfigError || cause instanceof LlmError) {
       throw cause;
     }
     const msg = cause instanceof Error ? cause.message : String(cause);
     logger.warn(`summariseFolder: ${folderPath || "<root>"} askJsonLLM failed: ${msg}`);
-    return { summary: null, tokenUsage: { inputTokens: 0, outputTokens: 0, costUsd: 0 } };
+    return { summary: null, tokenUsage: { ...ZERO_USAGE }, cachedTokenUsage: { ...ZERO_USAGE } };
   }
 }
 
@@ -130,6 +135,7 @@ export async function summariseFolderBatch(
 ): Promise<{
   summaries: Map<string, FolderSummary | null>;
   tokenUsage: { inputTokens: number; outputTokens: number; costUsd: number };
+  cachedTokenUsage: { inputTokens: number; outputTokens: number; costUsd: number };
 }> {
   const labeled: BatchedFolderInput[] = batch.map((b, i) => ({ label: i, folderPath: b.folderPath, files: b.files }));
   const userPrompt = folderBatchUserPrompt(labeled);
@@ -140,19 +146,18 @@ export async function summariseFolderBatch(
       userPrompt,
       llmCallContext ?? {},
     );
+    const tokenUsage = {
+      inputTokens: response.usage.inputTokens,
+      outputTokens: response.usage.outputTokens,
+      costUsd: response.usage.costUsd,
+    };
+    const cachedTokenUsage = cachedUsageOf(response.usage);
     if (response.result === null) {
       logger.warn(`summariseFolderBatch: batch of ${batch.length} returned unparseable JSON`);
       for (const b of batch) {
         summaries.set(b.folderPath, null);
       }
-      return {
-        summaries,
-        tokenUsage: {
-          inputTokens: response.usage.inputTokens,
-          outputTokens: response.usage.outputTokens,
-          costUsd: response.usage.costUsd,
-        },
-      };
+      return { summaries, tokenUsage, cachedTokenUsage };
     }
     for (const b of labeled) {
       const raw = response.result[String(b.label)];
@@ -163,14 +168,7 @@ export async function summariseFolderBatch(
       }
       summaries.set(b.folderPath, shapeFolderSummary(b.folderPath, raw));
     }
-    return {
-      summaries,
-      tokenUsage: {
-        inputTokens: response.usage.inputTokens,
-        outputTokens: response.usage.outputTokens,
-        costUsd: response.usage.costUsd,
-      },
-    };
+    return { summaries, tokenUsage, cachedTokenUsage };
   } catch (cause: unknown) {
     if (cause instanceof LlmConfigError || cause instanceof LlmError) {
       throw cause;
@@ -180,7 +178,7 @@ export async function summariseFolderBatch(
     for (const b of batch) {
       summaries.set(b.folderPath, null);
     }
-    return { summaries, tokenUsage: { inputTokens: 0, outputTokens: 0, costUsd: 0 } };
+    return { summaries, tokenUsage: { ...ZERO_USAGE }, cachedTokenUsage: { ...ZERO_USAGE } };
   }
 }
 

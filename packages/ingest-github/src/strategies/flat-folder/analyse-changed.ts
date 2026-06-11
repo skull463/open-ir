@@ -35,6 +35,7 @@ export interface AnalyseChangedResult {
   skipped: number;
   failed: number;
   tokenUsage: { inputTokens: number; outputTokens: number; costUsd: number };
+  cachedTokenUsage: { inputTokens: number; outputTokens: number; costUsd: number };
 }
 
 /**
@@ -82,6 +83,9 @@ export async function analyseChangedFiles(input: AnalyseChangedInput): Promise<A
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
   let totalCostUsd = 0;
+  let cachedInputTokens = 0;
+  let cachedOutputTokens = 0;
+  let cachedCostUsd = 0;
 
   const pending: Promise<void>[] = [];
 
@@ -200,6 +204,11 @@ export async function analyseChangedFiles(input: AnalyseChangedInput): Promise<A
               totalOutputTokens += condensed.tokenUsage.outputTokens;
               totalCostUsd += condensed.tokenUsage.costUsd;
             }
+            if (condensed.cachedTokenUsage) {
+              cachedInputTokens += condensed.cachedTokenUsage.inputTokens;
+              cachedOutputTokens += condensed.cachedTokenUsage.outputTokens;
+              cachedCostUsd += condensed.cachedTokenUsage.costUsd;
+            }
             smallFilesAnalysed += 1;
           } catch (cause: unknown) {
             if (cause instanceof CancellationError) {
@@ -237,6 +246,7 @@ export async function analyseChangedFiles(input: AnalyseChangedInput): Promise<A
     skipped,
     failed,
     tokenUsage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens, costUsd: totalCostUsd },
+    cachedTokenUsage: { inputTokens: cachedInputTokens, outputTokens: cachedOutputTokens, costUsd: cachedCostUsd },
   };
 }
 

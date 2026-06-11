@@ -28,6 +28,8 @@ export interface ChunkAnalysisResult {
   language: string;
   analysis: FileAnalysis;
   tokenUsage?: { inputTokens: number; outputTokens: number; costUsd: number } | undefined;
+  /** Subset of `tokenUsage` served from the `@bb/llm` disk cache (no fresh spend). */
+  cachedTokenUsage?: { inputTokens: number; outputTokens: number; costUsd: number } | undefined;
 }
 
 export interface HugeFileManifest {

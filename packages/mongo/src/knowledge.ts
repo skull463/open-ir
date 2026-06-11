@@ -132,6 +132,9 @@ export async function setKnowledgeCommit(
   inputTokens: string = "",
   outputTokens: string = "",
   costUsd: string = "0",
+  cachedInputTokens: string = "0",
+  cachedOutputTokens: string = "0",
+  cachedCostUsd: string = "0",
 ): Promise<void> {
   const result = await _getDb()
     .collection(Collections.Knowledge)
@@ -140,7 +143,15 @@ export async function setKnowledgeCommit(
       {
         $set: { "source.commitId": commitHash, updatedAt: new Date() },
         $addToSet: {
-          "source.commitHashes": { hash: commitHash, inputTokens, outputTokens, costUsd },
+          "source.commitHashes": {
+            hash: commitHash,
+            inputTokens,
+            outputTokens,
+            costUsd,
+            cachedInputTokens,
+            cachedOutputTokens,
+            cachedCostUsd,
+          },
         },
       },
     );

@@ -39,6 +39,9 @@ export interface IKnowledgeRepository {
     inputTokens?: string,
     outputTokens?: string,
     costUsd?: string,
+    cachedInputTokens?: string,
+    cachedOutputTokens?: string,
+    cachedCostUsd?: string,
   ): Promise<void>;
   setKnowledgeBranch(knowledgeId: string, branch: string): Promise<void>;
   updateKnowledgeProgress(

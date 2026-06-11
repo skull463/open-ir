@@ -45,6 +45,8 @@ export interface StrategyResult {
   repoSummarised: boolean;
   graphNodesWritten: number;
   tokenUsage: { inputTokens: number; outputTokens: number; costUsd: number };
+  /** Subset of `tokenUsage` served from cache / resumed from disk (not billable). */
+  cachedTokenUsage: { inputTokens: number; outputTokens: number; costUsd: number };
 }
 
 export interface IngestStrategy {

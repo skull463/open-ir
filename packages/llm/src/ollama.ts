@@ -13,6 +13,7 @@ interface OllamaRequest {
   model: string;
   messages: OllamaMessage[];
   stream: false;
+  options?: { temperature?: number };
 }
 
 interface OllamaResponse {
@@ -51,6 +52,9 @@ export async function callOllama(prompt: string, opts: AskLlmOptions, timeoutMs:
   messages.push({ role: "user", content: prompt });
 
   const body: OllamaRequest = { model, messages, stream: false };
+  if (opts.temperature !== undefined) {
+    body.options = { temperature: opts.temperature };
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 

@@ -67,6 +67,7 @@ interface OpenRouterRequest {
   messages: OpenRouterMessageInput[];
   tools?: OpenRouterToolDef[];
   tool_choice?: OpenRouterToolChoice;
+  temperature?: number;
   usage: OpenRouterUsageAccounting;
   provider: OpenRouterProviderRouting;
 }
@@ -106,6 +107,9 @@ export async function openRouterRawChat(
     usage: { include: true },
     provider: { allow_fallbacks: false },
   };
+  if (opts.temperature !== undefined) {
+    body.temperature = opts.temperature;
+  }
   if (modelChain.length > 1) {
     body.models = modelChain;
   }

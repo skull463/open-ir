@@ -6,6 +6,7 @@ import type { AskLlmOptions } from "@bb/llm";
 import type { MetaPaths } from "#src/types/meta-paths.ts";
 import type { BigFileEntry } from "#src/types/big-file.ts";
 import type { SkipDecider, SourceReader } from "#src/types/pipeline.ts";
+import { buildEffectiveIgnoreSets, type EffectiveIgnoreSets } from "#src/pipeline/skip-decisions/effective.ts";
 import type { ProgressContext } from "#src/progress/types.ts";
 import type { ConcurrencyLimiter } from "#src/pipeline/concurrency.ts";
 import { throwIfCancelled } from "#src/pipeline/cancellation.ts";
@@ -33,6 +34,12 @@ export interface ScanAndClassifyInput {
    * still works standalone.
    */
   limiter?: ConcurrencyLimiter;
+  /**
+   * Per-job effective ignore sets. Forwarded to the skip-decider (so static
+   * filename/extension/glob checks honour the org's overrides) and to the
+   * directory-walk pruning inside `scanRepository`. Absent → seed defaults.
+   */
+  ignoreSets?: EffectiveIgnoreSets;
 }
 
 export interface ScanAndClassifyResult {
@@ -55,7 +62,16 @@ export async function scanAndClassify(input: ScanAndClassifyInput): Promise<Scan
 
   const repositoryHint =
     input.source.localRepoDir.length > 0 ? path.basename(input.source.localRepoDir) : input.knowledgeId;
-  const skipDecider = input.skipDecider ?? makeSkipDecider({ repositoryName: repositoryHint });
+  // Resolve the effective ignore sets exactly once and thread them everywhere
+  // (decider + scan deps below) — never conditionally, so the walk and the
+  // decider can't silently diverge from the per-job overrides.
+  const ignoreSets = input.ignoreSets ?? buildEffectiveIgnoreSets();
+  const skipDecider =
+    input.skipDecider ??
+    makeSkipDecider({
+      repositoryName: repositoryHint,
+      ignoreSets,
+    });
 
   const reporter = input.progressContext?.reporter({
     phase: "scan",
@@ -64,7 +80,7 @@ export async function scanAndClassify(input: ScanAndClassifyInput): Promise<Scan
   await reporter?.start();
 
   try {
-    const scanDeps: Parameters<typeof input.source.scan>[0] = { skipDecider };
+    const scanDeps: Parameters<typeof input.source.scan>[0] = { skipDecider, ignoreSets };
     if (input.limiter !== undefined) {
       scanDeps.limiter = input.limiter;
     }

@@ -6,11 +6,19 @@ single-tenant public layout.
 
 ## Decision flow
 
+The static reject lists (steps 1-4) are not the raw `SEED_*` sets but the
+**effective ignore sets** (`effective.ts`): the seed/legacy defaults overlaid
+with any per-job `IgnoreOverrides` the enterprise wrapper resolved from an org's
+config and stamped on the payload. With no overrides the effective sets equal the
+built-in defaults, so OSS standalone behaves exactly as before. `makeSkipDecider`
+takes `deps.ignoreSets`; absent, it calls `buildEffectiveIgnoreSets()` (pure
+defaults).
+
 ```
-1. Reject if any directory segment is in SEED_DIRECTORIES (hardcoded list).
-2. Reject if the filename is in SEED_FILENAMES.
-3. Reject if the extension is in SEED_EXTENSIONS (kube's known-bad list).
-4. Reject if the filename matches any glob in SEED_GLOBS (e.g. *.tfvars, .env.*).
+1. Reject if any directory segment is in effectiveSets.directories.
+2. Reject if the filename is in effectiveSets.filenames.
+3. Reject if the extension is in effectiveSets.extensions.
+4. Reject if the filename matches any glob in effectiveSets.globs (e.g. *.tfvars, .env.*).
 5. Accept if the extension is in KNOWN_LANGUAGE_EXTENSIONS (fast-path, no LLM).
 6. Cache lookup by `extensions:<ext>` (or `filenames:<name>` when extensionless).
 7. Cache miss → askYesNoLLM with the first N chars of the file content.
@@ -70,6 +78,15 @@ interface SkipDecider {
   methods (`decide`, `decideStatic`, `decideAndDeferSave`, `persist`) share
   one internal `staticDecision()` helper so the seed-list + cache-lookup
   branch is defined exactly once.
+- `effective.ts` — `buildEffectiveIgnoreSets(overrides?)` overlays the seed +
+  legacy defaults (imported from `#src/pipeline/filters.ts`: `SKIP_DIRS`,
+  `SKIP_FILES`, `BINARY_EXTENSIONS`) plus `SEED_GLOBS` with an optional per-job
+  `IgnoreOverrides` add/remove patch. `add` adds a pattern; `remove` un-ignores a
+  built-in default. Also exports `defaultIgnorePatternLists()` — the defaults as
+  plain sorted arrays, consumed by the enterprise ignore-manager via the
+  `@bb/ingest-github/ignore-defaults` subpath export so a UI can render and toggle
+  them. The effective sets are also passed to `scan.ts` for directory-walk pruning
+  and the path filter, so scan and decider filter against the identical set.
 - `seed-data/` — the five JSON files copied from kube's `shared/`:
   `directoryIgnore.json`, `filenameIgnore.json`, `ignorePatterns.json`,
   `extensions.json`, `llmDecisionsBase.json`. `llmDecisionsBase.json` is
@@ -81,7 +98,10 @@ interface SkipDecider {
 - Sibling files in this folder may import each other.
 - Down: `src/types/pipeline.ts`.
 - Up: `@bb/config`, `@bb/types`, `@bb/llm`, `@bb/logger`, `node:*`.
-- Forbidden: importing from `../scan.ts`, `../filters.ts`, `../../strategies/*`.
+- `effective.ts` only: `#src/pipeline/filters.ts` for the legacy-merged default
+  sets. This is the one sanctioned reach into `filters.ts` (it owns the
+  defaults). The rest of this folder must not import `../scan.ts`, `../filters.ts`,
+  or `../../strategies/*`.
 
 ## Invariants
 

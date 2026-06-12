@@ -31,7 +31,7 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
     // emit terminal state itself — it just lets the error surface.
     async execute(input: StrategyInput): Promise<StrategyResult> {
       const { context, source, archiveSink, metaPaths, payload, branch, usageGuard } = input;
-      const { knowledgeId, orgId, repoId, llmCallContext } = context;
+      const { knowledgeId, orgId, repoId, llmCallContext, ignoreSets } = context;
       const progressContext: ProgressContext = progressContextFactory(knowledgeId);
 
       // Shared LLM limiter — small-file analyses, big-file chunk analyses,
@@ -51,6 +51,9 @@ export function createFlatFolderStrategy(deps: FlatFolderStrategyDeps): IngestSt
       };
       if (llmCallContext !== undefined) {
         scanInput.llmCallContext = llmCallContext;
+      }
+      if (ignoreSets !== undefined) {
+        scanInput.ignoreSets = ignoreSets;
       }
       const { manifest } = await scanAndClassify(scanInput);
 

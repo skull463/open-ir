@@ -18,7 +18,7 @@ import { readHeadCommitHash, syncRepository } from "./source.ts";
 import { resolveBranch } from "./branch.ts";
 import { CancellationError, clearCancellation, throwIfCancelled } from "./cancellation.ts";
 import { createDiskSourceReader } from "./disk-source-reader.ts";
-import { resolveOrgId, llmCallContextFromPayload, withUsageMeter } from "./context.ts";
+import { resolveOrgId, llmCallContextFromPayload, ignoreSetsFromPayload, withUsageMeter } from "./context.ts";
 import { fetchLatestCommitHash } from "#src/githubApi.ts";
 import { parseGithubRepo } from "#src/githubUrl.ts";
 
@@ -177,6 +177,7 @@ async function runGithub(
       owner: parsed.owner,
       repo: parsed.repo,
       commitHash,
+      ignoreSets: ignoreSetsFromPayload(payload),
     };
     // Bridge the per-job usage guard onto the LLM context so every fresh call
     // is metered to the user's bill progressively (see `withUsageMeter`).

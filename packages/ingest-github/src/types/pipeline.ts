@@ -3,6 +3,7 @@ import type { AskLlmOptions } from "@bb/llm";
 import type { FileAnalysis } from "@bb/db-core";
 import type { ConcurrencyLimiter } from "#src/pipeline/concurrency.ts";
 import type { DiffResult } from "#src/pipeline/git-diff.ts";
+import type { EffectiveIgnoreSets } from "#src/pipeline/skip-decisions/effective.ts";
 
 export interface ScannedFile {
   kind: "file";
@@ -80,6 +81,11 @@ export interface ScanDeps {
    * `SourceFactory` consumers), scan falls back to inline-await per file.
    */
   limiter?: ConcurrencyLimiter;
+  /**
+   * Effective ignore sets (seed defaults overlaid with per-job overrides) used
+   * for directory-walk pruning and path filtering. Absent → built-in defaults.
+   */
+  ignoreSets?: EffectiveIgnoreSets;
 }
 
 export interface SourceReader {

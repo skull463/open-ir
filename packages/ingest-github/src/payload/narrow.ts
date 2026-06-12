@@ -1,5 +1,61 @@
-import type { GithubIndexPayload, LocalIngestPayload, PayloadLlmOverrides } from "@bb/types";
+import type {
+  GithubIndexPayload,
+  IgnoreOverridePatch,
+  IgnoreOverrides,
+  LocalIngestPayload,
+  PayloadLlmOverrides,
+} from "@bb/types";
 import { IngestError } from "@bb/errors";
+
+const PATCH_CATEGORIES = ["directories", "filenames", "extensions", "globs"] as const;
+
+function narrowStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const strings = value.filter((v): v is string => typeof v === "string" && v.length > 0);
+  return strings.length > 0 ? strings : undefined;
+}
+
+function narrowPatch(value: unknown): IgnoreOverridePatch | undefined {
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+  const rec = value as Record<string, unknown>;
+  const patch: IgnoreOverridePatch = {};
+  const add = narrowStringArray(rec["add"]);
+  if (add !== undefined) {
+    patch.add = add;
+  }
+  const remove = narrowStringArray(rec["remove"]);
+  if (remove !== undefined) {
+    patch.remove = remove;
+  }
+  return patch.add !== undefined || patch.remove !== undefined ? patch : undefined;
+}
+
+/**
+ * Copy per-job ignore overrides off the BullMQ payload, if present and
+ * well-formed. The enqueue boundary (enterprise gateway) stamps this from the
+ * org's stored ignore config; OSS standalone never sets it.
+ */
+function attachIgnoreOverrides(rec: Record<string, unknown>, target: { ignoreOverrides?: IgnoreOverrides }): void {
+  const raw = rec["ignoreOverrides"];
+  if (typeof raw !== "object" || raw === null) {
+    return;
+  }
+  const rawRec = raw as Record<string, unknown>;
+  const overrides: IgnoreOverrides = {};
+  for (const category of PATCH_CATEGORIES) {
+    const patch = narrowPatch(rawRec[category]);
+    if (patch !== undefined) {
+      overrides[category] = patch;
+    }
+  }
+  if (Object.keys(overrides).length > 0) {
+    target.ignoreOverrides = overrides;
+  }
+}
 
 /**
  * Copies optional LLM credential / model overrides from a payload record onto
@@ -58,6 +114,7 @@ export function narrowGithubIngest(knowledgeId: string, payload: unknown): Githu
     out.orgId = orgId;
   }
   attachLlmOverrides(rec, out);
+  attachIgnoreOverrides(rec, out);
   return out;
 }
 

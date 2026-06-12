@@ -37,7 +37,12 @@ paths` walks old data into the new tree. Also exports
   (`SEED_DIRECTORIES`/`SEED_FILENAMES`/`SEED_EXTENSIONS`) plus a small
   legacy literal block so the public scanner still rejects `.DS_Store`,
   lockfiles, and binary assets without requiring the seed JSON. Pure
-  data; no I/O.
+  data; no I/O. `passesPathFilters` accepts an optional effective-sets
+  argument (per-job ignore overrides, see `skip-decisions/effective.ts`);
+  omitted → built-in defaults, behavior unchanged.
+- `scan-helpers.ts` — `countLines` (fast LF counter) and `decisionKey`
+  (content-hash dedupe key for the two-pass LLM batch). Extracted from
+  `scan.ts` / `analyse-changed.ts`, which previously each carried a copy.
 - `skip-decisions/` — LLM-backed unknown-extension gate. See
   `skip-decisions/README.md`. Active when `Config.SkipDecisionEnabled =
 true` (default). Consumed by `scan.ts` via the optional `skipDecider`

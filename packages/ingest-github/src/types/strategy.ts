@@ -2,6 +2,7 @@ import type { GithubIndexPayload, UsageGuard } from "@bb/types";
 import type { AskLlmOptions } from "@bb/llm";
 import type { MetaPaths } from "./meta-paths.ts";
 import type { ArchiveSink, SourceReader } from "./pipeline.ts";
+import type { EffectiveIgnoreSets } from "#src/pipeline/skip-decisions/effective.ts";
 
 export interface StrategyContext {
   knowledgeId: string;
@@ -20,6 +21,12 @@ export interface StrategyContext {
    * runs, where calls fall back to `Config.OpenrouterApiKey`.
    */
   llmCallContext?: AskLlmOptions;
+  /**
+   * Per-job effective ignore sets (seed defaults overlaid with the org's
+   * overrides). Threaded into scan + skip-decider. Absent in OSS standalone
+   * runs, where the built-in seed defaults apply.
+   */
+  ignoreSets?: EffectiveIgnoreSets;
 }
 
 export interface StrategyInput {

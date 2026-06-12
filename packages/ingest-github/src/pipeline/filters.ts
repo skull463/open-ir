@@ -79,11 +79,22 @@ export function looksBinary(buf: Buffer): boolean {
   return false;
 }
 
-export function passesPathFilters(name: string, ext: string): boolean {
-  if (SKIP_FILES.has(name)) {
+/**
+ * Reject a file by filename or extension. `sets`, when supplied, overlays
+ * per-job ignore overrides onto the defaults; omitting it falls back to the
+ * built-in `SKIP_FILES` / `BINARY_EXTENSIONS` unions (behavior unchanged).
+ */
+export function passesPathFilters(
+  name: string,
+  ext: string,
+  sets?: { filenames: ReadonlySet<string>; extensions: ReadonlySet<string> },
+): boolean {
+  const filenames = sets?.filenames ?? SKIP_FILES;
+  const extensions = sets?.extensions ?? BINARY_EXTENSIONS;
+  if (filenames.has(name)) {
     return false;
   }
-  if (BINARY_EXTENSIONS.has(ext.toLowerCase())) {
+  if (extensions.has(ext.toLowerCase())) {
     return false;
   }
   return true;

@@ -1,6 +1,17 @@
-import { Config, type UsageGuard } from "@bb/types";
+import { Config, type IgnoreOverrides, type UsageGuard } from "@bb/types";
 import { getConfigValue } from "@bb/config";
 import type { AskLlmOptions } from "@bb/llm";
+import { buildEffectiveIgnoreSets, type EffectiveIgnoreSets } from "./skip-decisions/effective.ts";
+
+/**
+ * Build the per-job effective ignore sets from any overrides carried on the
+ * payload. With no overrides this returns the pure seed defaults — identical to
+ * the pre-override pipeline. Called once per job; the result is threaded through
+ * the strategy context into scan + skip-decider.
+ */
+export function ignoreSetsFromPayload(payload: { ignoreOverrides?: IgnoreOverrides }): EffectiveIgnoreSets {
+  return buildEffectiveIgnoreSets(payload.ignoreOverrides);
+}
 
 export function resolveOrgId(payload: { orgId?: string }): string {
   if (typeof payload.orgId === "string" && payload.orgId.length > 0) {

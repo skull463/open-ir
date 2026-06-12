@@ -30,7 +30,8 @@ export const KNOWN_LANGUAGE_EXTENSIONS: ReadonlyMap<string, string> = new Map(
   Object.entries(extensions as Record<string, string>).map(([ext, lang]) => [normalizeExt(ext), lang]),
 );
 
-function normalizeExt(ext: string): string {
+/** Lowercase an extension and ensure a single leading dot (`png` → `.png`). */
+export function normalizeExt(ext: string): string {
   const lower = ext.toLowerCase();
   return lower.startsWith(".") ? lower : `.${lower}`;
 }
